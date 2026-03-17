@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildContractContext, fillTemplate } from "@/lib/contract-engine";
 
@@ -8,9 +8,9 @@ import { buildContractContext, fillTemplate } from "@/lib/contract-engine";
  * POST /api/contracts/generate { applicationId }
  */
 export async function POST(req: Request) {
-  const session = await getSession();
+  const session = await getAdminSession();
   if (!session) {
-    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
   }
   const body = await req.json().catch(() => ({}));
   const applicationId = body.applicationId;
@@ -25,12 +25,12 @@ export async function POST(req: Request) {
   if (!application) {
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
-  if (application.status !== "approved") {
+  if (application.status !== "APPROVED") {
     return NextResponse.json({ error: "仅审批通过的申请可生成合同" }, { status: 400 });
   }
 
-  const existing = await prisma.contract.findUnique({
-    where: { applicationId },
+  const existing = await prisma.contract.findFirst({
+    where: { applicationId, contractType: "MAIN" },
   });
   if (existing) {
     return NextResponse.json({ error: "该申请已生成合同", contractId: existing.id }, { status: 400 });
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
   const template = await prisma.contractTemplate.findFirst({
     where: { isActive: true },
-    orderBy: { effectiveFrom: "desc" },
+    orderBy: { createdAt: "desc" },
   });
   if (!template) {
     return NextResponse.json({ error: "暂无可用合同模板" }, { status: 400 });
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   const contractNo = "HT" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
   const ctx = buildContractContext({
     customerName: application.customer.name,
-    idNumber: application.customer.idNumber ?? application.customer.passportNumber ?? "",
+    idNumber: application.customer.idNumber ?? "",
     phone: application.customer.phone ?? "",
     loanAmount: amount.toFixed(2),
     loanAmountCn: amount.toFixed(2),
@@ -62,16 +62,17 @@ export async function POST(req: Request) {
     signTime: new Date().toTimeString().slice(0, 8),
     signLocation: "",
   });
-  const snapshotHtml = fillTemplate(template.contentHtml, ctx);
+  const content = fillTemplate(template.content, ctx);
 
   const contract = await prisma.contract.create({
     data: {
       contractNo,
       applicationId,
+      customerId: application.customerId,
       templateId: template.id,
-      snapshotHtml,
-      variablesSnapshot: ctx as object,
-      status: "pending_sign",
+      content,
+      variableData: JSON.stringify(ctx),
+      status: "DRAFT",
     },
   });
 

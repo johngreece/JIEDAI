@@ -97,9 +97,10 @@ model RolePermission {
 model Customer {
   id                       String    @id @default(uuid())
   name                     String
+  phone                    String    @unique
+  passwordHash             String?   @map("password_hash")
   idType                   String    @default("ID_CARD") @map("id_type")
   idNumber                 String    @unique @map("id_number")
-  phone                    String
   email                    String?
   address                  String?
   emergencyContact         String?   @map("emergency_contact")

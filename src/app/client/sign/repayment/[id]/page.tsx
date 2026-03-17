@@ -5,16 +5,15 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { SignCanvas } from "@/components/SignCanvas";
 
-export default function RepaymentSignPage() {
+export default function ClientRepaymentSignPage() {
   const params = useParams();
   const id = params.id as string;
-  const [repayment, setRepayment] = useState<{ repaymentNo: string; amount: string; status: string } | null>(null);
+  const [repayment, setRepayment] = useState<{ repaymentNo: string; amount: number; status: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [signing, setSigning] = useState(false);
   const [canvasData, setCanvasData] = useState<string | null>(null);
   const [confirmedAmount, setConfirmedAmount] = useState("");
-  const [confirmedUsage, setConfirmedUsage] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -30,14 +29,8 @@ export default function RepaymentSignPage() {
   }, [id]);
 
   function handleSign() {
-    if (!canvasData) {
-      setError("请先在手写区签字");
-      return;
-    }
-    if (!confirmedAmount) {
-      setError("请确认还款金额");
-      return;
-    }
+    if (!canvasData) { setError("请先在手写区签字"); return; }
+    if (!confirmedAmount) { setError("请确认还款金额"); return; }
     setSigning(true);
     setError("");
     fetch(`/api/client/repayments/${id}/confirm`, {
@@ -45,10 +38,8 @@ export default function RepaymentSignPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         result: "confirmed",
-        confirmedAmount: confirmedAmount,
-        confirmedUsage: confirmedUsage || undefined,
+        confirmedAmount,
         signImageUrl: canvasData,
-        signData: { type: "canvas_base64" },
       }),
     })
       .then((r) => r.json())
@@ -60,42 +51,30 @@ export default function RepaymentSignPage() {
       .finally(() => setSigning(false));
   }
 
-  if (loading) return <div className="min-h-screen p-6 flex items-center justify-center">加载中…</div>;
-  if (error && !repayment) return <div className="min-h-screen p-6 text-red-600">{error}</div>;
+  if (loading) return <div className="p-6 flex items-center justify-center">加载中…</div>;
+  if (error && !repayment) return <div className="p-6 text-red-600">{error}</div>;
   if (!repayment) return null;
 
   if (repayment.status === "confirmed") {
     return (
-      <div className="min-h-screen p-6 flex flex-col items-center justify-center">
+      <div className="p-6 flex flex-col items-center justify-center">
         <p className="text-green-600 font-medium mb-4">还款已确认</p>
-        <Link href="/dashboard" className="text-blue-600 hover:underline">返回工作台</Link>
+        <Link href="/client/dashboard" className="text-blue-600 hover:underline">返回我的借款</Link>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen p-4 md:p-6">
+    <div className="p-4 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-4">
-        <Link href="/dashboard" className="text-sm text-slate-500 hover:underline">返回</Link>
+        <Link href="/client/dashboard" className="text-sm text-slate-500 hover:underline">返回</Link>
         <span className="text-sm text-slate-600">还款单号：{repayment.repaymentNo}</span>
       </div>
       <div className="rounded-lg border bg-white p-4 mb-4">
         <p className="text-sm text-slate-600 mb-2">还款金额：{repayment.amount}</p>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">确认金额 *</label>
-          <input
-            value={confirmedAmount}
-            onChange={(e) => setConfirmedAmount(e.target.value)}
-            className="input-base mb-4"
-            placeholder="与本次还款金额一致"
-          />
-          <label className="block text-sm font-medium text-slate-700 mb-1">用途说明（可选）</label>
-          <input
-            value={confirmedUsage}
-            onChange={(e) => setConfirmedUsage(e.target.value)}
-            className="input-base"
-            placeholder="如：归还某笔借款第1期"
-          />
+          <input value={confirmedAmount} onChange={(e) => setConfirmedAmount(e.target.value)} className="input-base" />
         </div>
       </div>
       <div className="rounded-lg border bg-white p-4 mb-4">
@@ -107,7 +86,7 @@ export default function RepaymentSignPage() {
         type="button"
         onClick={handleSign}
         disabled={signing}
-        className="w-full rounded-lg bg-slate-800 text-white py-3 font-medium hover:bg-slate-700 disabled:opacity-50"
+        className="w-full rounded-lg bg-blue-600 text-white py-3 font-medium hover:bg-blue-700 disabled:opacity-50"
       >
         {signing ? "提交中…" : "确认还款"}
       </button>

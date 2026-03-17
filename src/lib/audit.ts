@@ -27,12 +27,13 @@ export type AuditEntityType =
   | "system_setting";
 
 export async function writeAuditLog(params: {
-  userId: string | null;
+  userId: string;
   action: AuditAction;
   entityType: AuditEntityType;
   entityId: string;
   oldValue?: Record<string, unknown> | null;
   newValue?: Record<string, unknown> | null;
+  changeSummary?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
 }) {
@@ -42,8 +43,9 @@ export async function writeAuditLog(params: {
       action: params.action,
       entityType: params.entityType,
       entityId: params.entityId,
-      oldValue: params.oldValue ?? undefined,
-      newValue: params.newValue ?? undefined,
+      oldValue: params.oldValue ? JSON.stringify(params.oldValue) : undefined,
+      newValue: params.newValue ? JSON.stringify(params.newValue) : undefined,
+      changeSummary: params.changeSummary ?? undefined,
       ipAddress: params.ipAddress ?? undefined,
       userAgent: params.userAgent ?? undefined,
     },
@@ -54,7 +56,7 @@ export async function writeAuditLog(params: {
  * 金额变更专用：记录前后金额与关键字段，便于对账
  */
 export async function writeAmountAudit(params: {
-  userId: string | null;
+  userId: string;
   action: AuditAction;
   entityType: AuditEntityType;
   entityId: string;
@@ -68,5 +70,6 @@ export async function writeAmountAudit(params: {
     ...params,
     oldValue: { [params.amountField]: params.oldAmount },
     newValue: { [params.amountField]: params.newAmount },
+    changeSummary: `${params.amountField}: ${params.oldAmount} → ${params.newAmount}`,
   });
 }

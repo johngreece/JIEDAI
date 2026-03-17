@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
   DEFAULT_FEE_RATES,
   FEE_SETTING_KEYS,
   type FeeRates,
-  type FeeOverride,
 } from "@/lib/loan-fee-rules";
 import { writeAuditLog } from "@/lib/audit";
 
@@ -27,15 +26,14 @@ async function loadRatesFromDb(): Promise<Partial<FeeRates>> {
   const out: Partial<FeeRates> = {};
   for (const row of rows) {
     const k = KEYS_TO_RATE[row.key];
-    if (k != null && typeof row.value === "object" && row.value != null && "value" in row.value) {
-      const v = (row.value as { value: number }).value;
-      if (typeof v === "number") (out as Record<string, number>)[k] = v;
+    if (k != null) {
+      const v = Number(row.value);
+      if (!Number.isNaN(v)) (out as Record<string, number>)[k] = v;
     }
   }
   return out;
 }
 
-/** 仅超级管理员可查看/修改 */
 function requireSuperAdmin(session: { roles: string[] } | null) {
   if (!session?.roles?.includes("super_admin")) {
     return NextResponse.json({ error: "仅管理员可操作" }, { status: 403 });
@@ -44,7 +42,7 @@ function requireSuperAdmin(session: { roles: string[] } | null) {
 }
 
 export async function GET() {
-  const session = await getSession();
+  const session = await getAdminSession();
   const err = requireSuperAdmin(session);
   if (err) return err;
   const fromDb = await loadRatesFromDb();
@@ -73,7 +71,7 @@ const RATE_TO_KEY: Record<string, string> = {
 };
 
 export async function PUT(req: Request) {
-  const session = await getSession();
+  const session = await getAdminSession();
   const err = requireSuperAdmin(session);
   if (err) return err;
   const body = await req.json().catch(() => ({}));
@@ -89,19 +87,17 @@ export async function PUT(req: Request) {
     const key = RATE_TO_KEY[rateKey];
     if (!key) continue;
     const existing = await prisma.systemSetting.findUnique({ where: { key } });
-    const valueJson = { value };
     if (existing) {
       await prisma.systemSetting.update({
         where: { key },
-        data: { value: valueJson, updatedById: userId },
+        data: { value: String(value) },
       });
     } else {
       await prisma.systemSetting.create({
         data: {
           key,
-          value: valueJson,
-          category: "loan_fee",
-          updatedById: userId,
+          value: String(value),
+          group: "LOAN_FEE",
         },
       });
     }

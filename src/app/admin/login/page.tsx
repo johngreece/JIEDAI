@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-export default function LoginPage() {
+export default function AdminLoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -16,7 +16,7 @@ export default function LoginPage() {
     setError("");
     setSubmitting(true);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -26,7 +26,7 @@ export default function LoginPage() {
         setError(data.error ?? "登录失败，请检查用户名与密码");
         return;
       }
-      router.push("/dashboard");
+      router.push("/admin/dashboard");
       router.refresh();
     } finally {
       setSubmitting(false);
@@ -34,15 +34,15 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-8">
+    <main className="min-h-screen flex items-center justify-center p-8 bg-slate-100">
       <div className="w-full max-w-sm">
         <form
           onSubmit={handleSubmit}
           className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
           noValidate
         >
-          <h1 className="text-xl font-semibold mb-1">登录</h1>
-          <p className="text-sm text-slate-500 mb-6">借款业务管理系统</p>
+          <h1 className="text-xl font-semibold mb-1">管理端登录</h1>
+          <p className="text-sm text-slate-500 mb-6">借款业务管理系统 · 内部管理</p>
           {error && (
             <div
               className="mb-4 text-sm text-red-600 rounded bg-red-50 border border-red-200 px-3 py-2"
@@ -90,9 +90,7 @@ export default function LoginPage() {
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-slate-500">
-          <Link href="/" className="text-blue-600 hover:underline focus:outline focus:ring-2 focus:ring-blue-500 rounded">
-            返回首页
-          </Link>
+          <Link href="/" className="text-blue-600 hover:underline">返回首页</Link>
         </p>
       </div>
     </main>

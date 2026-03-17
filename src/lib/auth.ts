@@ -4,45 +4,119 @@ import { cookies } from "next/headers";
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET ?? "loan-system-secret-change-in-production"
 );
-const COOKIE_NAME = "loan_session";
+const ADMIN_COOKIE = "admin_session";
+const CLIENT_COOKIE = "client_session";
 
-export type JWTPayload = {
+// ── Admin JWT ──────────────────────────────────────────────
+export type AdminPayload = {
   sub: string;
   username: string;
   roles: string[];
-  scope?: Record<string, unknown>;
+  portal: "admin";
   iat?: number;
   exp?: number;
 };
 
-export async function createToken(payload: Omit<JWTPayload, "iat" | "exp">) {
-  return new SignJWT({ ...payload })
+export async function createAdminToken(payload: Omit<AdminPayload, "iat" | "exp" | "portal">) {
+  return new SignJWT({ ...payload, portal: "admin" })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
     .sign(JWT_SECRET);
 }
 
-export async function verifyToken(token: string): Promise<JWTPayload | null> {
+export async function getAdminSession(): Promise<AdminPayload | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(ADMIN_COOKIE)?.value;
+  if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload as unknown as JWTPayload;
+    const p = payload as unknown as AdminPayload;
+    if (p.portal !== "admin") return null;
+    return p;
   } catch {
     return null;
   }
 }
 
-export async function getSession(): Promise<JWTPayload | null> {
+export function setAdminCookie(token: string) {
+  return {
+    name: ADMIN_COOKIE,
+    value: token,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    maxAge: 60 * 60 * 24 * 7,
+    path: "/",
+  };
+}
+
+// ── Client JWT ─────────────────────────────────────────────
+export type ClientPayload = {
+  sub: string;
+  name: string;
+  phone: string;
+  portal: "client";
+  iat?: number;
+  exp?: number;
+};
+
+export async function createClientToken(payload: Omit<ClientPayload, "iat" | "exp" | "portal">) {
+  return new SignJWT({ ...payload, portal: "client" })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("7d")
+    .sign(JWT_SECRET);
+}
+
+export async function getClientSession(): Promise<ClientPayload | null> {
   const cookieStore = await cookies();
-  const token = cookieStore.get(COOKIE_NAME)?.value;
+  const token = cookieStore.get(CLIENT_COOKIE)?.value;
   if (!token) return null;
-  return verifyToken(token);
+  try {
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    const p = payload as unknown as ClientPayload;
+    if (p.portal !== "client") return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+export function setClientCookie(token: string) {
+  return {
+    name: CLIENT_COOKIE,
+    value: token,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    maxAge: 60 * 60 * 24 * 7,
+    path: "/",
+  };
+}
+
+// ── Backward compat (used by shared APIs) ──────────────────
+export type JWTPayload = AdminPayload | ClientPayload;
+
+export async function getSession(): Promise<JWTPayload | null> {
+  const admin = await getAdminSession();
+  if (admin) return admin;
+  return getClientSession();
 }
 
 export function hasRole(session: JWTPayload | null, role: string): boolean {
-  return session?.roles?.includes(role) ?? false;
+  if (!session || session.portal !== "admin") return false;
+  return session.roles?.includes(role) ?? false;
 }
 
 export function isSuperAdmin(session: JWTPayload | null): boolean {
   return hasRole(session, "super_admin");
+}
+
+export function isAdmin(session: JWTPayload | null): session is AdminPayload {
+  return session?.portal === "admin";
+}
+
+export function isClient(session: JWTPayload | null): session is ClientPayload {
+  return session?.portal === "client";
 }

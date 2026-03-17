@@ -10,7 +10,7 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
-  const { id } = await params();
+  const { id } = await params;
   const repayment = await prisma.repayment.findUnique({
     where: { id },
     select: {
@@ -18,7 +18,6 @@ export async function GET(
       repaymentNo: true,
       amount: true,
       status: true,
-      applicationId: true,
     },
   });
   if (!repayment) {

@@ -10,13 +10,13 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ error: "请先登录" }, { status: 401 });
   }
-  const { id } = await params();
+  const { id } = await params;
   const contract = await prisma.contract.findUnique({
     where: { id },
     select: {
       id: true,
       contractNo: true,
-      snapshotHtml: true,
+      content: true,
       status: true,
       signedAt: true,
     },

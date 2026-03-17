@@ -1,25 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getClientSession } from "@/lib/auth";
 import { confirmRepayment } from "@/lib/repayment-confirm";
 import { z } from "zod";
 
 const bodySchema = z.object({
-  confirmedAmount: z.string(),
-  confirmedUsage: z.string().optional(),
-  result: z.enum(["confirmed", "rejected"]),
-  ipAddress: z.string().optional(),
+  action: z.enum(["CONFIRMED", "REJECTED"]),
+  signatureData: z.string().optional(),
+  rejectReason: z.string().optional(),
   deviceInfo: z.string().optional(),
-  signImageUrl: z.string().optional(),
-  signData: z.record(z.unknown()).optional(),
 });
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
+  const session = await getClientSession();
   if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    return NextResponse.json({ error: "请先登录客户端" }, { status: 401 });
   }
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -31,33 +28,21 @@ export async function POST(
     );
   }
 
-  const { prisma } = await import("@/lib/prisma");
-  const user = await prisma.user.findUnique({
-    where: { id: session.sub },
-    select: { customerId: true },
-  });
-  const customerId = user?.customerId;
-  if (!customerId) {
-    return NextResponse.json(
-      { error: "当前用户未关联客户，无法确认还款" },
-      { status: 403 }
-    );
-  }
+  const customerId = session.sub;
 
   const forwarded = req.headers.get("x-forwarded-for");
-  const ip = forwarded?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? undefined;
+  const ip = forwarded?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? "unknown";
 
   try {
     await confirmRepayment({
       repaymentId: id,
       customerId,
-      confirmedAmount: parsed.data.confirmedAmount,
-      confirmedUsage: parsed.data.confirmedUsage,
-      result: parsed.data.result,
-      ipAddress: parsed.data.ipAddress ?? ip,
+      action: parsed.data.action,
+      signatureData: parsed.data.signatureData,
+      rejectReason: parsed.data.rejectReason,
+      ipAddress: ip,
       deviceInfo: parsed.data.deviceInfo,
-      signImageUrl: parsed.data.signImageUrl,
-      signData: parsed.data.signData,
+      operatorId: customerId,
     });
     return NextResponse.json({ ok: true });
   } catch (e) {

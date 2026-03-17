@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 function decimalToStr(d: unknown): string {
   if (d == null) return "0.00";
   const n = Number(d);
@@ -16,7 +18,6 @@ export async function GET() {
   const [
     todayDisbursements,
     todayRepayments,
-    disbursedApplications,
     allCustomers,
     activeLoans,
     overdueCount,
@@ -25,65 +26,53 @@ export async function GET() {
     pendingConfirmRepayment,
     pendingSignContract,
     pendingDisbursement,
-    riskCustomers,
   ] = await Promise.all([
     prisma.disbursement.aggregate({
       where: {
-        paidAt: { gte: today, lt: tomorrow },
-        status: { in: ["paid", "confirmed"] },
-      },
-      _sum: { amountActual: true },
-    }),
-    prisma.repayment.aggregate({
-      where: {
-        paidAt: { gte: today, lt: tomorrow },
-        status: "confirmed",
+        disbursedAt: { gte: today, lt: tomorrow },
+        status: { in: ["PAID", "CONFIRMED"] },
       },
       _sum: { amount: true },
     }),
-    prisma.loanApplication.findMany({
-      where: { status: "disbursed" },
-      select: { id: true },
+    prisma.repayment.aggregate({
+      where: {
+        receivedAt: { gte: today, lt: tomorrow },
+        status: "CONFIRMED",
+      },
+      _sum: { amount: true },
     }),
     prisma.customer.count({ where: { deletedAt: null } }),
     prisma.loanApplication.count({
-      where: { status: "disbursed" },
+      where: { status: "DISBURSED" },
     }),
-    prisma.overdueRecord.count({ where: { status: "active" } }),
+    prisma.overdueRecord.count({ where: { status: "OVERDUE" } }),
     prisma.repaymentPlan.aggregate({
-      where: { status: "active" },
-      _sum: { totalAmount: true },
+      where: { status: "ACTIVE" },
+      _sum: { totalPrincipal: true },
     }),
     prisma.fundAccount.aggregate({
-      where: { status: "active" },
+      where: { isActive: true },
       _sum: { balance: true },
     }),
     prisma.repayment.count({
-      where: { status: "pending_confirm" },
+      where: { status: "PENDING" },
     }),
     prisma.contract.count({
-      where: { status: "pending_sign" },
+      where: { status: "DRAFT" },
     }),
     prisma.disbursement.count({
-      where: { status: "pending" },
-    }),
-    prisma.customer.count({
-      where: {
-        deletedAt: null,
-        OR: [{ isBlacklist: true }, { isWatchlist: true }],
-      },
+      where: { status: "PENDING" },
     }),
   ]);
 
-  const totalLoans = disbursedApplications.length;
   const overdueRate =
-    totalLoans > 0 ? ((overdueCount / totalLoans) * 100).toFixed(2) + "%" : "0%";
+    activeLoans > 0 ? ((overdueCount / activeLoans) * 100).toFixed(2) + "%" : "0%";
 
   return NextResponse.json({
-    todayDisbursement: decimalToStr(todayDisbursements._sum.amountActual),
+    todayDisbursement: decimalToStr(todayDisbursements._sum.amount),
     todayRepayment: decimalToStr(todayRepayments._sum.amount),
     todayOverdue: "0.00",
-    outstandingBalance: decimalToStr(totalOutstanding._sum.totalAmount),
+    outstandingBalance: decimalToStr(totalOutstanding._sum.totalPrincipal),
     customerCount: allCustomers,
     activeLoanCount: activeLoans,
     overdueRate,
@@ -91,6 +80,6 @@ export async function GET() {
     pendingConfirmRepayment,
     pendingSignContract,
     pendingDisbursement,
-    riskCustomerCount: riskCustomers,
+    riskCustomerCount: 0,
   });
 }

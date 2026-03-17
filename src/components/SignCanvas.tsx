@@ -22,8 +22,12 @@ export function SignCanvas({ onDataUrl }: { onDataUrl: (v: string) => void }) {
 
     let start: { x: number; y: number } | null = null;
 
+    // Capture non-null references for closures
+    const cvs = canvas;
+    const c = ctx;
+
     function getPos(e: MouseEvent | TouchEvent): { x: number; y: number } {
-      const r = canvas.getBoundingClientRect();
+      const r = cvs.getBoundingClientRect();
       if ("touches" in e) {
         return {
           x: e.touches[0].clientX - r.left,
@@ -36,7 +40,7 @@ export function SignCanvas({ onDataUrl }: { onDataUrl: (v: string) => void }) {
       };
     }
     function getPosEnd(e: TouchEvent): { x: number; y: number } {
-      const r = canvas.getBoundingClientRect();
+      const r = cvs.getBoundingClientRect();
       return {
         x: e.changedTouches[0].clientX - r.left,
         y: e.changedTouches[0].clientY - r.top,
@@ -51,42 +55,42 @@ export function SignCanvas({ onDataUrl }: { onDataUrl: (v: string) => void }) {
       if (!start) return;
       e.preventDefault();
       const pos = getPos(e);
-      ctx.beginPath();
-      ctx.moveTo(start.x, start.y);
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
+      c.beginPath();
+      c.moveTo(start.x, start.y);
+      c.lineTo(pos.x, pos.y);
+      c.stroke();
       start = pos;
     }
     function up(e?: MouseEvent | TouchEvent) {
       if (e && "changedTouches" in e) {
         const pos = getPosEnd(e as TouchEvent);
         if (start) {
-          ctx.beginPath();
-          ctx.moveTo(start.x, start.y);
-          ctx.lineTo(pos.x, pos.y);
-          ctx.stroke();
+          c.beginPath();
+          c.moveTo(start.x, start.y);
+          c.lineTo(pos.x, pos.y);
+          c.stroke();
         }
       }
       start = null;
-      onDataUrl(canvas.toDataURL("image/png"));
+      onDataUrl(cvs.toDataURL("image/png"));
     }
 
-    canvas.addEventListener("mousedown", down);
-    canvas.addEventListener("mousemove", move);
-    canvas.addEventListener("mouseup", up);
-    canvas.addEventListener("mouseleave", up);
-    canvas.addEventListener("touchstart", down, { passive: false });
-    canvas.addEventListener("touchmove", move, { passive: false });
-    canvas.addEventListener("touchend", up, { passive: false });
+    cvs.addEventListener("mousedown", down);
+    cvs.addEventListener("mousemove", move);
+    cvs.addEventListener("mouseup", up);
+    cvs.addEventListener("mouseleave", up);
+    cvs.addEventListener("touchstart", down, { passive: false });
+    cvs.addEventListener("touchmove", move, { passive: false });
+    cvs.addEventListener("touchend", up, { passive: false });
 
     return () => {
-      canvas.removeEventListener("mousedown", down);
-      canvas.removeEventListener("mousemove", move);
-      canvas.removeEventListener("mouseup", up);
-      canvas.removeEventListener("mouseleave", up);
-      canvas.removeEventListener("touchstart", down);
-      canvas.removeEventListener("touchmove", move);
-      canvas.removeEventListener("touchend", up);
+      cvs.removeEventListener("mousedown", down);
+      cvs.removeEventListener("mousemove", move);
+      cvs.removeEventListener("mouseup", up);
+      cvs.removeEventListener("mouseleave", up);
+      cvs.removeEventListener("touchstart", down);
+      cvs.removeEventListener("touchmove", move);
+      cvs.removeEventListener("touchend", up);
     };
   }, [onDataUrl]);
 

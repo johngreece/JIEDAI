@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, isAdmin, isClient } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET() {
@@ -7,23 +7,45 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const user = await prisma.user.findUnique({
-    where: { id: session.sub, deletedAt: null },
-    select: {
-      id: true,
-      username: true,
-      email: true,
-      realName: true,
-      isClient: true,
-      customerId: true,
-    },
-  });
-  if (!user) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+  if (isAdmin(session)) {
+    const user = await prisma.user.findUnique({
+      where: { id: session.sub, deletedAt: null },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        realName: true,
+      },
+    });
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+    return NextResponse.json({
+      ...user,
+      portal: "admin",
+      roles: session.roles,
+    });
   }
-  return NextResponse.json({
-    ...user,
-    roles: session.roles,
-    scope: session.scope,
-  });
+
+  if (isClient(session)) {
+    const customer = await prisma.customer.findUnique({
+      where: { id: session.sub, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+      },
+    });
+    if (!customer) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+    return NextResponse.json({
+      ...customer,
+      portal: "client",
+    });
+  }
+
+  return NextResponse.json({ error: "Invalid session" }, { status: 401 });
 }

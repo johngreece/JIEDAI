@@ -5,23 +5,24 @@
  */
 
 import { prisma } from "./prisma";
+import { Prisma } from "@prisma/client";
 import { writeAuditLog } from "./audit";
 
 export type RepaymentStatus =
-  | "registered"
-  | "matched"
-  | "pending_confirm"
-  | "confirmed"
-  | "rejected"
-  | "manual_review";
+  | "PENDING"
+  | "MATCHED"
+  | "PENDING_CONFIRM"
+  | "CONFIRMED"
+  | "REJECTED"
+  | "MANUAL_REVIEW";
 
 const ALLOWED_TRANSITIONS: Record<RepaymentStatus, RepaymentStatus[]> = {
-  registered: ["matched", "manual_review"],
-  matched: ["pending_confirm"],
-  pending_confirm: ["confirmed", "rejected", "manual_review"],
-  confirmed: [],
-  rejected: ["manual_review"],
-  manual_review: ["confirmed", "rejected"],
+  PENDING: ["MATCHED", "MANUAL_REVIEW"],
+  MATCHED: ["PENDING_CONFIRM"],
+  PENDING_CONFIRM: ["CONFIRMED", "REJECTED", "MANUAL_REVIEW"],
+  CONFIRMED: [],
+  REJECTED: ["MANUAL_REVIEW"],
+  MANUAL_REVIEW: ["CONFIRMED", "REJECTED"],
 };
 
 export function canTransition(
@@ -34,60 +35,52 @@ export function canTransition(
 export async function confirmRepayment(params: {
   repaymentId: string;
   customerId: string;
-  confirmedAmount: string;
-  confirmedUsage?: string;
-  result: "confirmed" | "rejected";
-  ipAddress?: string;
+  action: "CONFIRMED" | "REJECTED";
+  signatureData?: string;
+  rejectReason?: string;
+  ipAddress: string;
   deviceInfo?: string;
-  signImageUrl?: string;
-  signData?: Record<string, unknown>;
+  operatorId: string;
 }) {
   const repayment = await prisma.repayment.findUnique({
     where: { id: params.repaymentId },
   });
   if (!repayment)
     throw new Error("Repayment not found");
-  if (!canTransition(repayment.status as RepaymentStatus, "confirmed") && params.result === "confirmed")
+  if (params.action === "CONFIRMED" && !canTransition(repayment.status as RepaymentStatus, "CONFIRMED"))
     throw new Error(`Cannot confirm from status ${repayment.status}`);
-  if (params.result === "rejected" && !canTransition(repayment.status as RepaymentStatus, "rejected"))
+  if (params.action === "REJECTED" && !canTransition(repayment.status as RepaymentStatus, "REJECTED"))
     throw new Error(`Cannot reject from status ${repayment.status}`);
 
-  const newStatus = params.result === "confirmed" ? "confirmed" : "rejected";
+  const newStatus = params.action === "CONFIRMED" ? "CONFIRMED" : "REJECTED";
   const now = new Date();
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.repaymentConfirmation.create({
       data: {
         repaymentId: params.repaymentId,
         customerId: params.customerId,
-        confirmedAmount: params.confirmedAmount,
-        confirmedUsage: params.confirmedUsage,
-        result: params.result,
-        confirmedAt: now,
+        signatureData: params.signatureData,
         ipAddress: params.ipAddress,
         deviceInfo: params.deviceInfo,
-        signImageUrl: params.signImageUrl,
-        signData: params.signData ?? undefined,
+        status: newStatus,
+        rejectReason: params.rejectReason,
+        confirmedAt: params.action === "CONFIRMED" ? now : null,
       },
     });
     await tx.repayment.update({
       where: { id: params.repaymentId },
-      data: {
-        status: newStatus,
-        customerConfirmedAt: params.result === "confirmed" ? now : null,
-      },
+      data: { status: newStatus },
     });
   });
 
   await writeAuditLog({
-    userId: null,
+    userId: params.operatorId,
     action: "repay_confirm",
     entityType: "repayment_confirmation",
     entityId: params.repaymentId,
     newValue: {
-      result: params.result,
-      confirmedAmount: params.confirmedAmount,
-      confirmedUsage: params.confirmedUsage,
+      action: params.action,
       ipAddress: params.ipAddress,
       deviceInfo: params.deviceInfo,
     },

@@ -1,27 +1,21 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const bodySchema = z.object({
   name: z.string().min(1),
-  phone: z.string().optional(),
+  phone: z.string().min(1),
+  idNumber: z.string().min(1, "请填写证件号"),
   email: z.string().email().optional().or(z.literal("")),
-  idType: z.string().optional(),
-  idNumber: z.string().optional(),
-  passportNumber: z.string().min(1, "请填写护照号"),
-  passportExpiry: z.string().optional(),
-  passportCountry: z.string().optional(),
-  residenceType: z.string().optional(),
-  residenceNumber: z.string().min(1, "请填写居留证件号"),
-  residenceExpiry: z.string().optional(),
   address: z.string().optional(),
+  password: z.string().optional(),
 });
 
 export async function POST(req: Request) {
-  const session = await getSession();
+  const session = await getAdminSession();
   if (!session) {
-    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
   }
   const body = await req.json().catch(() => ({}));
   const parsed = bodySchema.safeParse(body);
@@ -32,32 +26,17 @@ export async function POST(req: Request) {
     );
   }
   const data = parsed.data;
-  const passportExpiry = data.passportExpiry ? new Date(data.passportExpiry) : null;
-  const residenceExpiry = data.residenceExpiry ? new Date(data.residenceExpiry) : null;
-
-  const customerNo =
-    "C" +
-    Date.now().toString(36).toUpperCase() +
-    Math.random().toString(36).slice(2, 6).toUpperCase();
 
   const customer = await prisma.customer.create({
     data: {
-      customerNo,
       name: data.name,
-      phone: data.phone ?? null,
+      phone: data.phone,
+      idNumber: data.idNumber,
       email: data.email || null,
-      idType: data.idType ?? null,
-      idNumber: data.idNumber ?? null,
-      passportNumber: data.passportNumber,
-      passportExpiry,
-      passportCountry: data.passportCountry ?? null,
-      residenceType: data.residenceType ?? null,
-      residenceNumber: data.residenceNumber,
-      residenceExpiry,
       address: data.address ?? null,
-      createdById: session.sub,
+      passwordHash: data.password ?? null,
     },
   });
 
-  return NextResponse.json({ id: customer.id, customerNo: customer.customerNo });
+  return NextResponse.json({ id: customer.id });
 }
