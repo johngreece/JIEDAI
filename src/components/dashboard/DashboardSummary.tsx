@@ -122,21 +122,3 @@ export function DashboardSummary() {
     </div>
   );
 }
-      aria-label="数据概览"
-    >
-      {CARD_CONFIG.map(({ key, label, color, format }) => {
-        const value = data[key];
-        const display = format ? format(value as string | number) : String(value);
-        return (
-          <div
-            key={key}
-            className={`dashboard-card rounded-lg border p-4 ${color}`}
-          >
-            <div className="text-sm text-slate-600">{label}</div>
-            <div className="text-lg font-semibold mt-1">{display}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
