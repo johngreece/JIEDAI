@@ -8,6 +8,8 @@ import {
 } from "@/lib/loan-fee-rules";
 import { writeAuditLog } from "@/lib/audit";
 
+export const dynamic = "force-dynamic";
+
 const KEYS_TO_RATE: Record<string, keyof FeeRates> = {
   [FEE_SETTING_KEYS.sameDayRate]: "sameDayRate",
   [FEE_SETTING_KEYS.nextDayRate]: "nextDayRate",

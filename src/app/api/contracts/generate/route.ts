@@ -3,6 +3,8 @@ import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { buildContractContext, fillTemplate } from "@/lib/contract-engine";
 
+export const dynamic = "force-dynamic";
+
 /**
  * 根据借款申请自动生成合同（需已审批通过）
  * POST /api/contracts/generate { applicationId }

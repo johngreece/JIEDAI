@@ -3,6 +3,8 @@ import { getClientSession } from "@/lib/auth";
 import { confirmRepayment } from "@/lib/repayment-confirm";
 import { z } from "zod";
 
+export const dynamic = "force-dynamic";
+
 const bodySchema = z.object({
   action: z.enum(["CONFIRMED", "REJECTED"]),
   signatureData: z.string().optional(),

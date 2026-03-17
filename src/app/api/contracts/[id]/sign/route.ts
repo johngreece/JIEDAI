@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { z } from "zod";
 
+export const dynamic = "force-dynamic";
+
 const bodySchema = z.object({
   signatureData: z.string(),
   signerType: z.string().default("customer"),

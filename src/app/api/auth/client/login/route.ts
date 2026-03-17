@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { createClientToken, setClientCookie } from "@/lib/auth";
 import { cookies } from "next/headers";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const { phone, password } = body;
