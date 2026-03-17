@@ -2,6 +2,7 @@ import { getClientSession } from "@/lib/auth";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { ConfirmReceivedButton } from "@/components/client/ConfirmReceivedButton";
+import { getStatusLabel } from "@/lib/status-ui";
 
 export default async function ClientDashboardPage() {
   const session = await getClientSession();
@@ -169,9 +170,9 @@ export default async function ClientDashboardPage() {
               <div key={x.id} className="p-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-slate-900">{x.applicationNo} · {x.product.name}</p>
-                  <p className="text-xs text-slate-500 mt-1">申请金额 ¥ {Number(x.amount).toFixed(2)} · 状态 {x.status}</p>
+                  <p className="text-xs text-slate-500 mt-1">申请金额 ¥ {Number(x.amount).toFixed(2)} · 状态 {getStatusLabel(x.status)}</p>
                   {x.disbursement ? (
-                    <p className="text-xs text-slate-500 mt-1">放款单 {x.disbursement.disbursementNo} · {x.disbursement.status} · 净额 ¥ {Number(x.disbursement.netAmount).toFixed(2)}</p>
+                    <p className="text-xs text-slate-500 mt-1">放款单 {x.disbursement.disbursementNo} · {getStatusLabel(x.disbursement.status)} · 净额 ¥ {Number(x.disbursement.netAmount).toFixed(2)}</p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2">

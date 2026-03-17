@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getClientSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
 type AppLite = { id: string; applicationNo: string; product: { name: string } };
 type PlanLite = { id: string; applicationId: string };
@@ -71,15 +72,6 @@ export default async function ClientRepaymentsPage() {
       };
     });
 
-  const statusText: Record<string, string> = {
-    PENDING: "待处理",
-    MATCHED: "已匹配",
-    PENDING_CONFIRM: "待我确认",
-    CONFIRMED: "已确认",
-    REJECTED: "已驳回",
-    MANUAL_REVIEW: "人工复核",
-  };
-
   return (
     <div className="space-y-6">
       <header className="panel-soft rounded-2xl px-5 py-4">
@@ -136,7 +128,7 @@ export default async function ClientRepaymentsPage() {
                   <td className="px-4 py-3 font-medium">{x.repaymentNo}</td>
                   <td className="px-4 py-3">{appMap.get(planMap.get(x.plan.id)?.applicationId ?? "")?.applicationNo ?? "-"}<div className="text-xs text-slate-500">{appMap.get(planMap.get(x.plan.id)?.applicationId ?? "")?.product.name ?? "-"}</div></td>
                   <td className="px-4 py-3">¥ {Number(x.amount).toFixed(2)}</td>
-                  <td className="px-4 py-3">{statusText[x.status] ?? x.status}</td>
+                  <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(x.status)}`}>{getStatusLabel(x.status)}</span></td>
                   <td className="px-4 py-3">{x.receivedAt ? new Date(x.receivedAt).toLocaleString() : "-"}</td>
                   <td className="px-4 py-3">
                     {x.status === "PENDING_CONFIRM" ? (

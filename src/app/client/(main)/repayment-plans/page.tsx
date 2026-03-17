@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getClientSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
 type AppLite = { id: string; applicationNo: string; product: { name: string } };
 type ItemLite = {
@@ -86,7 +87,8 @@ export default async function ClientRepaymentPlansPage() {
                 <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{p.planNo} · {app?.applicationNo ?? p.applicationId}</p>
-                    <p className="text-xs text-slate-500 mt-1">{app?.product.name ?? "-"} · 状态 {p.status} · 共 {p.totalPeriods} 期</p>
+                    <p className="text-xs text-slate-500 mt-1">{app?.product.name ?? "-"} · 共 {p.totalPeriods} 期</p>
+                    <div className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(p.status)}`}>{getStatusLabel(p.status)}</div>
                   </div>
                   <div className="text-right text-xs text-slate-600">
                     <div>本金 ¥ {Number(p.totalPrincipal).toFixed(2)}</div>
@@ -120,7 +122,7 @@ export default async function ClientRepaymentPlansPage() {
                           <td className="px-4 py-2">¥ {Number(x.fee).toFixed(2)}</td>
                           <td className="px-4 py-2">¥ {Number(x.totalDue).toFixed(2)}</td>
                           <td className="px-4 py-2">¥ {Number(x.remaining).toFixed(2)}</td>
-                          <td className="px-4 py-2">{x.status}</td>
+                          <td className="px-4 py-2"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(x.status)}`}>{getStatusLabel(x.status)}</span></td>
                         </tr>
                       ))}
                     </tbody>
