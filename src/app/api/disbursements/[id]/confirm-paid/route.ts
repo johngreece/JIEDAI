@@ -53,7 +53,7 @@ export async function POST(
     });
 
     if (!existingPlan) {
-      await tx.repaymentPlan.create({
+      const plan = await tx.repaymentPlan.create({
         data: {
           planNo: genPlanNo(),
           applicationId: disbursement.applicationId,
@@ -62,6 +62,24 @@ export async function POST(
           totalFee: disbursement.feeAmount,
           totalPeriods: 1,
           status: "ACTIVE",
+        },
+      });
+
+      const dueDate = new Date();
+      dueDate.setMonth(dueDate.getMonth() + 1);
+
+      const totalDue = Number(disbursement.amount) + Number(disbursement.feeAmount);
+      await tx.repaymentScheduleItem.create({
+        data: {
+          planId: plan.id,
+          periodNumber: 1,
+          dueDate,
+          principal: disbursement.amount,
+          interest: 0,
+          fee: disbursement.feeAmount,
+          totalDue,
+          remaining: totalDue,
+          status: "PENDING",
         },
       });
     }
