@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { buildContractContext, fillTemplate } from "@/lib/contract-engine";
+import { ContractService } from "@/services/contract.service";
 
 export const dynamic = "force-dynamic";
 
@@ -14,40 +13,27 @@ export async function POST(req: Request) {
   if (!session) {
     return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
   }
+
   const body = await req.json().catch(() => ({}));
   const applicationId = body.applicationId;
+
   if (!applicationId) {
     return NextResponse.json({ error: "缺少 applicationId" }, { status: 400 });
   }
 
-  const application = await prisma.loanApplication.findUnique({
-    where: { id: applicationId },
-    include: { customer: true, product: true },
-  });
-  if (!application) {
-    return NextResponse.json({ error: "申请不存在" }, { status: 404 });
-  }
-  if (application.status !== "APPROVED") {
-    return NextResponse.json({ error: "仅审批通过的申请可生成合同" }, { status: 400 });
-  }
+  try {
+    const result = await ContractService.generateMainContract(applicationId);
 
-  const existing = await prisma.contract.findFirst({
-    where: { applicationId, contractType: "MAIN" },
-  });
-  if (existing) {
-    return NextResponse.json({ error: "该申请已生成合同", contractId: existing.id }, { status: 400 });
-  }
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
 
-  const template = await prisma.contractTemplate.findFirst({
-    where: { isActive: true },
-    orderBy: { createdAt: "desc" },
-  });
-  if (!template) {
-    return NextResponse.json({ error: "暂无可用合同模板" }, { status: 400 });
+    return NextResponse.json({ success: true, contract: result.data });
+  } catch (error) {
+    console.error("生成合同接口异常:", error);
+    return NextResponse.json({ error: "服务器内部错误" }, { status: 500 });
   }
-
-  const amount = Number(application.amount);
-  const contractNo = "HT" + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 6).toUpperCase();
+}
   const ctx = buildContractContext({
     customerName: application.customer.name,
     idNumber: application.customer.idNumber ?? "",
