@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
 type Detail = {
   id: string;
@@ -94,37 +95,37 @@ export default function DisbursementDetailPage({ params }: { params: { id: strin
 
   return (
     <div className="space-y-6">
-      <header className="flex items-start justify-between gap-3">
+      <header className="panel-soft flex items-start justify-between gap-3 rounded-2xl px-5 py-4">
         <div>
           <div className="text-sm text-slate-500">放款单详情</div>
           <h1 className="text-2xl font-bold text-slate-900">{data.disbursementNo}</h1>
-          <p className="text-sm text-slate-500 mt-1">状态：{data.status}</p>
+          <div className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(data.status)}`}>{getStatusLabel(data.status)}</div>
         </div>
         <div className="flex gap-2">
           {data.status === "PENDING" ? (
-            <button disabled={acting} onClick={confirmPaid} className="rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm hover:bg-emerald-700 disabled:opacity-50">
+            <button disabled={acting} onClick={confirmPaid} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
               {acting ? "处理中..." : "确认打款"}
             </button>
           ) : null}
-          <Link href="/admin/disbursements" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50">返回列表</Link>
+          <Link href="/admin/disbursements" className="btn-soft rounded-lg px-3 py-2 text-sm">返回列表</Link>
         </div>
       </header>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">放款金额</p><p className="text-2xl font-bold">¥ {data.amount.toFixed(2)}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">手续费</p><p className="text-2xl font-bold">¥ {data.feeAmount.toFixed(2)}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">净到账</p><p className="text-2xl font-bold text-emerald-700">¥ {data.netAmount.toFixed(2)}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">放款金额</p><p className="text-2xl font-bold">¥ {data.amount.toFixed(2)}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">手续费</p><p className="text-2xl font-bold">¥ {data.feeAmount.toFixed(2)}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">净到账</p><p className="text-2xl font-bold text-emerald-700">¥ {data.netAmount.toFixed(2)}</p></div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border bg-white p-4 space-y-2">
+        <div className="panel-soft rounded-xl p-4 space-y-2">
           <h2 className="font-semibold">申请信息</h2>
           <p className="text-sm">申请单：{data.application.applicationNo}</p>
           <p className="text-sm">客户：{data.application.customer.name}（{data.application.customer.phone}）</p>
           <p className="text-sm">产品：{data.application.product.name}</p>
-          <p className="text-sm">申请状态：{data.application.status}</p>
+          <p className="text-sm">申请状态：{getStatusLabel(data.application.status)}</p>
         </div>
-        <div className="rounded-xl border bg-white p-4 space-y-2">
+        <div className="panel-soft rounded-xl p-4 space-y-2">
           <h2 className="font-semibold">资金账户</h2>
           <p className="text-sm">资金方：{data.fundAccount.funder.name}</p>
           <p className="text-sm">账户：{data.fundAccount.accountName}</p>
@@ -133,7 +134,7 @@ export default function DisbursementDetailPage({ params }: { params: { id: strin
         </div>
       </section>
 
-      <section className="rounded-xl border bg-white p-4">
+      <section className="table-shell rounded-xl p-4">
         <h2 className="font-semibold mb-3">还款计划可视化</h2>
         {!data.repaymentPlan ? (
           <p className="text-sm text-slate-500">尚未生成还款计划（确认打款后自动生成）</p>
@@ -173,7 +174,7 @@ export default function DisbursementDetailPage({ params }: { params: { id: strin
                       <td className="px-3 py-2">¥ {x.fee.toFixed(2)}</td>
                       <td className="px-3 py-2">¥ {x.totalDue.toFixed(2)}</td>
                       <td className="px-3 py-2">¥ {x.remaining.toFixed(2)}</td>
-                      <td className="px-3 py-2">{x.status}</td>
+                      <td className="px-3 py-2"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(x.status)}`}>{getStatusLabel(x.status)}</span></td>
                     </tr>
                   ))}
                 </tbody>

@@ -270,3 +270,25 @@ a:hover { text-decoration: underline; }
   background: #ffffff;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
 }
+
+.btn-primary {
+  border-radius: 0.5rem;
+  background: #2563eb;
+  color: #ffffff;
+  transition: background-color 0.2s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.btn-danger {
+  border-radius: 0.5rem;
+  background: #dc2626;
+  color: #ffffff;
+  transition: background-color 0.2s ease;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+}

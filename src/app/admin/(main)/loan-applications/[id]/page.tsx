@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
 type Detail = {
   id: string;
@@ -21,19 +22,6 @@ type Detail = {
   approvals: Array<{ id: string; action: string; comment: string | null; approvedAmount: number | null; createdAt: string; approver: { username: string; realName: string } }>;
   disbursement: null | { id: string; disbursementNo: string; status: string; amount: number; netAmount: number };
 };
-
-function statusText(status: string) {
-  const map: Record<string, string> = {
-    DRAFT: "草稿",
-    REJECTED: "已拒绝",
-    PENDING_RISK: "待风控",
-    PENDING_APPROVAL: "待审批",
-    APPROVED: "已审批",
-    DISBURSED: "已放款",
-    CONTRACTED: "已签约",
-  };
-  return map[status] ?? status;
-}
 
 export default function LoanApplicationDetailPage({ params }: { params: { id: string } }) {
   const [data, setData] = useState<Detail | null>(null);
@@ -120,17 +108,17 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="panel-soft flex flex-wrap items-start justify-between gap-3 rounded-2xl px-5 py-4">
         <div>
           <div className="text-sm text-slate-500">借款申请详情</div>
           <h1 className="text-2xl font-bold text-slate-900">{data.applicationNo}</h1>
-          <div className="mt-2 inline-flex rounded-full border px-2 py-0.5 text-xs bg-slate-50 text-slate-700">{statusText(data.status)}</div>
+          <div className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(data.status)}`}>{getStatusLabel(data.status)}</div>
         </div>
         <Link href="/admin/loan-applications" className="text-sm text-blue-600 hover:underline">返回列表</Link>
       </header>
 
       <section className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-xl border bg-white p-4 space-y-3">
+        <div className="panel-soft rounded-xl p-4 space-y-3">
           <h2 className="font-semibold text-slate-900">申请信息</h2>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <label className="space-y-1"><span className="text-slate-500">金额</span><input disabled={!editable || saving} value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} className="input-base" /></label>
@@ -140,11 +128,11 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
           </div>
           <label className="space-y-1 block"><span className="text-sm text-slate-500">备注</span><textarea disabled={!editable || saving} value={form.remark} onChange={(e) => setForm((f) => ({ ...f, remark: e.target.value }))} className="input-base min-h-24" /></label>
           {editable ? (
-            <button disabled={saving} onClick={save} className="rounded-lg bg-slate-900 text-white px-4 py-2 text-sm hover:bg-slate-800 disabled:opacity-50">保存编辑</button>
+            <button disabled={saving} onClick={save} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">保存编辑</button>
           ) : null}
         </div>
 
-        <div className="rounded-xl border bg-white p-4 space-y-3">
+        <div className="panel-soft rounded-xl p-4 space-y-3">
           <h2 className="font-semibold text-slate-900">客户与产品</h2>
           <p className="text-sm text-slate-700">客户：{data.customer.name}（{data.customer.phone}）</p>
           <p className="text-sm text-slate-700">证件号：{data.customer.idNumber}</p>
@@ -155,28 +143,28 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
         </div>
       </section>
 
-      <section className="rounded-xl border bg-white p-4 space-y-3">
+      <section className="panel-soft rounded-xl p-4 space-y-3">
         <h2 className="font-semibold text-slate-900">审批动作</h2>
         <div className="flex flex-wrap gap-2">
           {(data.status === "DRAFT" || data.status === "REJECTED") && (
-            <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/submit`)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">提交风控</button>
+            <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/submit`)} className="btn-soft px-3 py-1.5 text-sm">提交风控</button>
           )}
           {data.status === "PENDING_RISK" && (
             <>
-              <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/risk`, { action: "PASS", comment: "详情页通过" })} className="rounded-lg border border-emerald-300 text-emerald-700 px-3 py-1.5 text-sm hover:bg-emerald-50">风控通过</button>
-              <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/risk`, { action: "REJECT", comment: "详情页拒绝" })} className="rounded-lg border border-red-300 text-red-700 px-3 py-1.5 text-sm hover:bg-red-50">风控拒绝</button>
+              <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/risk`, { action: "PASS", comment: "详情页通过" })} className="btn-primary px-3 py-1.5 text-sm disabled:opacity-50">风控通过</button>
+              <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/risk`, { action: "REJECT", comment: "详情页拒绝" })} className="btn-danger px-3 py-1.5 text-sm disabled:opacity-50">风控拒绝</button>
             </>
           )}
           {data.status === "PENDING_APPROVAL" && (
             <>
-              <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/approve`, { action: "APPROVE" })} className="rounded-lg border border-emerald-300 text-emerald-700 px-3 py-1.5 text-sm hover:bg-emerald-50">审批通过</button>
-              <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/approve`, { action: "REJECT", comment: "审批拒绝" })} className="rounded-lg border border-red-300 text-red-700 px-3 py-1.5 text-sm hover:bg-red-50">审批拒绝</button>
+              <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/approve`, { action: "APPROVE" })} className="btn-primary px-3 py-1.5 text-sm disabled:opacity-50">审批通过</button>
+              <button disabled={saving} onClick={() => postAction(`/api/loan-applications/${params.id}/approve`, { action: "REJECT", comment: "审批拒绝" })} className="btn-danger px-3 py-1.5 text-sm disabled:opacity-50">审批拒绝</button>
             </>
           )}
         </div>
       </section>
 
-      <section className="rounded-xl border bg-white p-4">
+      <section className="table-shell rounded-xl p-4">
         <h2 className="font-semibold text-slate-900 mb-3">审批历史</h2>
         {data.approvals.length === 0 ? (
           <p className="text-sm text-slate-500">暂无审批记录</p>

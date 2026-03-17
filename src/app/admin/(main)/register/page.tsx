@@ -39,7 +39,7 @@ export default function AdminRegisterPage() {
   if (success) {
     return (
       <div className="p-6 flex items-center justify-center">
-        <div className="max-w-sm w-full rounded-lg border bg-white p-6 shadow-sm text-center">
+        <div className="panel-soft max-w-sm w-full rounded-lg p-6 text-center">
           <p className="text-green-600 font-medium mb-2">登记成功</p>
           <p className="text-sm text-slate-600 mb-4">客户 ID：{success.id}</p>
           <Link href="/admin/dashboard" className="text-blue-600 text-sm hover:underline">返回工作台</Link>
@@ -50,7 +50,7 @@ export default function AdminRegisterPage() {
 
   return (
     <div className="p-6">
-      <header className="mb-6">
+      <header className="panel-soft mb-6 rounded-2xl px-5 py-4">
         <h1 className="text-xl font-semibold">客户登记</h1>
         <p className="text-sm text-slate-500 mt-1">录入新客户基本信息</p>
       </header>
@@ -76,7 +76,7 @@ export default function AdminRegisterPage() {
           <label className="block text-sm font-medium text-slate-700 mb-1">地址</label>
           <input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="input-base" />
         </div>
-        <button type="submit" disabled={loading} className="w-full rounded-lg bg-slate-800 text-white py-2.5 font-medium hover:bg-slate-700 disabled:opacity-50">
+        <button type="submit" disabled={loading} className="btn-primary w-full py-2.5 font-medium disabled:opacity-50">
           {loading ? "提交中…" : "提交登记"}
         </button>
       </form>

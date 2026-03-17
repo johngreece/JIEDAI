@@ -57,14 +57,14 @@ export default function AdminLoanFeeSettingsPage() {
 
   return (
     <div className="p-6">
-      <header className="mb-6">
+      <header className="panel-soft mb-6 rounded-2xl px-5 py-4">
         <h1 className="text-xl font-semibold">借款费率配置</h1>
         <p className="text-sm text-slate-500 mt-1">
           默认：当天还 2%、隔天还 3%、第3天或第7天还 5%。逾期 24h 内算当天；超过 24h 按 1%/天；超过 14 天按 2%/天。
         </p>
       </header>
       {error && <div className="mb-4 text-red-600 text-sm">{error}</div>}
-      <form onSubmit={handleSubmit} className="max-w-md space-y-4">
+      <form onSubmit={handleSubmit} className="panel-soft max-w-md space-y-4 rounded-xl p-4">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">当天还款费率（%）</label>
           <input type="number" step="0.01" min="0" value={form?.sameDayRate ?? ""} onChange={(e) => setForm((f) => f ? { ...f, sameDayRate: Number(e.target.value) } : null)} className="input-base" />
@@ -93,7 +93,7 @@ export default function AdminLoanFeeSettingsPage() {
           <label className="block text-sm font-medium text-slate-700 mb-1">逾期 14 天以上每日费率（%/天）</label>
           <input type="number" step="0.01" min="0" value={form?.overdueRatePerDayAfter14 ?? ""} onChange={(e) => setForm((f) => f ? { ...f, overdueRatePerDayAfter14: Number(e.target.value) } : null)} className="input-base" />
         </div>
-        <button type="submit" disabled={saving} className="rounded-lg bg-slate-800 text-white px-4 py-2 hover:bg-slate-700 disabled:opacity-50">
+        <button type="submit" disabled={saving} className="btn-primary px-4 py-2 disabled:opacity-50">
           {saving ? "保存中…" : "保存"}
         </button>
       </form>
