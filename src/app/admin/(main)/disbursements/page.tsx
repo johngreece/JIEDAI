@@ -114,21 +114,21 @@ export default function DisbursementPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">放款管理</h1>
-          <p className="text-sm text-slate-500 mt-1">待放款队列、确认打款、联动还款计划</p>
+          <p className="mt-1 text-sm text-slate-600">待放款队列、确认打款、联动还款计划</p>
         </div>
-        <button onClick={loadList} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50">刷新</button>
+        <button onClick={loadList} className="btn-soft rounded-lg px-3 py-2 text-sm">刷新</button>
       </header>
 
       <section className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">总放款单</p><p className="text-xl font-semibold">{stats.total}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">待放款</p><p className="text-xl font-semibold">{stats.pending}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">已打款</p><p className="text-xl font-semibold">{stats.paid}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">总放款单</p><p className="text-xl font-semibold">{stats.total}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">待放款</p><p className="text-xl font-semibold">{stats.pending}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">已打款</p><p className="text-xl font-semibold">{stats.paid}</p></div>
       </section>
 
-      <section className="rounded-xl border bg-white p-4">
+      <section className="panel-soft rounded-xl p-4">
         <h2 className="font-semibold text-slate-900 mb-3">创建放款单</h2>
         <form className="grid gap-3 md:grid-cols-2" onSubmit={createDisbursement}>
           <label className="space-y-1 text-sm">
@@ -173,7 +173,7 @@ export default function DisbursementPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border bg-white overflow-hidden">
+      <section className="table-shell overflow-hidden rounded-xl">
         <div className="border-b border-slate-100 px-4 py-3 flex gap-2">
           <button onClick={() => setStatus("ALL")} className={`px-3 py-1.5 text-sm rounded-full border ${status === "ALL" ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-200"}`}>全部</button>
           <button onClick={() => setStatus("PENDING")} className={`px-3 py-1.5 text-sm rounded-full border ${status === "PENDING" ? "bg-slate-900 text-white border-slate-900" : "bg-white border-slate-200"}`}>待放款</button>

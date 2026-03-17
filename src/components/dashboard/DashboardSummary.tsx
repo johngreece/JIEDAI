@@ -67,7 +67,7 @@ export function DashboardSummary() {
      return (
        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
          {[...Array(8)].map((_, i) => (
-           <div key={i} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm animate-pulse">
+           <div key={i} className="stat-tile rounded-xl p-6 animate-pulse">
              <div className="h-4 w-1/2 rounded bg-slate-100 mb-4"></div>
              <div className="h-8 w-3/4 rounded bg-slate-100"></div>
            </div>
@@ -101,12 +101,7 @@ export function DashboardSummary() {
         const isMoney = card.description?.includes("¥");
 
         return (
-          <div
-            key={card.key}
-            className={`rounded-xl border bg-white p-6 shadow-sm transition-all hover:shadow-md ${
-              highlight ? "border-orange-200 bg-orange-50/30" : "border-slate-200"
-            }`}
-          >
+          <div key={card.key} className={`stat-tile rounded-xl p-6 transition-all hover:shadow-md ${highlight ? "border-orange-200 bg-orange-50/30" : ""}`}>
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-slate-500">{card.label}</span>
               <div className="flex items-baseline gap-2">

@@ -132,19 +132,19 @@ export default function AdminRepaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
+      <header className="panel-soft rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold text-slate-900">还款管理</h1>
-        <p className="text-sm text-slate-500 mt-1">登记还款、分配到期次、进入待客户确认队列</p>
+        <p className="mt-1 text-sm text-slate-600">登记还款、分配到期次、进入待客户确认队列</p>
       </header>
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">还款总数</p><p className="text-xl font-semibold">{repayments.length}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">待分配</p><p className="text-xl font-semibold text-amber-600">{pendingRegister.length}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">待客户确认</p><p className="text-xl font-semibold text-blue-600">{pendingQueue.length}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">已确认</p><p className="text-xl font-semibold text-emerald-600">{repayments.filter((x) => x.status === "CONFIRMED").length}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">还款总数</p><p className="text-xl font-semibold">{repayments.length}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">待分配</p><p className="text-xl font-semibold text-amber-600">{pendingRegister.length}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">待客户确认</p><p className="text-xl font-semibold text-blue-600">{pendingQueue.length}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">已确认</p><p className="text-xl font-semibold text-emerald-600">{repayments.filter((x) => x.status === "CONFIRMED").length}</p></div>
       </section>
 
-      <section className="rounded-xl border bg-white p-4">
+      <section className="panel-soft rounded-xl p-4">
         <h2 className="font-semibold text-slate-900 mb-3">1) 登记还款</h2>
         <form className="grid gap-3 md:grid-cols-2" onSubmit={createRepayment}>
           <label className="space-y-1 text-sm">
@@ -180,7 +180,7 @@ export default function AdminRepaymentsPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border bg-white p-4">
+      <section className="panel-soft rounded-xl p-4">
         <h2 className="font-semibold text-slate-900 mb-3">2) 分配到期次（将状态推入待客户确认）</h2>
         <form className="grid gap-3 md:grid-cols-2" onSubmit={allocate}>
           <label className="space-y-1 text-sm">
@@ -231,7 +231,7 @@ export default function AdminRepaymentsPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border bg-white overflow-hidden">
+      <section className="table-shell overflow-hidden rounded-xl">
         <div className="px-4 py-3 border-b border-slate-100">
           <h2 className="font-semibold text-slate-900">待客户确认队列</h2>
         </div>

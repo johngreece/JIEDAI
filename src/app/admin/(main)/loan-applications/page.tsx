@@ -114,22 +114,22 @@ export default function LoanApplicationsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">借款申请</h1>
-          <p className="text-sm text-slate-500 mt-1">管理申请流转、风控与审批动作</p>
+          <p className="mt-1 text-sm text-slate-600">管理申请流转、风控与审批动作</p>
         </div>
-        <button onClick={load} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:bg-slate-50">刷新</button>
+        <button onClick={load} className="btn-soft rounded-lg px-3 py-2 text-sm">刷新</button>
       </header>
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">总数</p><p className="text-xl font-semibold">{stats.total}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">待处理</p><p className="text-xl font-semibold">{stats.pending}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">已审批</p><p className="text-xl font-semibold">{stats.approved}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">已拒绝</p><p className="text-xl font-semibold">{stats.rejected}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">总数</p><p className="text-xl font-semibold">{stats.total}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">待处理</p><p className="text-xl font-semibold">{stats.pending}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">已审批</p><p className="text-xl font-semibold">{stats.approved}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">已拒绝</p><p className="text-xl font-semibold">{stats.rejected}</p></div>
       </section>
 
-      <section className="rounded-xl border bg-white p-4">
+      <section className="panel-soft rounded-xl p-4">
         <div className="flex flex-wrap gap-2">
           {STATUS_OPTIONS.map((s) => (
             <button
@@ -145,7 +145,7 @@ export default function LoanApplicationsPage() {
 
       {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
 
-      <section className="rounded-xl border bg-white overflow-hidden">
+      <section className="table-shell overflow-hidden rounded-xl">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">

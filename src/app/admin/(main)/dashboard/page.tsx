@@ -27,19 +27,19 @@ export default async function AdminDashboardPage() {
   else greeting = "晚上好";
 
   return (
-    <div className="space-y-8">
-      <header className="flex items-center justify-between border-b border-slate-200 pb-6">
+    <div className="space-y-6">
+      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">工作台</h1>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-slate-600">
             {greeting}，{session.username}。这里是今日的业务概览。
           </p>
         </div>
         <div className="flex gap-3">
-           <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-slate-200 bg-white hover:bg-slate-100 h-9 px-4 py-2">
+           <button className="btn-soft inline-flex h-9 items-center justify-center rounded-lg px-4 py-2 text-sm font-medium">
              导出报表
            </button>
-           <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-blue-600 text-white hover:bg-blue-700 h-9 px-4 py-2 shadow-sm">
+           <button className="inline-flex h-9 items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700">
              新增客户
            </button>
         </div>
