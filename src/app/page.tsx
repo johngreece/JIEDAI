@@ -2,85 +2,82 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-slate-50 flex flex-col">
-      {/* 顶部导航 */}
-      <header className="bg-white border-b border-slate-200 py-4 px-6 md:px-12 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-           <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-lg">
-             D
-           </div>
-           <span className="text-xl font-bold text-slate-800 tracking-tight">DaiKuan System</span>
-        </div>
-        <div className="text-sm text-slate-500 hidden md:block">
-          专业 · 安全 · 高效
-        </div>
-      </header>
-
-      {/* 主要内容区 */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 md:p-12">
-        <div className="max-w-4xl w-full text-center mb-16">
-          <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 mb-6 tracking-tight">
-            全流程借款业务管理系统
-          </h1>
-          <p className="text-lg md:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
-            专为金融放贷业务打造的一站式解决方案。
-            <br className="hidden md:inline" />
-            从客户准入、合同签署到还款确认，实现全链路数字化管理。
-          </p>
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-8 max-w-4xl w-full px-4">
-          {/* 管理端入口卡片 */}
-          <Link
-            href="/admin/login"
-            className="group relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
-          >
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-slate-700 to-slate-900 opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="flex flex-col items-center text-center">
-              <div className="h-16 w-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-slate-100 transition-colors">
-                <svg className="h-8 w-8 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-              </div>
-              <h2 className="text-xl font-bold text-slate-900 mb-2">管理端入口</h2>
-              <p className="text-slate-500 mb-6 text-sm">
-                适用于风控经理、财务人员及系统管理员。
-                <br/>处理放款审批、合同管理及数据报表。
-              </p>
-              <span className="inline-flex items-center text-sm font-semibold text-slate-700 group-hover:text-slate-900">
-                进入工作台 <span className="ml-1 transition-transform group-hover:translate-x-1">→</span>
-              </span>
-            </div>
-          </Link>
-
-          {/* 客户端入口卡片 */}
-          <Link
-            href="/client/login"
-            className="group relative overflow-hidden rounded-2xl bg-white border border-slate-200 p-8 shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-1"
-          >
-             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-blue-700 opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="flex flex-col items-center text-center">
-              <div className="h-16 w-16 bg-blue-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-blue-100 transition-colors">
-                <svg className="h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-              </div>
-              <h2 className="text-xl font-bold text-slate-900 mb-2">客户端入口</h2>
-              <p className="text-slate-500 mb-6 text-sm">
-                适用于借款客户。
-                <br/>查看您的借款进度、在线签署合同及确认还款。
-              </p>
-              <span className="inline-flex items-center text-sm font-semibold text-blue-600 group-hover:text-blue-700">
-                立即登录 <span className="ml-1 transition-transform group-hover:translate-x-1">→</span>
-              </span>
-            </div>
-          </Link>
-        </div>
+    <main className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-100">
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute -left-32 top-0 h-96 w-96 rounded-full bg-cyan-300/20 blur-3xl" />
+        <div className="absolute right-0 top-1/3 h-[30rem] w-[30rem] rounded-full bg-indigo-400/20 blur-3xl" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(255,255,255,0.14),transparent_38%),radial-gradient(circle_at_80%_75%,rgba(56,189,248,0.18),transparent_45%)]" />
       </div>
 
-      <footer className="py-6 text-center text-slate-400 text-sm border-t border-slate-200 bg-white">
-        © {new Date().getFullYear()} Daikuan System. All rights reserved.
-      </footer>
+      <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-8 md:px-8 md:py-10">
+        <header className="glass-login-card fade-in-up flex items-center justify-between rounded-2xl px-5 py-3 md:px-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-200/35 bg-cyan-300/20 text-sm font-semibold text-cyan-100">
+              DK
+            </div>
+            <div>
+              <p className="text-sm font-semibold tracking-wide text-white">DaiKuan System</p>
+              <p className="text-xs text-slate-300/80">Loan Operations Platform</p>
+            </div>
+          </div>
+          <span className="hidden rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-slate-200 md:inline-flex">
+            专业 · 安全 · 高效
+          </span>
+        </header>
+
+        <section className="fade-in-up-delay mx-auto mt-10 w-full max-w-4xl text-center md:mt-14">
+          <h1 className="text-4xl font-semibold leading-tight text-white md:text-5xl">
+            全流程借贷业务管理门户
+          </h1>
+          <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-slate-200/85 md:text-lg">
+            连接申请、审批、合同、放款与还款确认，构建统一且透明的资金管理闭环。
+          </p>
+        </section>
+
+        <section className="mx-auto mt-10 grid w-full max-w-5xl grid-cols-1 gap-5 md:grid-cols-2 md:gap-6">
+          <Link
+            href="/admin/login"
+            className="glass-login-card group rounded-3xl p-7 transition duration-300 hover:-translate-y-1"
+          >
+            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-cyan-100">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-semibold text-white">管理端入口</h2>
+            <p className="mt-3 text-sm leading-relaxed text-slate-200/80">
+              面向风控、财务与运营团队，处理审核审批、放款跟踪、还款管理与审计报表。
+            </p>
+            <span className="mt-6 inline-flex items-center text-sm font-semibold text-cyan-100">
+              进入管理台
+              <span className="ml-1 transition-transform group-hover:translate-x-1">→</span>
+            </span>
+          </Link>
+
+          <Link
+            href="/client/login"
+            className="glass-login-card group rounded-3xl p-7 transition duration-300 hover:-translate-y-1"
+          >
+            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-cyan-100">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-semibold text-white">客户端入口</h2>
+            <p className="mt-3 text-sm leading-relaxed text-slate-200/80">
+              面向借款客户，查看申请进度、在线签署合同、确认放款到账与还款记录。
+            </p>
+            <span className="mt-6 inline-flex items-center text-sm font-semibold text-cyan-100">
+              立即登录
+              <span className="ml-1 transition-transform group-hover:translate-x-1">→</span>
+            </span>
+          </Link>
+        </section>
+
+        <footer className="mt-auto pt-10 text-center text-xs text-slate-300/70">
+          © {new Date().getFullYear()} DaiKuan System. All rights reserved.
+        </footer>
+      </div>
     </main>
   );
 }
