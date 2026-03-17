@@ -27,7 +27,8 @@ export function ClientHeader({ username }: { username: string }) {
 
   const navigation = [
     { name: "我的借款", href: "/client/dashboard" },
-    // Add more client links here if needed, e.g. "还款记录", "个人中心"
+    { name: "我的还款", href: "/client/repayments" },
+    { name: "还款计划", href: "/client/repayment-plans" },
   ];
 
   return (

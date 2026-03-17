@@ -136,7 +136,7 @@ export default async function ClientDashboardPage() {
             <p className="mt-1 text-xs text-slate-400">{nearestItem ? `第 ${nearestItem.periodNumber} 期 · 到期 ${new Date(nearestItem.dueDate).toLocaleDateString()}` : "暂无需还款项"}</p>
           </div>
           <div className="mt-4">
-            <span className="text-sm font-medium text-slate-500">还款入口已就绪</span>
+            <Link href="/client/repayments" className="text-sm font-medium text-blue-600 hover:underline">去确认还款</Link>
           </div>
         </div>
 

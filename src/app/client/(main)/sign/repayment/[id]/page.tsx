@@ -37,15 +37,15 @@ export default function ClientRepaymentSignPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        result: "confirmed",
-        confirmedAmount,
-        signImageUrl: canvasData,
+        action: "CONFIRMED",
+        signatureData: canvasData,
+        deviceInfo: navigator.userAgent,
       }),
     })
       .then((r) => r.json())
       .then((data) => {
         if (data.error) throw new Error(data.error);
-        setRepayment((r) => r ? { ...r, status: "confirmed" } : null);
+        setRepayment((r) => r ? { ...r, status: "CONFIRMED" } : null);
       })
       .catch((e) => setError(e.message))
       .finally(() => setSigning(false));
@@ -55,7 +55,7 @@ export default function ClientRepaymentSignPage() {
   if (error && !repayment) return <div className="p-6 text-red-600">{error}</div>;
   if (!repayment) return null;
 
-  if (repayment.status === "confirmed") {
+  if (repayment.status === "CONFIRMED") {
     return (
       <div className="p-6 flex flex-col items-center justify-center">
         <p className="text-green-600 font-medium mb-4">还款已确认</p>
