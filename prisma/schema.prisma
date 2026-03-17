@@ -1,6 +1,8 @@
-// 借款业务管理系统 (Loan Management System) - 第一版 Prisma Schema
-// 数据库: PostgreSQL
-// 金额统一 Decimal(18,4)，核心业务支持软删除与审计追溯
+// ============================================================================
+// 借款业务管理系统 — Prisma Schema v2.0
+// 数据库: PostgreSQL  |  金额精度: Decimal(18,4)
+// 全局规则: 所有主键 UUID、软删除、created/updatedAt
+// ============================================================================
 
 generator client {
   provider = "prisma-client-js"
@@ -11,661 +13,762 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ========== 用户与权限 ==========
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  A — 用户与权限 (RBAC)                                                  ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model User {
-  id            String    @id @default(uuid())
-  username      String    @unique @db.VarChar(64)
-  passwordHash  String    @map("password_hash") @db.VarChar(255)
-  email         String?   @db.VarChar(255)
-  phone         String?   @db.VarChar(32)
-  realName      String?   @map("real_name") @db.VarChar(64)
-  avatarUrl     String?   @map("avatar_url") @db.VarChar(512)
-  isActive      Boolean   @default(true) @map("is_active")
-  isClient      Boolean   @default(false) @map("is_client")
-  customerId    String?   @unique @map("customer_id")
-  lastLoginAt   DateTime? @map("last_login_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  deletedAt     DateTime? @map("deleted_at")
+  id             String    @id @default(uuid())
+  username       String    @unique
+  passwordHash   String    @map("password_hash")
+  realName       String    @map("real_name")
+  phone          String?
+  email          String?
+  roleId         String    @map("role_id")
+  isActive       Boolean   @default(true) @map("is_active")
+  lastLoginAt    DateTime? @map("last_login_at")
+  lastLoginIp    String?   @map("last_login_ip")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
 
-  customer       Customer?         @relation(fields: [customerId], references: [id])
-  userRoles      UserRole[]
-  createdCustomers Customer[]      @relation("CustomerCreatedBy")
-  auditLogs      AuditLog[]
-  notifications  Notification[]
-  loanApprovals  LoanApproval[]
-  signatures     Signature[]
-  capitalInflows CapitalInflow[]
-  disbursements  Disbursement[]
-  repayments     Repayment[]
-  attachments    Attachment[]
-  extensionsApproved Extension[]
-  restructuresApproved Restructure[]
-  systemSettingsUpdated SystemSetting[]
+  role               Role                   @relation(fields: [roleId], references: [id])
+  auditLogs          AuditLog[]
+  loanApplications   LoanApplication[]      @relation("ApplicationCreator")
+  approvals          LoanApproval[]         @relation("Approver")
+  disbursements      Disbursement[]         @relation("DisbursementOperator")
+  repayments         Repayment[]            @relation("RepaymentOperator")
+  ledgerEntries      LedgerEntry[]          @relation("LedgerOperator")
+  pricingRules       PricingRule[]          @relation("PricingRuleCreator")
+  notifications      Notification[]         @relation("NotificationTarget")
 
+  @@index([roleId])
+  @@index([username])
+  @@index([deletedAt])
   @@map("users")
 }
 
 model Role {
   id          String   @id @default(uuid())
-  code        String   @unique @db.VarChar(32)
-  name        String   @db.VarChar(64)
-  description String?  @db.Text
+  name        String   @unique
+  code        String   @unique
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  userRoles        UserRole[]
-  rolePermissions  RolePermission[]
+  users       User[]
+  permissions RolePermission[]
 
   @@map("roles")
 }
 
 model Permission {
-  id        String   @id @default(uuid())
-  code      String   @unique @db.VarChar(64)
-  name      String   @db.VarChar(64)
-  module    String?  @db.VarChar(32)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  module      String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  rolePermissions RolePermission[]
+  roles RolePermission[]
 
+  @@index([module])
   @@map("permissions")
 }
 
-model UserRole {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  roleId    String   @map("role_id")
-  scopeJson Json?    @map("scope_json")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, roleId])
-  @@map("user_roles")
-}
-
 model RolePermission {
-  roleId       String @map("role_id")
-  permissionId String @map("permission_id")
+  id           String   @id @default(uuid())
+  roleId       String   @map("role_id")
+  permissionId String   @map("permission_id")
+  createdAt    DateTime @default(now()) @map("created_at")
 
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
 
-  @@id([roleId, permissionId])
+  @@unique([roleId, permissionId])
   @@map("role_permissions")
 }
 
-// ========== 客户 ==========
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  B — 客户管理                                                           ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model Customer {
-  id                    String    @id @default(uuid())
-  customerNo            String    @unique @map("customer_no") @db.VarChar(32)
-  name                  String    @db.VarChar(64)
-  idType                String?   @map("id_type") @db.VarChar(16)
-  idNumber              String?   @map("id_number") @db.VarChar(64)
-  phone                 String?   @db.VarChar(32)
-  email                 String?   @db.VarChar(255)
-  gender                String?   @db.VarChar(8)
-  birthDate             DateTime? @map("birth_date") @db.Date
-  address               String?   @db.Text
-  workCompany           String?   @map("work_company") @db.VarChar(128)
-  workPosition          String?   @map("work_position") @db.VarChar(64)
-  incomeMonthly         Decimal?  @map("income_monthly") @db.Decimal(18, 2)
-  emergencyContactName   String?   @map("emergency_contact_name") @db.VarChar(64)
-  emergencyContactPhone String?   @map("emergency_contact_phone") @db.VarChar(32)
-  passportNumber        String?   @map("passport_number") @db.VarChar(64)
-  passportExpiry        DateTime? @map("passport_expiry") @db.Date
-  passportCountry       String?   @map("passport_country") @db.VarChar(64)
-  residenceType         String?   @map("residence_type") @db.VarChar(32)
-  residenceNumber       String?   @map("residence_number") @db.VarChar(64)
-  residenceExpiry       DateTime? @map("residence_expiry") @db.Date
-  riskTags              String[]  @default([]) @map("risk_tags")
-  isBlacklist           Boolean   @default(false) @map("is_blacklist")
-  isWatchlist           Boolean   @default(false) @map("is_watchlist")
-  status                String    @default("active") @db.VarChar(20)
-  createdById           String?   @map("created_by")
-  version               Int       @default(1)
-  updatedAt             DateTime  @updatedAt @map("updated_at")
-  deletedAt             DateTime? @map("deleted_at")
+  id                       String    @id @default(uuid())
+  name                     String
+  idType                   String    @default("ID_CARD") @map("id_type")
+  idNumber                 String    @unique @map("id_number")
+  phone                    String
+  email                    String?
+  address                  String?
+  emergencyContact         String?   @map("emergency_contact")
+  emergencyContactPhone    String?   @map("emergency_contact_phone")
+  emergencyContactRelation String?   @map("emergency_contact_relation")
+  bankAccount              String?   @map("bank_account")
+  bankName                 String?   @map("bank_name")
+  riskLevel                String    @default("NORMAL") @map("risk_level")
+  source                   String?
+  remark                   String?
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  deletedAt                DateTime? @map("deleted_at")
 
-  createdBy             User?     @relation("CustomerCreatedBy", fields: [createdById], references: [id])
-  user                  User?
-  customerKycs          CustomerKyc[]
-  loanApplications      LoanApplication[]
-  repaymentConfirmations RepaymentConfirmation[]
-  notifications         Notification[]
+  kyc                  CustomerKyc?
+  loanApplications     LoanApplication[]
+  contracts            Contract[]
+  repaymentConfirms    RepaymentConfirmation[]
+  overdueRecords       OverdueRecord[]
+  ledgerEntries        LedgerEntry[]          @relation("CustomerLedger")
+  notifications        Notification[]         @relation("CustomerNotification")
 
+  @@index([phone])
+  @@index([name])
+  @@index([riskLevel])
+  @@index([deletedAt])
   @@map("customers")
 }
 
 model CustomerKyc {
-  id         String    @id @default(uuid())
-  customerId String   @map("customer_id")
-  kycType    String   @map("kyc_type") @db.VarChar(32)
-  verifiedAt DateTime? @map("verified_at")
-  verifiedBy String?   @map("verified_by")
-  result     String?   @db.VarChar(16)
-  remark     String?   @db.Text
-  createdAt  DateTime  @default(now()) @map("created_at")
-  updatedAt  DateTime  @updatedAt @map("updated_at")
+  id           String    @id @default(uuid())
+  customerId   String    @unique @map("customer_id")
+  kycType      String    @map("kyc_type")
+  documentUrl  String?   @map("document_url")
+  status       String    @default("PENDING")
+  verifiedAt   DateTime? @map("verified_at")
+  expiresAt    DateTime? @map("expires_at")
+  remark       String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id])
 
+  @@index([status])
   @@map("customer_kyc")
 }
 
-// ========== 资金方与资金 ==========
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  C — 资金方与资金管理                                                    ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model Funder {
-  id             String   @id @default(uuid())
-  funderNo       String   @unique @map("funder_no") @db.VarChar(32)
-  name           String   @db.VarChar(128)
-  contactName    String?  @map("contact_name") @db.VarChar(64)
-  contactPhone   String?  @map("contact_phone") @db.VarChar(32)
-  bankName       String?  @map("bank_name") @db.VarChar(128)
-  bankAccount    String?  @map("bank_account") @db.VarChar(64)
-  agreementDocUrl String?  @map("agreement_doc_url") @db.VarChar(512)
-  status         String   @default("active") @db.VarChar(20)
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id               String    @id @default(uuid())
+  name             String    @unique
+  type             String    @default("INDIVIDUAL")
+  contactPerson    String?   @map("contact_person")
+  contactPhone     String?   @map("contact_phone")
+  contactEmail     String?   @map("contact_email")
+  profitShareRatio Decimal?  @map("profit_share_ratio") @db.Decimal(5, 4)
+  isActive         Boolean   @default(true) @map("is_active")
+  remark           String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
 
-  fundAccounts FundAccount[]
+  accounts        FundAccount[]
+  profitShares    FundProfitShare[]
 
+  @@index([deletedAt])
   @@map("funders")
 }
 
 model FundAccount {
-  id        String   @id @default(uuid())
-  funderId  String   @map("funder_id")
-  accountNo String   @unique @map("account_no") @db.VarChar(32)
-  balance   Decimal  @default(0) @db.Decimal(18, 4)
-  currency  String   @default("CNY") @db.VarChar(8)
-  status    String   @default("active") @db.VarChar(20)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String    @id @default(uuid())
+  funderId     String    @map("funder_id")
+  accountName  String    @map("account_name")
+  bankName     String    @map("bank_name")
+  accountNo    String    @map("account_no")
+  balance      Decimal   @default(0) @db.Decimal(18, 4)
+  totalInflow  Decimal   @default(0) @map("total_inflow") @db.Decimal(18, 4)
+  totalOutflow Decimal   @default(0) @map("total_outflow") @db.Decimal(18, 4)
+  totalProfit  Decimal   @default(0) @map("total_profit") @db.Decimal(18, 4)
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  funder         Funder          @relation(fields: [funderId], references: [id], onDelete: Restrict)
-  capitalInflows CapitalInflow[]
-  disbursements  Disbursement[]
-  ledgerEntries  LedgerEntry[]
+  funder        Funder          @relation(fields: [funderId], references: [id])
+  inflows       CapitalInflow[]
+  disbursements Disbursement[]
 
+  @@index([funderId])
   @@map("fund_accounts")
 }
 
 model CapitalInflow {
-  id             String   @id @default(uuid())
-  fundAccountId  String   @map("fund_account_id")
-  inflowNo       String   @unique @map("inflow_no") @db.VarChar(32)
-  amount         Decimal  @db.Decimal(18, 4)
-  inflowTime     DateTime @map("inflow_time")
-  proofUrl       String?  @map("proof_url") @db.VarChar(512)
-  operatorId     String?  @map("operator_id")
-  remark         String?  @db.Text
-  createdAt      DateTime @default(now()) @map("created_at")
+  id            String    @id @default(uuid())
+  fundAccountId String    @map("fund_account_id")
+  amount        Decimal   @db.Decimal(18, 4)
+  channel       String    @default("BANK_TRANSFER")
+  inflowDate    DateTime  @map("inflow_date")
+  status        String    @default("PENDING")
+  remark        String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  fundAccount   FundAccount   @relation(fields: [fundAccountId], references: [id], onDelete: Restrict)
-  operator      User?         @relation(fields: [operatorId], references: [id])
-  disbursements Disbursement[]
+  fundAccount FundAccount @relation(fields: [fundAccountId], references: [id])
 
+  @@index([fundAccountId])
+  @@index([inflowDate])
+  @@index([status])
   @@map("capital_inflows")
 }
 
-// ========== 产品与规则 ==========
+model FundProfitShare {
+  id           String   @id @default(uuid())
+  funderId     String   @map("funder_id")
+  periodStart  DateTime @map("period_start")
+  periodEnd    DateTime @map("period_end")
+  totalInterest Decimal @map("total_interest") @db.Decimal(18, 4)
+  shareRatio   Decimal  @map("share_ratio") @db.Decimal(5, 4)
+  shareAmount  Decimal  @map("share_amount") @db.Decimal(18, 4)
+  status       String   @default("PENDING")
+  settledAt    DateTime? @map("settled_at")
+  remark       String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  funder Funder @relation(fields: [funderId], references: [id])
+
+  @@index([funderId])
+  @@index([periodStart, periodEnd])
+  @@index([status])
+  @@map("fund_profit_shares")
+}
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  D — 产品与定价                                                         ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model LoanProduct {
-  id              String    @id @default(uuid())
-  productCode     String    @unique @map("product_code") @db.VarChar(32)
-  name            String    @db.VarChar(128)
-  termUnit        String    @map("term_unit") @db.VarChar(8)
-  minTerm         Int       @map("min_term")
-  maxTerm         Int       @map("max_term")
-  minAmount       Decimal   @map("min_amount") @db.Decimal(18, 4)
-  maxAmount       Decimal   @map("max_amount") @db.Decimal(18, 4)
-  repaymentType   String    @map("repayment_type") @db.VarChar(20)
-  status          String    @default("active") @db.VarChar(20)
-  version         Int       @default(1)
-  effectiveFrom   DateTime  @map("effective_from")
-  effectiveTo     DateTime? @map("effective_to")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(uuid())
+  name              String    @unique
+  code              String    @unique
+  description       String?
+  minAmount         Decimal   @map("min_amount") @db.Decimal(18, 4)
+  maxAmount         Decimal   @map("max_amount") @db.Decimal(18, 4)
+  minTermValue      Int       @map("min_term_value")
+  maxTermValue      Int       @map("max_term_value")
+  termUnit          String    @default("MONTH") @map("term_unit")
+  repaymentMethod   String    @map("repayment_method")
+  allowEarlyRepay   Boolean   @default(true) @map("allow_early_repay")
+  allowExtension    Boolean   @default(false) @map("allow_extension")
+  maxExtensionTimes Int       @default(0) @map("max_extension_times")
+  isActive          Boolean   @default(true) @map("is_active")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  deletedAt         DateTime? @map("deleted_at")
 
   pricingRules     PricingRule[]
   loanApplications LoanApplication[]
 
+  @@index([isActive])
+  @@index([deletedAt])
   @@map("loan_products")
 }
 
 model PricingRule {
-  id            String    @id @default(uuid())
-  productId     String?   @map("product_id")
-  ruleType      String    @map("rule_type") @db.VarChar(32)
-  ruleName      String    @map("rule_name") @db.VarChar(64)
-  calcType      String    @map("calc_type") @db.VarChar(16)
-  valueJson     Json      @map("value_json")
-  priority      Int       @default(0)
-  effectiveFrom DateTime  @map("effective_from")
-  effectiveTo   DateTime? @map("effective_to")
-  isActive      Boolean   @default(true) @map("is_active")
-  version       Int       @default(1)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id              String   @id @default(uuid())
+  productId       String   @map("product_id")
+  name            String
+  ruleType        String   @map("rule_type")
+  rateType        String   @map("rate_type")
+  rateValue       Decimal  @map("rate_value") @db.Decimal(10, 6)
+  minValue        Decimal? @map("min_value") @db.Decimal(18, 4)
+  maxValue        Decimal? @map("max_value") @db.Decimal(18, 4)
+  conditionJson   String?  @map("condition_json")
+  priority        Int      @default(0)
+  isActive        Boolean  @default(true) @map("is_active")
+  effectiveFrom   DateTime @map("effective_from")
+  effectiveTo     DateTime? @map("effective_to")
+  version         Int      @default(1)
+  createdById     String?  @map("created_by_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-  product LoanProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  product   LoanProduct @relation(fields: [productId], references: [id])
+  createdBy User?       @relation("PricingRuleCreator", fields: [createdById], references: [id])
 
+  @@index([productId, isActive])
+  @@index([ruleType])
+  @@index([effectiveFrom, effectiveTo])
   @@map("pricing_rules")
 }
 
-// ========== 借款申请与审批 ==========
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  E — 借款申请与审批                                                      ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model LoanApplication {
-  id             String    @id @default(uuid())
-  applicationNo  String    @unique @map("application_no") @db.VarChar(32)
-  customerId     String    @map("customer_id")
-  productId      String    @map("product_id")
-  amount         Decimal   @db.Decimal(18, 4)
-  termValue      Int       @map("term_value")
-  termUnit       String    @map("term_unit") @db.VarChar(8)
-  purpose        String?   @db.VarChar(128)
-  repaymentType  String    @map("repayment_type") @db.VarChar(20)
-  status         String    @db.VarChar(32)
-  feeTrialJson   Json?     @map("fee_trial_json")
-  feeOverrideJson Json?   @map("fee_override_json")
-  createdById    String?   @map("created_by")
-  submittedAt    DateTime? @map("submitted_at")
-  version        Int       @default(1)
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id                  String    @id @default(uuid())
+  applicationNo       String    @unique @map("application_no")
+  customerId          String    @map("customer_id")
+  productId           String    @map("product_id")
+  amount              Decimal   @db.Decimal(18, 4)
+  termValue           Int       @map("term_value")
+  termUnit            String    @default("MONTH") @map("term_unit")
+  purpose             String?
+  status              String    @default("DRAFT")
+  riskScore           Decimal?  @map("risk_score") @db.Decimal(5, 2)
+  riskComment         String?   @map("risk_comment")
+  totalApprovedAmount Decimal?  @map("total_approved_amount") @db.Decimal(18, 4)
+  approvedAt          DateTime? @map("approved_at")
+  rejectedAt          DateTime? @map("rejected_at")
+  rejectedReason      String?   @map("rejected_reason")
+  createdById         String    @map("created_by_id")
+  remark              String?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  deletedAt           DateTime? @map("deleted_at")
 
-  customer    Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  product     LoanProduct @relation(fields: [productId], references: [id], onDelete: Restrict)
-  approvals   LoanApproval[]
-  contract    Contract?
-  disbursements Disbursement[]
-  repaymentPlans RepaymentPlan[]
-  repayments  Repayment[]
-  overdueRecords OverdueRecord[]
-  extensions  Extension[]
-  restructures Restructure[]
+  customer     Customer          @relation(fields: [customerId], references: [id])
+  product      LoanProduct       @relation(fields: [productId], references: [id])
+  createdBy    User              @relation("ApplicationCreator", fields: [createdById], references: [id])
+  approvals    LoanApproval[]
+  contracts    Contract[]
+  disbursement Disbursement?
 
+  @@index([customerId])
+  @@index([productId])
+  @@index([status])
+  @@index([applicationNo])
+  @@index([createdAt])
+  @@index([deletedAt])
   @@map("loan_applications")
 }
 
 model LoanApproval {
-  id             String   @id @default(uuid())
-  applicationId  String   @map("application_id")
-  approvalLevel  Int      @map("approval_level")
-  approverId     String   @map("approver_id")
-  result         String   @db.VarChar(16)
-  comment        String?  @db.Text
-  approvedAt     DateTime @map("approved_at")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id              String    @id @default(uuid())
+  applicationId   String    @map("application_id")
+  approverId      String    @map("approver_id")
+  level           Int       @default(1)
+  action          String
+  approvedAmount  Decimal?  @map("approved_amount") @db.Decimal(18, 4)
+  conditions      String?
+  comment         String?
+  createdAt       DateTime  @default(now()) @map("created_at")
 
-  application LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  approver     User            @relation(fields: [approverId], references: [id], onDelete: Restrict)
+  application LoanApplication @relation(fields: [applicationId], references: [id])
+  approver    User            @relation("Approver", fields: [approverId], references: [id])
 
+  @@index([applicationId])
+  @@index([approverId])
   @@map("loan_approvals")
 }
 
-// ========== 合同与签署 ==========
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  F — 合同管理                                                           ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model ContractTemplate {
-  id              String   @id @default(uuid())
-  templateCode    String   @unique @map("template_code") @db.VarChar(32)
-  name            String   @db.VarChar(128)
-  contentHtml     String   @map("content_html") @db.Text
-  variablesSchema Json?   @map("variables_schema")
-  version         Int      @default(1)
-  isActive        Boolean  @default(true) @map("is_active")
-  effectiveFrom   DateTime @map("effective_from")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id           String    @id @default(uuid())
+  name         String
+  code         String    @unique
+  content      String
+  variables    String[]
+  version      Int       @default(1)
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
 
   contracts Contract[]
 
+  @@index([isActive])
+  @@index([deletedAt])
   @@map("contract_templates")
 }
 
 model Contract {
-  id                String    @id @default(uuid())
-  contractNo        String    @unique @map("contract_no") @db.VarChar(32)
-  applicationId     String    @unique @map("application_id")
-  templateId        String    @map("template_id")
-  snapshotHtml      String?   @map("snapshot_html") @db.Text
-  snapshotPdfUrl    String?   @map("snapshot_pdf_url") @db.VarChar(512)
-  variablesSnapshot Json?    @map("variables_snapshot")
-  status            String    @db.VarChar(20)
-  signedAt          DateTime? @map("signed_at")
-  version           Int       @default(1)
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  contractNo      String    @unique @map("contract_no")
+  contractType    String    @default("MAIN") @map("contract_type")
+  applicationId   String    @map("application_id")
+  customerId      String    @map("customer_id")
+  templateId      String    @map("template_id")
+  content         String
+  variableData    String?   @map("variable_data")
+  status          String    @default("DRAFT")
+  signedAt        DateTime? @map("signed_at")
+  effectiveDate   DateTime? @map("effective_date")
+  expiryDate      DateTime? @map("expiry_date")
+  version         Int       @default(1)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  deletedAt       DateTime? @map("deleted_at")
 
-  application  LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  template     ContractTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
-  signatures   Signature[]
-  disbursement Disbursement?
-  extensions   Extension[]
-  restructures Restructure[]
+  application LoanApplication  @relation(fields: [applicationId], references: [id])
+  customer    Customer         @relation(fields: [customerId], references: [id])
+  template    ContractTemplate @relation(fields: [templateId], references: [id])
+  signatures  Signature[]
 
+  @@index([applicationId])
+  @@index([customerId])
+  @@index([status])
+  @@index([contractType])
+  @@index([deletedAt])
   @@map("contracts")
 }
 
 model Signature {
-  id               String   @id @default(uuid())
-  contractId       String   @map("contract_id")
-  signerType       String   @map("signer_type") @db.VarChar(16)
-  signerUserId     String?  @map("signer_user_id")
-  signerCustomerId String?  @map("signer_customer_id")
-  signAction       String   @map("sign_action") @db.VarChar(32)
-  signData         Json?    @map("sign_data")
-  signImageUrl     String?  @map("sign_image_url") @db.VarChar(512)
-  signedAt         DateTime @map("signed_at")
-  ipAddress        String?  @map("ip_address") @db.VarChar(45)
-  deviceInfo       String?  @map("device_info") @db.VarChar(256)
-  geoLocation      String?  @map("geo_location") @db.VarChar(128)
-  userAgent        String?  @map("user_agent") @db.VarChar(512)
-  createdAt        DateTime @default(now()) @map("created_at")
+  id              String   @id @default(uuid())
+  contractId      String   @map("contract_id")
+  signerType      String   @map("signer_type")
+  signerName      String   @map("signer_name")
+  signatureData   String   @map("signature_data")
+  screenshotUrl   String?  @map("screenshot_url")
+  ipAddress       String   @map("ip_address")
+  deviceInfo      String?  @map("device_info")
+  locationInfo    String?  @map("location_info")
+  signedAt        DateTime @default(now()) @map("signed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
 
-  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
-  signerUser User?  @relation(fields: [signerUserId], references: [id])
+  contract Contract @relation(fields: [contractId], references: [id])
 
+  @@index([contractId])
   @@map("signatures")
 }
 
-// ========== 放款 ==========
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  G — 放款                                                              ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model Disbursement {
+  id                String    @id @default(uuid())
+  disbursementNo    String    @unique @map("disbursement_no")
+  applicationId     String    @unique @map("application_id")
+  fundAccountId     String    @map("fund_account_id")
+  amount            Decimal   @db.Decimal(18, 4)
+  feeAmount         Decimal   @default(0) @map("fee_amount") @db.Decimal(18, 4)
+  netAmount         Decimal   @map("net_amount") @db.Decimal(18, 4)
+  batchNo           String?   @map("batch_no")
+  feeDetailJson     String?   @map("fee_detail_json")
+  payerAccount      String?   @map("payer_account")
+  payerBank         String?   @map("payer_bank")
+  status            String    @default("PENDING")
+  disbursedAt       DateTime? @map("disbursed_at")
+  customerConfirmIp String?   @map("customer_confirm_ip")
+  operatorId        String    @map("operator_id")
+  remark            String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  application LoanApplication @relation(fields: [applicationId], references: [id])
+  fundAccount FundAccount     @relation(fields: [fundAccountId], references: [id])
+  operator    User            @relation("DisbursementOperator", fields: [operatorId], references: [id])
+
+  @@index([fundAccountId])
+  @@index([status])
+  @@index([disbursedAt])
+  @@index([batchNo])
+  @@map("disbursements")
+}
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  H — 还款计划与还款                                                      ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+model RepaymentPlan {
   id                  String    @id @default(uuid())
-  disbursementNo      String    @unique @map("disbursement_no") @db.VarChar(32)
+  planNo              String    @unique @map("plan_no")
   applicationId       String    @map("application_id")
-  contractId          String    @unique @map("contract_id")
-  fundAccountId       String    @map("fund_account_id")
-  capitalInflowId     String?   @map("capital_inflow_id")
-  amountExpected      Decimal   @map("amount_expected") @db.Decimal(18, 4)
-  amountFeeDeduct     Decimal   @default(0) @map("amount_fee_deduct") @db.Decimal(18, 4)
-  amountActual        Decimal   @map("amount_actual") @db.Decimal(18, 4)
-  payeeAccount        String    @map("payee_account") @db.VarChar(64)
-  payeeName           String    @map("payee_name") @db.VarChar(64)
-  payeeBank           String?   @map("payee_bank") @db.VarChar(128)
-  paidAt              DateTime? @map("paid_at")
-  proofUrl            String?   @map("proof_url") @db.VarChar(512)
-  operatorId          String?   @map("operator_id")
-  status              String    @db.VarChar(20)
-  customerConfirmedAt DateTime? @map("customer_confirmed_at")
+  totalPrincipal      Decimal   @map("total_principal") @db.Decimal(18, 4)
+  totalInterest       Decimal   @map("total_interest") @db.Decimal(18, 4)
+  totalFee            Decimal   @default(0) @map("total_fee") @db.Decimal(18, 4)
+  totalPeriods        Int       @default(1) @map("total_periods")
+  rulesSnapshotJson   String?   @map("rules_snapshot_json")
+  status              String    @default("ACTIVE")
+  supersededBy        String?   @map("superseded_by")
   version             Int       @default(1)
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  application   LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  contract      Contract        @relation(fields: [contractId], references: [id], onDelete: Restrict)
-  fundAccount   FundAccount     @relation(fields: [fundAccountId], references: [id], onDelete: Restrict)
-  capitalInflow CapitalInflow? @relation(fields: [capitalInflowId], references: [id])
-  operator      User?          @relation(fields: [operatorId], references: [id])
-  repaymentPlans RepaymentPlan[]
-
-  @@map("disbursements")
-}
-
-// ========== 还款计划与还款 ==========
-
-model RepaymentPlan {
-  id              String   @id @default(uuid())
-  applicationId   String   @map("application_id")
-  disbursementId  String   @map("disbursement_id")
-  planNo          String   @unique @map("plan_no") @db.VarChar(32)
-  totalPrincipal  Decimal  @map("total_principal") @db.Decimal(18, 4)
-  totalInterest   Decimal  @map("total_interest") @db.Decimal(18, 4)
-  totalFees       Decimal  @map("total_fees") @db.Decimal(18, 4)
-  totalAmount     Decimal  @map("total_amount") @db.Decimal(18, 4)
-  version         Int      @default(1)
-  status          String   @default("active") @db.VarChar(20)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  application  LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  disbursement Disbursement    @relation(fields: [disbursementId], references: [id], onDelete: Restrict)
   scheduleItems RepaymentScheduleItem[]
-  restructures Restructure[]
+  repayments    Repayment[]
 
+  @@index([applicationId])
+  @@index([status])
   @@map("repayment_plans")
 }
 
 model RepaymentScheduleItem {
-  id           String   @id @default(uuid())
-  planId       String   @map("plan_id")
-  periodNo     Int      @map("period_no")
-  dueDate      DateTime @map("due_date") @db.Date
-  principalDue Decimal  @map("principal_due") @db.Decimal(18, 4)
-  interestDue  Decimal  @map("interest_due") @db.Decimal(18, 4)
-  feeDue       Decimal  @default(0) @map("fee_due") @db.Decimal(18, 4)
-  overdueDue   Decimal  @default(0) @map("overdue_due") @db.Decimal(18, 4)
-  totalDue     Decimal  @map("total_due") @db.Decimal(18, 4)
-  principalPaid Decimal @default(0) @map("principal_paid") @db.Decimal(18, 4)
-  interestPaid Decimal  @default(0) @map("interest_paid") @db.Decimal(18, 4)
-  feePaid      Decimal  @default(0) @map("fee_paid") @db.Decimal(18, 4)
-  overduePaid  Decimal  @default(0) @map("overdue_paid") @db.Decimal(18, 4)
-  status       String   @default("pending") @db.VarChar(20)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  planId          String    @map("plan_id")
+  periodNumber    Int       @map("period_number")
+  dueDate         DateTime  @map("due_date")
+  principal       Decimal   @db.Decimal(18, 4)
+  interest        Decimal   @db.Decimal(18, 4)
+  fee             Decimal   @default(0) @db.Decimal(18, 4)
+  totalDue        Decimal   @map("total_due") @db.Decimal(18, 4)
+  remaining       Decimal   @default(0) @db.Decimal(18, 4)
+  status          String    @default("PENDING")
+  paidAt          DateTime? @map("paid_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  plan         RepaymentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  overdueRecords OverdueRecord[]
-  repaymentAllocations RepaymentAllocation[]
+  plan RepaymentPlan @relation(fields: [planId], references: [id])
 
+  @@index([planId])
+  @@index([dueDate])
+  @@index([status])
   @@map("repayment_schedule_items")
 }
 
 model Repayment {
-  id                  String    @id @default(uuid())
-  repaymentNo         String    @unique @map("repayment_no") @db.VarChar(32)
-  applicationId       String   @map("application_id")
-  amount              Decimal   @db.Decimal(18, 4)
-  payType             String    @map("pay_type") @db.VarChar(20)
-  paidAt              DateTime  @map("paid_at")
-  proofUrl            String?   @map("proof_url") @db.VarChar(512)
-  operatorId          String?   @map("operator_id")
-  status              String    @db.VarChar(20)
-  customerConfirmedAt DateTime? @map("customer_confirmed_at")
-  version             Int       @default(1)
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  repaymentNo     String    @unique @map("repayment_no")
+  planId          String    @map("plan_id")
+  amount          Decimal   @db.Decimal(18, 4)
+  principalPart   Decimal   @map("principal_part") @db.Decimal(18, 4)
+  interestPart    Decimal   @map("interest_part") @db.Decimal(18, 4)
+  feePart         Decimal   @default(0) @map("fee_part") @db.Decimal(18, 4)
+  penaltyPart     Decimal   @default(0) @map("penalty_part") @db.Decimal(18, 4)
+  paymentMethod   String    @map("payment_method")
+  status          String    @default("PENDING")
+  matchComment    String?   @map("match_comment")
+  receivedAt      DateTime? @map("received_at")
+  operatorId      String    @map("operator_id")
+  remark          String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  application  LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  operator     User?           @relation(fields: [operatorId], references: [id])
-  allocations RepaymentAllocation[]
-  confirmations RepaymentConfirmation[]
+  plan         RepaymentPlan        @relation(fields: [planId], references: [id])
+  operator     User                 @relation("RepaymentOperator", fields: [operatorId], references: [id])
+  allocations  RepaymentAllocation[]
+  confirmation RepaymentConfirmation?
 
+  @@index([planId])
+  @@index([status])
+  @@index([receivedAt])
   @@map("repayments")
 }
 
 model RepaymentAllocation {
-  id              String   @id @default(uuid())
-  repaymentId     String   @map("repayment_id")
-  scheduleItemId  String   @map("schedule_item_id")
-  principalAmount Decimal  @map("principal_amount") @db.Decimal(18, 4)
-  interestAmount  Decimal  @map("interest_amount") @db.Decimal(18, 4)
-  feeAmount       Decimal  @map("fee_amount") @db.Decimal(18, 4)
-  overdueAmount   Decimal  @map("overdue_amount") @db.Decimal(18, 4)
-  createdAt       DateTime @default(now()) @map("created_at")
+  id          String  @id @default(uuid())
+  repaymentId String  @map("repayment_id")
+  itemId      String  @map("item_id")
+  amount      Decimal @db.Decimal(18, 4)
+  type        String
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  repayment Repayment @relation(fields: [repaymentId], references: [id], onDelete: Cascade)
-  scheduleItem RepaymentScheduleItem @relation(fields: [scheduleItemId], references: [id], onDelete: Cascade)
+  repayment Repayment @relation(fields: [repaymentId], references: [id])
 
+  @@index([repaymentId])
+  @@index([itemId])
   @@map("repayment_allocations")
 }
 
 model RepaymentConfirmation {
-  id              String   @id @default(uuid())
-  repaymentId     String   @map("repayment_id")
-  customerId      String   @map("customer_id")
-  confirmedAmount Decimal  @map("confirmed_amount") @db.Decimal(18, 4)
-  confirmedUsage  String?  @map("confirmed_usage") @db.VarChar(64)
-  result          String   @db.VarChar(16)
-  confirmedAt     DateTime @map("confirmed_at")
-  ipAddress       String?  @map("ip_address") @db.VarChar(45)
-  deviceInfo      String?  @map("device_info") @db.VarChar(256)
-  signImageUrl    String?  @map("sign_image_url") @db.VarChar(512)
-  signData        Json?    @map("sign_data")
-  createdAt       DateTime @default(now()) @map("created_at")
+  id               String    @id @default(uuid())
+  repaymentId      String    @unique @map("repayment_id")
+  customerId       String    @map("customer_id")
+  signatureData    String?   @map("signature_data")
+  ipAddress        String    @map("ip_address")
+  deviceInfo       String?   @map("device_info")
+  status           String    @default("PENDING")
+  rejectReason     String?   @map("reject_reason")
+  confirmedAt      DateTime? @map("confirmed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  repayment Repayment @relation(fields: [repaymentId], references: [id], onDelete: Cascade)
-  customer  Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  repayment Repayment @relation(fields: [repaymentId], references: [id])
+  customer  Customer  @relation(fields: [customerId], references: [id])
 
+  @@index([customerId])
+  @@index([status])
   @@map("repayment_confirmations")
 }
 
-// ========== 逾期、展期、重组 ==========
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  I — 逾期管理                                                           ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model OverdueRecord {
-  id                String    @id @default(uuid())
-  applicationId     String   @map("application_id")
-  scheduleItemId    String?   @map("schedule_item_id")
-  overdueStartDate  DateTime  @map("overdue_start_date") @db.Date
-  overdueDays       Int       @map("overdue_days")
-  overdueFeeAmount  Decimal   @map("overdue_fee_amount") @db.Decimal(18, 4)
-  status            String    @default("active") @db.VarChar(20)
-  clearedAt         DateTime? @map("cleared_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id               String    @id @default(uuid())
+  customerId       String    @map("customer_id")
+  applicationId    String    @map("application_id")
+  scheduleItemId   String    @map("schedule_item_id")
+  overdueAmount    Decimal   @map("overdue_amount") @db.Decimal(18, 4)
+  penaltyAmount    Decimal   @default(0) @map("penalty_amount") @db.Decimal(18, 4)
+  overdueDays      Int       @default(0) @map("overdue_days")
+  gracePeriodDays  Int       @default(0) @map("grace_period_days")
+  overdueFeeDetail String?   @map("overdue_fee_detail")
+  status           String    @default("OVERDUE")
+  resolvedAt       DateTime? @map("resolved_at")
+  remark           String?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  application  LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  scheduleItem RepaymentScheduleItem? @relation(fields: [scheduleItemId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
 
+  @@index([customerId])
+  @@index([applicationId])
+  @@index([status])
+  @@index([overdueDays])
   @@map("overdue_records")
 }
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  J — 展期 & 重组                                                        ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
 model Extension {
-  id                   String    @id @default(uuid())
-  applicationId        String   @map("application_id")
-  extensionNo          String   @unique @map("extension_no") @db.VarChar(32)
-  extendDays           Int      @map("extend_days")
-  extensionFee         Decimal  @map("extension_fee") @db.Decimal(18, 4)
-  supplementContractId String?  @map("supplement_contract_id")
-  status               String   @db.VarChar(20)
-  approvedById         String?  @map("approved_by")
-  approvedAt           DateTime? @map("approved_at")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  applicationId   String    @map("application_id")
+  extensionTimes  Int       @default(1) @map("extension_times")
+  originalDueDate DateTime  @map("original_due_date")
+  newDueDate      DateTime  @map("new_due_date")
+  extensionDays   Int       @map("extension_days")
+  extensionFee    Decimal   @default(0) @map("extension_fee") @db.Decimal(18, 4)
+  applyReason     String?   @map("apply_reason")
+  status          String    @default("PENDING")
+  approvedAt      DateTime? @map("approved_at")
+  remark          String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  application LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  supplementContract Contract? @relation(fields: [supplementContractId], references: [id])
-  approvedBy User? @relation(fields: [approvedById], references: [id])
-
+  @@index([applicationId])
+  @@index([status])
   @@map("extensions")
 }
 
 model Restructure {
-  id                   String    @id @default(uuid())
-  applicationId        String   @map("application_id")
-  restructureNo        String   @unique @map("restructure_no") @db.VarChar(32)
-  newPlanId            String   @map("new_plan_id")
-  supplementContractId String?  @map("supplement_contract_id")
-  status               String   @db.VarChar(20)
-  approvedById         String?  @map("approved_by")
-  approvedAt           DateTime? @map("approved_at")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid())
+  applicationId      String    @map("application_id")
+  oldPlanId          String?   @map("old_plan_id")
+  remainingPrincipal Decimal   @map("remaining_principal") @db.Decimal(18, 4)
+  remainingInterest  Decimal   @map("remaining_interest") @db.Decimal(18, 4)
+  newTermValue       Int       @map("new_term_value")
+  newTermUnit        String    @default("MONTH") @map("new_term_unit")
+  newRate            Decimal   @map("new_rate") @db.Decimal(10, 6)
+  applyReason        String?   @map("apply_reason")
+  status             String    @default("PENDING")
+  approvedAt         DateTime? @map("approved_at")
+  remark             String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  application  LoanApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  newPlan      RepaymentPlan   @relation(fields: [newPlanId], references: [id], onDelete: Restrict)
-  supplementContract Contract? @relation(fields: [supplementContractId], references: [id])
-  approvedBy   User? @relation(fields: [approvedById], references: [id])
-
+  @@index([applicationId])
+  @@index([status])
   @@map("restructures")
 }
 
-// ========== 台账与审计 ==========
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  K — 财务总账                                                           ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 model LedgerEntry {
-  id                 String   @id @default(uuid())
-  entryNo            String   @unique @map("entry_no") @db.VarChar(32)
-  entryType         String   @map("entry_type") @db.VarChar(32)
-  fundAccountId      String?  @map("fund_account_id")
-  relatedEntityType  String   @map("related_entity_type") @db.VarChar(32)
-  relatedEntityId    String   @map("related_entity_id")
-  amount             Decimal  @db.Decimal(18, 4)
-  balanceAfter       Decimal? @map("balance_after") @db.Decimal(18, 4)
-  bizDate            DateTime @map("biz_date") @db.Date
-  remark             String?  @db.Text
-  createdAt          DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  entryNo       String   @unique @map("entry_no")
+  type          String
+  direction     String   @default("DEBIT")
+  amount        Decimal  @db.Decimal(18, 4)
+  balanceBefore Decimal  @map("balance_before") @db.Decimal(18, 4)
+  balanceAfter  Decimal  @map("balance_after") @db.Decimal(18, 4)
+  referenceType String   @map("reference_type")
+  referenceId   String   @map("reference_id")
+  customerId    String?  @map("customer_id")
+  operatorId    String?  @map("operator_id")
+  description   String?
+  createdAt     DateTime @default(now()) @map("created_at")
 
-  fundAccount FundAccount? @relation(fields: [fundAccountId], references: [id])
+  customer Customer? @relation("CustomerLedger", fields: [customerId], references: [id])
+  operator User?     @relation("LedgerOperator", fields: [operatorId], references: [id])
 
-  @@index([fundAccountId, bizDate])
-  @@index([relatedEntityType, relatedEntityId])
+  @@index([type])
+  @@index([referenceType, referenceId])
+  @@index([customerId])
+  @@index([operatorId])
+  @@index([createdAt])
+  @@index([direction])
   @@map("ledger_entries")
 }
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  L — 审计日志                                                           ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
 model AuditLog {
-  id         String   @id @default(uuid())
-  userId     String?  @map("user_id")
-  action     String   @db.VarChar(64)
-  entityType String   @map("entity_type") @db.VarChar(64)
-  entityId   String   @map("entity_id")
-  oldValue   Json?    @map("old_value")
-  newValue   Json?    @map("new_value")
-  ipAddress  String?  @map("ip_address") @db.VarChar(45)
-  userAgent  String?  @map("user_agent") @db.VarChar(512)
-  createdAt  DateTime @default(now()) @map("created_at")
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  action         String
+  entityType     String   @map("entity_type")
+  entityId       String   @map("entity_id")
+  oldValue       String?  @map("old_value")
+  newValue       String?  @map("new_value")
+  changeSummary  String?  @map("change_summary")
+  isAmountChange Boolean  @default(false) @map("is_amount_change")
+  ipAddress      String?  @map("ip_address")
+  userAgent      String?  @map("user_agent")
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  user User? @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
+  @@index([userId])
   @@index([entityType, entityId])
-  @@index([userId, createdAt])
+  @@index([action])
+  @@index([createdAt])
+  @@index([isAmountChange])
   @@map("audit_logs")
 }
 
-model Attachment {
-  id           String   @id @default(uuid())
-  entityType   String   @map("entity_type") @db.VarChar(32)
-  entityId     String   @map("entity_id")
-  fileName     String   @map("file_name") @db.VarChar(256)
-  fileUrl      String   @map("file_url") @db.VarChar(512)
-  fileSize     BigInt   @map("file_size")
-  mimeType     String?  @map("mime_type") @db.VarChar(64)
-  uploadedById String   @map("uploaded_by")
-  createdAt    DateTime @default(now()) @map("created_at")
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  M — 附件 & 通知 & 系统设置                                              ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
-  uploadedBy User @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+model Attachment {
+  id           String    @id @default(uuid())
+  entityType   String    @map("entity_type")
+  entityId     String    @map("entity_id")
+  fileName     String    @map("file_name")
+  fileUrl      String    @map("file_url")
+  fileSize     Int       @map("file_size")
+  mimeType     String    @map("mime_type")
+  category     String    @default("GENERAL")
+  uploadedBy   String    @map("uploaded_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  deletedAt    DateTime? @map("deleted_at")
 
   @@index([entityType, entityId])
+  @@index([category])
+  @@index([deletedAt])
   @@map("attachments")
 }
 
 model Notification {
-  id                String    @id @default(uuid())
-  userId            String?   @map("user_id")
-  customerId        String?   @map("customer_id")
-  channel           String    @db.VarChar(16)
-  title             String    @db.VarChar(128)
-  content           String?   @db.Text
-  relatedEntityType String?   @map("related_entity_type") @db.VarChar(32)
-  relatedEntityId   String?   @map("related_entity_id")
-  sentAt            DateTime? @map("sent_at")
-  readAt            DateTime? @map("read_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
+  id           String    @id @default(uuid())
+  userId       String?   @map("user_id")
+  customerId   String?   @map("customer_id")
+  type         String
+  templateCode String?   @map("template_code")
+  title        String
+  content      String
+  status       String    @default("PENDING")
+  retryCount   Int       @default(0) @map("retry_count")
+  isRead       Boolean   @default(false) @map("is_read")
+  readAt       DateTime? @map("read_at")
+  sentAt       DateTime? @map("sent_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
-  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  user     User?     @relation("NotificationTarget", fields: [userId], references: [id])
+  customer Customer? @relation("CustomerNotification", fields: [customerId], references: [id])
 
-  @@index([userId])
+  @@index([userId, isRead])
   @@index([customerId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
   @@map("notifications")
 }
 
 model SystemSetting {
-  id          String   @id @default(uuid())
-  key         String   @unique @db.VarChar(64)
-  value       Json
-  description String?  @db.VarChar(256)
-  category    String?  @db.VarChar(32)
-  updatedById String?  @map("updated_by")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  group     String   @default("GENERAL")
+  remark    String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  updatedBy User? @relation(fields: [updatedById], references: [id])
-
+  @@index([group])
   @@map("system_settings")
 }
