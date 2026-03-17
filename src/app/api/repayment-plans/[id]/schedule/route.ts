@@ -4,6 +4,19 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+type ScheduleItemLite = {
+  id: string;
+  periodNumber: number;
+  dueDate: Date;
+  principal: unknown;
+  interest: unknown;
+  fee: unknown;
+  totalDue: unknown;
+  remaining: unknown;
+  status: string;
+  paidAt: Date | null;
+};
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -19,6 +32,7 @@ export async function GET(
     where: { planId: id },
     orderBy: { periodNumber: "asc" },
   });
+  const typedItems = items as ScheduleItemLite[];
 
   return NextResponse.json({
     plan: {
@@ -27,7 +41,7 @@ export async function GET(
       status: plan.status,
       totalPeriods: plan.totalPeriods,
     },
-    items: items.map((x) => ({
+    items: typedItems.map((x: ScheduleItemLite) => ({
       id: x.id,
       periodNumber: x.periodNumber,
       dueDate: x.dueDate,

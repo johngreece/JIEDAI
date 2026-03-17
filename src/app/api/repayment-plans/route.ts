@@ -4,6 +4,24 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+type PlanLite = {
+  id: string;
+  planNo: string;
+  applicationId: string;
+  totalPrincipal: unknown;
+  totalInterest: unknown;
+  totalFee: unknown;
+  totalPeriods: number;
+  status: string;
+};
+
+type AppLite = {
+  id: string;
+  applicationNo: string;
+  customer: { id: string; name: string; phone: string };
+  product: { id: string; name: string };
+};
+
 export async function GET(req: Request) {
   const session = await getAdminSession();
   if (!session) return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
@@ -18,10 +36,11 @@ export async function GET(req: Request) {
     orderBy: { createdAt: "desc" },
     take: 200,
   });
+  const typedPlans = plans as PlanLite[];
 
-  const apps = plans.length
+  const apps = typedPlans.length
     ? await prisma.loanApplication.findMany({
-        where: { id: { in: plans.map((x) => x.applicationId) } },
+        where: { id: { in: typedPlans.map((x: PlanLite) => x.applicationId) } },
         select: {
           id: true,
           applicationNo: true,
@@ -30,10 +49,11 @@ export async function GET(req: Request) {
         },
       })
     : [];
-  const appMap = new Map(apps.map((x) => [x.id, x]));
+  const typedApps = apps as AppLite[];
+  const appMap = new Map<string, AppLite>(typedApps.map((x: AppLite) => [x.id, x]));
 
   return NextResponse.json({
-    items: plans.map((x) => ({
+    items: typedPlans.map((x: PlanLite) => ({
       id: x.id,
       planNo: x.planNo,
       applicationId: x.applicationId,

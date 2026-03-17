@@ -6,6 +6,29 @@ import { writeAuditLog } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
+type RepaymentListItem = {
+  id: string;
+  repaymentNo: string;
+  status: string;
+  amount: unknown;
+  paymentMethod: string;
+  receivedAt: Date | null;
+  principalPart: unknown;
+  interestPart: unknown;
+  feePart: unknown;
+  penaltyPart: unknown;
+  createdAt: Date;
+  plan: { id: string; planNo: string; applicationId: string };
+  operator: { id: string; username: string; realName: string | null } | null;
+};
+
+type AppLite = {
+  id: string;
+  applicationNo: string;
+  customer: { id: string; name: string; phone: string };
+  product: { id: string; name: string };
+};
+
 const createSchema = z.object({
   planId: z.string().min(1),
   amount: z.number().positive(),
@@ -35,8 +58,9 @@ export async function GET(req: Request) {
     },
     take: 200,
   });
+  const typedList = list as RepaymentListItem[];
 
-  const appIds = list.map((x) => x.plan.applicationId);
+  const appIds = typedList.map((x: RepaymentListItem) => x.plan.applicationId);
   const apps = appIds.length
     ? await prisma.loanApplication.findMany({
         where: { id: { in: appIds } },
@@ -48,10 +72,11 @@ export async function GET(req: Request) {
         },
       })
     : [];
-  const appMap = new Map(apps.map((x) => [x.id, x]));
+  const typedApps = apps as AppLite[];
+  const appMap = new Map<string, AppLite>(typedApps.map((x: AppLite) => [x.id, x]));
 
   return NextResponse.json({
-    items: list.map((x) => ({
+    items: typedList.map((x: RepaymentListItem) => ({
       id: x.id,
       repaymentNo: x.repaymentNo,
       status: x.status,

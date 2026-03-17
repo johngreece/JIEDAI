@@ -18,6 +18,20 @@ const allocateSchema = z.object({
   comment: z.string().optional(),
 });
 
+type ScheduleItemLite = {
+  id: string;
+  periodNumber: number;
+  remaining: unknown;
+  status: string;
+  paidAt: Date | null;
+};
+
+type AllocationInput = {
+  itemId: string;
+  amount: number;
+  type: "PRINCIPAL" | "INTEREST" | "FEE" | "PENALTY";
+};
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -46,21 +60,23 @@ export async function POST(
     return NextResponse.json({ error: "当前状态不允许分配" }, { status: 400 });
   }
 
-  const itemIds = input.allocations.map((x) => x.itemId);
+  const allocations = input.allocations as AllocationInput[];
+  const itemIds = allocations.map((x: AllocationInput) => x.itemId);
   const scheduleItems = await prisma.repaymentScheduleItem.findMany({
     where: { id: { in: itemIds }, planId: repayment.planId },
   });
+  const typedScheduleItems = scheduleItems as ScheduleItemLite[];
   if (scheduleItems.length !== itemIds.length) {
     return NextResponse.json({ error: "存在无效期次或不属于当前计划" }, { status: 400 });
   }
 
-  const sum = input.allocations.reduce((acc, x) => acc + x.amount, 0);
+  const sum = allocations.reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
   if (sum - Number(repayment.amount) > 0.000001) {
     return NextResponse.json({ error: "分配总额不能大于还款金额" }, { status: 400 });
   }
 
-  const itemMap = new Map(scheduleItems.map((x) => [x.id, x]));
-  for (const a of input.allocations) {
+  const itemMap = new Map<string, ScheduleItemLite>(typedScheduleItems.map((x: ScheduleItemLite) => [x.id, x]));
+  for (const a of allocations) {
     const item = itemMap.get(a.itemId);
     if (!item) continue;
     const remaining = Number(item.remaining);
@@ -69,10 +85,10 @@ export async function POST(
     }
   }
 
-  const principalPart = input.allocations.filter((x) => x.type === "PRINCIPAL").reduce((acc, x) => acc + x.amount, 0);
-  const interestPart = input.allocations.filter((x) => x.type === "INTEREST").reduce((acc, x) => acc + x.amount, 0);
-  const feePart = input.allocations.filter((x) => x.type === "FEE").reduce((acc, x) => acc + x.amount, 0);
-  const penaltyPart = input.allocations.filter((x) => x.type === "PENALTY").reduce((acc, x) => acc + x.amount, 0);
+  const principalPart = allocations.filter((x: AllocationInput) => x.type === "PRINCIPAL").reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
+  const interestPart = allocations.filter((x: AllocationInput) => x.type === "INTEREST").reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
+  const feePart = allocations.filter((x: AllocationInput) => x.type === "FEE").reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
+  const penaltyPart = allocations.filter((x: AllocationInput) => x.type === "PENALTY").reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
 
   const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.repaymentAllocation.createMany({
@@ -84,7 +100,7 @@ export async function POST(
       })),
     });
 
-    for (const a of input.allocations) {
+    for (const a of allocations) {
       const current = itemMap.get(a.itemId);
       if (!current) continue;
       const nextRemaining = Number(current.remaining) - a.amount;
