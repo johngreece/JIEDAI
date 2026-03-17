@@ -34,35 +34,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "服务器内部错误" }, { status: 500 });
   }
 }
-  const ctx = buildContractContext({
-    customerName: application.customer.name,
-    idNumber: application.customer.idNumber ?? "",
-    phone: application.customer.phone ?? "",
-    loanAmount: amount.toFixed(2),
-    loanAmountCn: amount.toFixed(2),
-    termValue: application.termValue,
-    termUnit: application.termUnit,
-    interestRate: "按约定",
-    serviceFee: "按约定",
-    totalRepay: "按约定",
-    contractNo,
-    signDate: new Date().toISOString().slice(0, 10),
-    signTime: new Date().toTimeString().slice(0, 8),
-    signLocation: "",
-  });
-  const content = fillTemplate(template.content, ctx);
-
-  const contract = await prisma.contract.create({
-    data: {
-      contractNo,
-      applicationId,
-      customerId: application.customerId,
-      templateId: template.id,
-      content,
-      variableData: JSON.stringify(ctx),
-      status: "DRAFT",
-    },
-  });
-
-  return NextResponse.json({ id: contract.id, contractNo: contract.contractNo });
-}
