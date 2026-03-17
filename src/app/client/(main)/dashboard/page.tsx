@@ -1,10 +1,5 @@
 import { getClientSession } from "@/lib/auth";
 import Link from "next/link";
-import { 
-  CurrencyYenIcon, 
-  DocumentTextIcon, 
-  ClockIcon 
-} from "@heroicons/react/24/outline";
 
 export default async function ClientDashboardPage() {
   const session = await getClientSession();

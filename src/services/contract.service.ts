@@ -1,10 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { ServiceResponse } from "@/types";
-import { 
-  LoanApplication, 
-  Contract, 
-  ContractTemplate 
-} from "@prisma/client";
+
+type ContractRecord = NonNullable<Awaited<ReturnType<typeof prisma.contract.findFirst>>>;
 
 export class ContractService {
   /**
@@ -18,7 +15,7 @@ export class ContractService {
   /**
    * 获取借款申请关联的合同
    */
-  static async getContractsByApplication(applicationId: string): Promise<Contract[]> {
+  static async getContractsByApplication(applicationId: string): Promise<ContractRecord[]> {
     return prisma.contract.findMany({
       where: { applicationId },
       orderBy: { createdAt: "desc" },
@@ -28,7 +25,7 @@ export class ContractService {
   /**
    * 为审批通过的申请生成主合同
    */
-  static async generateMainContract(applicationId: string): Promise<ServiceResponse<Contract>> {
+  static async generateMainContract(applicationId: string): Promise<ServiceResponse<ContractRecord>> {
     // 1. 验证申请状态
     const application = await prisma.loanApplication.findUnique({
       where: { id: applicationId },
@@ -68,13 +65,17 @@ export class ContractService {
         data: {
           contractNo: this.generateContractNo(),
           contractType: "MAIN",
-          title: `借款合同-${application.customer.name}`,
+          templateId: template.id,
           content: template.content, // 初始直接使用模板内容，后续签名时填充变量
           status: "DRAFT", // 初始为草稿状态
           applicationId: application.id,
           customerId: application.customerId,
-          signedDate: null,
-          pdfUrl: null,
+          variableData: JSON.stringify({
+            customerName: application.customer.name,
+            amount: Number(application.amount),
+            termValue: application.termValue,
+            termUnit: application.termUnit,
+          }),
         },
       });
 
@@ -88,7 +89,7 @@ export class ContractService {
   /**
    * 确认合同签署 (通常由客户操作)
    */
-  static async signContract(contractId: string, signUrl: string): Promise<ServiceResponse<Contract>> {
+  static async signContract(contractId: string): Promise<ServiceResponse<ContractRecord>> {
     const contract = await prisma.contract.findUnique({
       where: { id: contractId },
     });
@@ -100,9 +101,7 @@ export class ContractService {
       where: { id: contractId },
       data: {
         status: "SIGNED",
-        signedDate: new Date(),
-        // 这里理论上应该存储签名图片的URL或者合成后的PDF URL
-        // 简化起见，假设 signUrl 是签名图片的地址
+        signedAt: new Date(),
       },
     });
 
@@ -110,7 +109,7 @@ export class ContractService {
     if (contract.contractType === "MAIN") {
         await prisma.loanApplication.update({
             where: { id: contract.applicationId },
-            data: { status: "SIGNED" } // 假设 SIGNED 是一个有效状态，或者直接 READY_FOR_DISBURSEMENT
+            data: { status: "CONTRACTED" }
         })
     }
 

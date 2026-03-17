@@ -1,5 +1,4 @@
 import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority" // Oops, I can't use cva since it's not installed. I will write plain CSS logic.
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
   variant?: 'default' | 'outline' | 'success' | 'warning' | 'destructive'
@@ -22,7 +21,5 @@ export function Badge({
     outline: "text-slate-950",
   }
 
-  return (
-    <div className={`${base} ${variants[variant]} ${className || ''}`} {...props} />
-  )
+  return <span className={`${base} ${variants[variant]} ${className || ''}`} {...props} />
 }
