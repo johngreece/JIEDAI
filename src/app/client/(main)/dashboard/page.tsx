@@ -1,5 +1,7 @@
 import { getClientSession } from "@/lib/auth";
 import Link from "next/link";
+import { prisma } from "@/lib/prisma";
+import { ConfirmReceivedButton } from "@/components/client/ConfirmReceivedButton";
 
 export default async function ClientDashboardPage() {
   const session = await getClientSession();
@@ -35,6 +37,67 @@ export default async function ClientDashboardPage() {
     </svg>
   );
 
+  const applications = await prisma.loanApplication.findMany({
+    where: { customerId: session.sub, deletedAt: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      product: { select: { id: true, name: true } },
+      contracts: { select: { id: true, status: true }, orderBy: { createdAt: "desc" }, take: 1 },
+      disbursement: {
+        select: {
+          id: true,
+          disbursementNo: true,
+          status: true,
+          amount: true,
+          feeAmount: true,
+          netAmount: true,
+          disbursedAt: true,
+        },
+      },
+    },
+    take: 20,
+  });
+
+  const appIds = applications.map((x) => x.id);
+  const plans = appIds.length
+    ? await prisma.repaymentPlan.findMany({
+        where: { applicationId: { in: appIds }, status: "ACTIVE" },
+        select: {
+          id: true,
+          applicationId: true,
+          planNo: true,
+          totalPrincipal: true,
+          totalInterest: true,
+          totalFee: true,
+          totalPeriods: true,
+          scheduleItems: {
+            orderBy: { dueDate: "asc" },
+            select: {
+              id: true,
+              dueDate: true,
+              totalDue: true,
+              remaining: true,
+              status: true,
+              periodNumber: true,
+            },
+          },
+        },
+      })
+    : [];
+
+  const pendingReceive = applications.filter((x) => x.disbursement?.status === "PAID");
+  const disbursedTotal = applications.reduce((acc, x) => {
+    if (!x.disbursement) return acc;
+    return acc + Number(x.disbursement.netAmount);
+  }, 0);
+
+  const nearestItem = plans
+    .flatMap((p) => p.scheduleItems)
+    .filter((x) => x.status === "PENDING")
+    .sort((a, b) => +new Date(a.dueDate) - +new Date(b.dueDate))[0];
+
+  const nearestDueAmount = nearestItem ? Number(nearestItem.remaining || nearestItem.totalDue) : 0;
+
   return (
     <div className="space-y-6">
       <header>
@@ -52,14 +115,14 @@ export default async function ClientDashboardPage() {
           <div>
             <h3 className="font-medium text-slate-500 text-sm">当前借款状态</h3>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-slate-900">无借款</span>
+              <span className="text-3xl font-bold text-slate-900">{applications.length > 0 ? `${applications.length} 笔` : "无借款"}</span>
             </div>
-            <p className="mt-1 text-xs text-slate-400">目前没有正在进行的借款</p>
+            <p className="mt-1 text-xs text-slate-400">累计实收 ¥ {disbursedTotal.toFixed(2)}</p>
           </div>
           <div className="mt-4">
-             <span className="inline-flex items-center text-sm font-medium text-blue-600 cursor-pointer hover:underline">
-               查看历史记录 &rarr;
-             </span>
+             <Link href="/client/dashboard" className="inline-flex items-center text-sm font-medium text-blue-600 hover:underline">
+               刷新数据 &rarr;
+             </Link>
           </div>
         </div>
 
@@ -68,14 +131,12 @@ export default async function ClientDashboardPage() {
            <div>
             <h3 className="font-medium text-slate-500 text-sm">本期应还</h3>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-slate-900">¥ 0.00</span>
+              <span className="text-3xl font-bold text-slate-900">¥ {nearestDueAmount.toFixed(2)}</span>
             </div>
-            <p className="mt-1 text-xs text-slate-400">暂无需还款项</p>
+            <p className="mt-1 text-xs text-slate-400">{nearestItem ? `第 ${nearestItem.periodNumber} 期 · 到期 ${new Date(nearestItem.dueDate).toLocaleDateString()}` : "暂无需还款项"}</p>
           </div>
           <div className="mt-4">
-            <button disabled className="text-sm font-medium text-slate-400 cursor-not-allowed">
-              立即还款
-            </button>
+            <span className="text-sm font-medium text-slate-500">还款入口已就绪</span>
           </div>
         </div>
 
@@ -85,7 +146,7 @@ export default async function ClientDashboardPage() {
                <IconDoc />
             </div>
             <h3 className="font-semibold text-slate-900">申请借款</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-3">暂未开放线上自主申请</p>
+            <p className="text-xs text-slate-500 mt-1 mb-3">待确认收款 {pendingReceive.length} 笔</p>
          </div>
       </div>
 
@@ -93,13 +154,37 @@ export default async function ClientDashboardPage() {
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         <div className="border-b border-slate-100 px-6 py-4 flex items-center justify-between">
            <h3 className="font-semibold text-slate-900">最近动态</h3>
-           <Link href="#" className="text-sm text-blue-600 hover:text-blue-700">查看全部</Link>
+           <span className="text-sm text-slate-500">共 {applications.length} 条借款记录</span>
         </div>
-        <div className="p-6 text-center text-slate-500 text-sm py-12">
-           <div className="bg-slate-50 rounded-full h-12 w-12 flex items-center justify-center mx-auto mb-3">
-             <IconClock />
-           </div>
-           暂无最新动态
+        <div className="divide-y divide-slate-100">
+          {applications.length === 0 ? (
+            <div className="p-6 text-center text-slate-500 text-sm py-12">
+              <div className="bg-slate-50 rounded-full h-12 w-12 flex items-center justify-center mx-auto mb-3">
+                <IconClock />
+              </div>
+              暂无借款记录
+            </div>
+          ) : (
+            applications.map((x) => (
+              <div key={x.id} className="p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-slate-900">{x.applicationNo} · {x.product.name}</p>
+                  <p className="text-xs text-slate-500 mt-1">申请金额 ¥ {Number(x.amount).toFixed(2)} · 状态 {x.status}</p>
+                  {x.disbursement ? (
+                    <p className="text-xs text-slate-500 mt-1">放款单 {x.disbursement.disbursementNo} · {x.disbursement.status} · 净额 ¥ {Number(x.disbursement.netAmount).toFixed(2)}</p>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  {x.disbursement?.status === "PAID" ? (
+                    <ConfirmReceivedButton disbursementId={x.disbursement.id} />
+                  ) : null}
+                  {x.contracts[0]?.id ? (
+                    <Link href={`/client/sign/contract/${x.contracts[0].id}`} className="text-xs text-blue-600 hover:underline">查看合同</Link>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
