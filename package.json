@@ -15,7 +15,8 @@
   },
   "scripts": {
     "dev": "npx next dev -p 3001",
-    "build": "npx next build",
+    "build": "prisma generate && npx next build",
+    "postinstall": "prisma generate",
     "start": "npx next start -p 3001",
     "lint": "npx next lint",
     "db:generate": "prisma generate",
