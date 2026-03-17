@@ -59,7 +59,17 @@ export default async function ClientRepaymentsPage() {
     : [];
 
   const typedRepayments = repayments as RepaymentLite[];
-  const pending = typedRepayments.filter((x: RepaymentLite) => x.status === "PENDING_CONFIRM");
+  const pending = typedRepayments
+    .filter((x: RepaymentLite) => x.status === "PENDING_CONFIRM")
+    .map((x: RepaymentLite) => {
+      const application = appMap.get(planMap.get(x.plan.id)?.applicationId ?? "") ?? null;
+      return {
+        id: x.id,
+        repaymentNo: x.repaymentNo,
+        amount: Number(x.amount),
+        application,
+      };
+    });
 
   const statusText: Record<string, string> = {
     PENDING: "待处理",
@@ -94,15 +104,10 @@ export default async function ClientRepaymentsPage() {
           <div className="divide-y divide-slate-100">
             {pending.map((x) => (
               <div key={x.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-                {(() => {
-                  const app = appMap.get(planMap.get(x.plan.id)?.applicationId ?? "");
-                  return (
                 <div>
                   <p className="text-sm font-medium text-slate-900">{x.repaymentNo} · ¥ {Number(x.amount).toFixed(2)}</p>
-                  <p className="text-xs text-slate-500 mt-1">申请 {app?.applicationNo ?? "-"} · {app?.product.name ?? "-"}</p>
+                  <p className="text-xs text-slate-500 mt-1">申请 {x.application?.applicationNo ?? "-"} · {x.application?.product.name ?? "-"}</p>
                 </div>
-                  );
-                })()}
                 <Link href={`/client/sign/repayment/${x.id}`} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">去确认</Link>
               </div>
             ))}
