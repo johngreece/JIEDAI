@@ -82,19 +82,19 @@ export default async function ClientRepaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <header>
+      <header className="panel-soft rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold text-slate-900">我的还款</h1>
-        <p className="mt-1 text-sm text-slate-500">待确认还款与历史记录</p>
+        <p className="mt-1 text-sm text-slate-600">待确认还款与历史记录</p>
       </header>
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">总还款单</p><p className="text-xl font-semibold">{repayments.length}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">待我确认</p><p className="text-xl font-semibold text-amber-600">{pending.length}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">已确认</p><p className="text-xl font-semibold text-emerald-600">{typedRepayments.filter((x: RepaymentLite) => x.status === "CONFIRMED").length}</p></div>
-        <div className="rounded-xl border bg-white p-4"><p className="text-xs text-slate-500">争议/复核</p><p className="text-xl font-semibold text-red-600">{typedRepayments.filter((x: RepaymentLite) => x.status === "REJECTED" || x.status === "MANUAL_REVIEW").length}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">总还款单</p><p className="text-xl font-semibold">{repayments.length}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">待我确认</p><p className="text-xl font-semibold text-amber-600">{pending.length}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">已确认</p><p className="text-xl font-semibold text-emerald-600">{typedRepayments.filter((x: RepaymentLite) => x.status === "CONFIRMED").length}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">争议/复核</p><p className="text-xl font-semibold text-red-600">{typedRepayments.filter((x: RepaymentLite) => x.status === "REJECTED" || x.status === "MANUAL_REVIEW").length}</p></div>
       </section>
 
-      <section className="rounded-xl border bg-white overflow-hidden">
+      <section className="table-shell overflow-hidden rounded-xl">
         <div className="px-4 py-3 border-b border-slate-100">
           <h2 className="font-semibold text-slate-900">待确认优先处理</h2>
         </div>
@@ -115,7 +115,7 @@ export default async function ClientRepaymentsPage() {
         )}
       </section>
 
-      <section className="rounded-xl border bg-white overflow-hidden">
+      <section className="table-shell overflow-hidden rounded-xl">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">

@@ -100,15 +100,15 @@ export default async function ClientDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <header>
+      <header className="panel-soft rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">我的借款</h1>
-        <p className="mt-1 text-sm text-slate-500">欢迎回来，{session.name}。</p>
+        <p className="mt-1 text-sm text-slate-600">欢迎回来，{session.name}。</p>
       </header>
 
       {/* 状态卡片 */}
       <div className="grid gap-6 md:grid-cols-3">
         {/* Loan Status Card */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between h-40 relative overflow-hidden group">
+        <div className="stat-tile flex h-40 flex-col justify-between overflow-hidden rounded-2xl p-6 relative group">
           <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
             <IconMoney />
           </div>
@@ -127,7 +127,7 @@ export default async function ClientDashboardPage() {
         </div>
 
         {/* Repayment Status Card */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between h-40">
+        <div className="stat-tile flex h-40 flex-col justify-between rounded-2xl p-6">
            <div>
             <h3 className="font-medium text-slate-500 text-sm">本期应还</h3>
             <div className="mt-2 flex items-baseline gap-2">
@@ -141,7 +141,7 @@ export default async function ClientDashboardPage() {
         </div>
 
         {/* Action Card */}
-         <div className="rounded-2xl border border-blue-100 bg-blue-50 p-6 shadow-sm flex flex-col justify-center items-center text-center h-40">
+         <div className="stat-tile flex h-40 flex-col items-center justify-center rounded-2xl border-blue-100 bg-blue-50 p-6 text-center">
             <div className="mb-3 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
                <IconDoc />
             </div>
@@ -151,7 +151,7 @@ export default async function ClientDashboardPage() {
       </div>
 
       {/* Recent Activity List */}
-      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="table-shell overflow-hidden rounded-2xl">
         <div className="border-b border-slate-100 px-6 py-4 flex items-center justify-between">
            <h3 className="font-semibold text-slate-900">最近动态</h3>
            <span className="text-sm text-slate-500">共 {applications.length} 条借款记录</span>

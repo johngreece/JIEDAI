@@ -70,19 +70,19 @@ export default async function ClientRepaymentPlansPage() {
 
   return (
     <div className="space-y-6">
-      <header>
+      <header className="panel-soft rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold text-slate-900">还款计划</h1>
-        <p className="mt-1 text-sm text-slate-500">查看每笔借款的分期与到期安排</p>
+        <p className="mt-1 text-sm text-slate-600">查看每笔借款的分期与到期安排</p>
       </header>
 
       {plans.length === 0 ? (
-        <div className="rounded-xl border bg-white p-6 text-sm text-slate-500">暂无还款计划。</div>
+        <div className="panel-soft rounded-xl p-6 text-sm text-slate-500">暂无还款计划。</div>
       ) : (
         <div className="space-y-4">
           {(plans as PlanLite[]).map((p: PlanLite) => {
             const app = appMap.get(p.applicationId);
             return (
-              <section key={p.id} className="rounded-xl border bg-white overflow-hidden">
+              <section key={p.id} className="table-shell overflow-hidden rounded-xl">
                 <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">{p.planNo} · {app?.applicationNo ?? p.applicationId}</p>

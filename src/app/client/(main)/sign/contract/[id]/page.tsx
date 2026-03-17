@@ -65,15 +65,15 @@ export default function ClientContractSignPage() {
   }
 
   return (
-    <div className="p-4 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-4">
+    <div className="mx-auto max-w-2xl space-y-4 p-4">
+      <div className="panel-soft mb-4 flex items-center justify-between rounded-xl px-4 py-3">
         <Link href="/client/dashboard" className="text-sm text-slate-500 hover:underline">返回</Link>
         <span className="text-sm text-slate-600">合同号：{contract.contractNo}</span>
       </div>
-      <div className="rounded-lg border bg-white p-4 mb-4 max-h-[40vh] overflow-auto">
+      <div className="table-shell mb-4 max-h-[40vh] overflow-auto rounded-lg p-4">
         <div dangerouslySetInnerHTML={{ __html: contract.content || "" }} className="prose prose-sm max-w-none" />
       </div>
-      <div className="rounded-lg border bg-white p-4 mb-4">
+      <div className="panel-soft mb-4 rounded-lg p-4">
         <p className="text-sm font-medium text-slate-700 mb-2">手写签字（请在下框内签名）</p>
         <SignCanvas onDataUrl={setCanvasData} />
       </div>
@@ -82,7 +82,7 @@ export default function ClientContractSignPage() {
         type="button"
         onClick={handleSign}
         disabled={signing}
-        className="w-full rounded-lg bg-blue-600 text-white py-3 font-medium hover:bg-blue-700 disabled:opacity-50"
+        className="w-full rounded-lg bg-blue-600 py-3 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
       >
         {signing ? "提交中…" : "确认签署"}
       </button>
