@@ -31,21 +31,24 @@ async function fetchSummary(): Promise<DashboardSummaryData> {
 const CARD_CONFIG: Array<{
   key: keyof DashboardSummaryData;
   label: string;
-  color: string;
-  format?: (v: string | number) => string;
+  description?: string;
+  icon?: (className: string) => JSX.Element;
+  trend?: string; // Mock trend for UI
 }> = [
-  { key: "todayDisbursement", label: "今日放款", color: "bg-emerald-50 border-emerald-200" },
-  { key: "todayRepayment", label: "今日收款", color: "bg-blue-50 border-blue-200" },
-  { key: "todayOverdue", label: "今日逾期金额", color: "bg-amber-50 border-amber-200" },
-  { key: "outstandingBalance", label: "在贷余额", color: "bg-slate-50 border-slate-200" },
-  { key: "customerCount", label: "客户总数", color: "bg-slate-50 border-slate-200", format: (v) => String(v) },
-  { key: "activeLoanCount", label: "活跃借款客户数", color: "bg-slate-50 border-slate-200", format: (v) => String(v) },
-  { key: "overdueRate", label: "逾期率", color: "bg-amber-50 border-amber-200" },
-  { key: "funderBalance", label: "资金方余额", color: "bg-slate-50 border-slate-200" },
-  { key: "pendingConfirmRepayment", label: "待确认还款", color: "bg-orange-50 border-orange-200", format: (v) => String(v) },
-  { key: "pendingSignContract", label: "待签合同", color: "bg-orange-50 border-orange-200", format: (v) => String(v) },
-  { key: "pendingDisbursement", label: "待放款单", color: "bg-orange-50 border-orange-200", format: (v) => String(v) },
-  { key: "riskCustomerCount", label: "风险客户数", color: "bg-red-50 border-red-200", format: (v) => String(v) },
+  { key: "todayDisbursement", label: "今日放款", description: "¥" },
+  { key: "todayRepayment", label: "今日收款", description: "¥" },
+  { key: "todayOverdue", label: "今日逾期", description: "¥" },
+  { key: "outstandingBalance", label: "在贷余额", description: "¥ Total" },
+  
+  { key: "customerCount", label: "客户总数" },
+  { key: "activeLoanCount", label: "活跃客户" },
+  { key: "overdueRate", label: "逾期率" },
+  { key: "funderBalance", label: "资方余额" },
+
+  { key: "pendingConfirmRepayment", label: "待确认还款" },
+  { key: "pendingSignContract", label: "待签合同" },
+  { key: "pendingDisbursement", label: "待放款" },
+  { key: "riskCustomerCount", label: "风险客户" },
 ];
 
 export function DashboardSummary() {
@@ -61,33 +64,28 @@ export function DashboardSummary() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" aria-busy="true">
-        {CARD_CONFIG.map(({ label, color }) => (
-          <div
-            key={label}
-            className={`rounded-lg border p-4 ${color} animate-pulse-placeholder`}
-            aria-hidden="true"
-          >
-            <div className="text-sm text-slate-500">{label}</div>
-            <div className="h-7 bg-slate-200 rounded mt-2 w-20" />
-          </div>
-        ))}
-      </div>
-    );
+     return (
+       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+         {[...Array(8)].map((_, i) => (
+           <div key={i} className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm animate-pulse">
+             <div className="h-4 w-1/2 rounded bg-slate-100 mb-4"></div>
+             <div className="h-8 w-3/4 rounded bg-slate-100"></div>
+           </div>
+         ))}
+       </div>
+     )
   }
 
   if (error) {
     return (
-      <div
-        className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-700"
-        role="alert"
-      >
-        <p className="font-medium">数据加载失败</p>
-        <p className="text-sm mt-1">{error}</p>
-        <p className="text-sm mt-2 text-slate-600">
-          请确认已配置数据库（.env 中 DATABASE_URL）并执行 npm run db:push。
-        </p>
+      <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-700">
+        <div className="flex items-center gap-3">
+           <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+           </svg>
+           <h3 className="font-medium">无法加载数据</h3>
+        </div>
+        <p className="mt-2 text-sm text-red-600/90">{error}</p>
       </div>
     );
   }
@@ -95,9 +93,35 @@ export function DashboardSummary() {
   if (!data) return null;
 
   return (
-    <div
-      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-      role="region"
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {CARD_CONFIG.map((card) => {
+        const value = data[card.key];
+        // Simple highlight logic
+        const highlight = card.key.includes("pending") && Number(value) > 0;
+        const isMoney = card.description?.includes("¥");
+
+        return (
+          <div
+            key={card.key}
+            className={`rounded-xl border bg-white p-6 shadow-sm transition-all hover:shadow-md ${
+              highlight ? "border-orange-200 bg-orange-50/30" : "border-slate-200"
+            }`}
+          >
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium text-slate-500">{card.label}</span>
+              <div className="flex items-baseline gap-2">
+                 <span className={`text-2xl font-bold tracking-tight ${highlight ? "text-orange-600" : "text-slate-900"}`}>
+                   {value}
+                 </span>
+                 {isMoney && <span className="text-xs font-medium text-slate-400">RMB</span>}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
       aria-label="数据概览"
     >
       {CARD_CONFIG.map(({ key, label, color, format }) => {

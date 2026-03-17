@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { getAdminSession } from "@/lib/auth";
+import { AdminSidebar } from "@/components/admin/Sidebar";
 
 export default async function AdminLayout({
   children,
@@ -7,32 +7,24 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const session = await getAdminSession();
+  
+  // Safe default for unauthenticated layout (though middleware usually catches this)
+  const username = session?.username ?? "Guest";
+  const userRole = session?.roles ?? [];
 
   return (
-    <div className="min-h-screen flex">
+    <div className="flex h-screen overflow-hidden bg-slate-50">
       {/* 侧边栏 */}
-      <aside className="w-56 bg-slate-800 text-white flex flex-col shrink-0">
-        <div className="p-4 border-b border-slate-700">
-          <h2 className="font-semibold text-lg">管理后台</h2>
-          <p className="text-xs text-slate-400 mt-1">借款业务管理系统</p>
-        </div>
-        <nav className="flex-1 p-3 space-y-1" aria-label="管理端导航">
-          <Link href="/admin/dashboard" className="admin-nav-link">工作台</Link>
-          <Link href="/admin/register" className="admin-nav-link">客户登记</Link>
-          {session?.roles?.includes("super_admin") && (
-            <Link href="/admin/settings/loan-fee" className="admin-nav-link">费率配置</Link>
-          )}
-        </nav>
-        <div className="p-3 border-t border-slate-700">
-          {session ? (
-            <span className="text-sm text-slate-300">{session.username}</span>
-          ) : (
-            <Link href="/admin/login" className="text-sm text-blue-300 hover:underline">登录</Link>
-          )}
-        </div>
+      <aside className="hidden lg:flex lg:w-72 lg:flex-col fixed insert-y-0 z-50 h-full">
+        <AdminSidebar userRole={userRole} username={username} />
       </aside>
-      {/* 主内容 */}
-      <main className="flex-1 bg-slate-50 overflow-auto">{children}</main>
+
+      {/* 主内容区域 - 需要留出Sidebar的宽度 */}
+      <main className="flex-1 lg:pl-72 flex flex-col min-w-0 overflow-auto h-full w-full">
+        <div className="grow p-4 md:p-8 lg:p-10 max-w-7xl mx-auto w-full">
+          {children}
+        </div>
+      </main>
     </div>
   );
 }
