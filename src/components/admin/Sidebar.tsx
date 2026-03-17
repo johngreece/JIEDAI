@@ -67,14 +67,14 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[], user
   }
 
   return (
-    <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-slate-900 px-6 pb-4">
-      <div className="flex h-16 shrink-0 items-center justify-center border-b border-slate-800">
-        <Link href="/" className="flex items-center gap-2 font-bold text-white text-xl tracking-wider hover:opacity-80 transition-opacity">
-           <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center text-sm shadow-md shadow-blue-500/20">D</div>
-           <span>DAIKUAN</span>
+    <div className="flex grow flex-col gap-y-5 overflow-y-auto border-r border-white/10 bg-slate-950/80 px-5 pb-4 backdrop-blur-xl">
+      <div className="mt-3 flex h-16 shrink-0 items-center justify-center border-b border-white/10">
+        <Link href="/" className="flex items-center gap-2 font-semibold text-white text-lg tracking-wide hover:opacity-90 transition-opacity">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-200/30 bg-cyan-300/20 text-xs text-cyan-100">DK</div>
+          <span>DAIKUAN</span>
         </Link>
       </div>
-      <nav className="flex flex-1 flex-col mt-4">
+      <nav className="mt-3 flex flex-1 flex-col">
         <ul role="list" className="flex flex-1 flex-col gap-y-7">
           <li>
             <ul role="list" className="-mx-2 space-y-1">
@@ -86,12 +86,12 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[], user
                       href={item.href}
                       className={classNames(
                         isActive
-                          ? "bg-slate-800 text-white shadow-sm shadow-slate-950/50"
-                          : "text-slate-400 hover:bg-slate-800 hover:text-white transition-colors duration-200",
+                          ? "bg-white/15 text-white shadow-sm shadow-slate-950/50"
+                          : "text-slate-300/80 hover:bg-white/10 hover:text-white transition-colors duration-200",
                         "group flex gap-x-3 rounded-lg p-2 text-sm leading-6 font-semibold"
                       )}
                     >
-                      <item.icon className="h-6 w-6 shrink-0" />
+                      <item.icon className="h-5 w-5 shrink-0" />
                       {item.name}
                     </Link>
                   </li>
@@ -100,13 +100,13 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[], user
             </ul>
           </li>
           <li className="mt-auto">
-            <div className="flex items-center gap-x-4 py-3 text-sm font-semibold leading-6 text-white bg-slate-800/50 rounded-lg px-4 border border-slate-700/50 backdrop-blur-sm">
-              <div className="h-8 w-8 rounded-full bg-slate-700 flex items-center justify-center text-xs ring-2 ring-slate-800 text-slate-300">
+            <div className="flex items-center gap-x-3 rounded-xl border border-white/10 bg-white/10 px-3 py-3 text-sm font-semibold leading-6 text-white backdrop-blur-sm">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700/80 text-xs text-slate-200 ring-1 ring-white/15">
                 {username ? username.charAt(0).toUpperCase() : "A"}
               </div>
               <span className="sr-only">Your profile</span>
               <span aria-hidden="true" className="truncate max-w-[80px]">{username}</span>
-              <Link href="/admin/login" className="ml-auto text-slate-400 hover:text-white transition-colors p-1 rounded-full hover:bg-slate-700" title="退出登录">
+              <Link href="/admin/login" className="ml-auto rounded-full p-1 text-slate-300 transition-colors hover:bg-white/15 hover:text-white" title="退出登录">
                  <LogoutIcon className="h-5 w-5" />
               </Link>
             </div>
