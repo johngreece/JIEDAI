@@ -34,14 +34,14 @@ export default function ClientLoginPage() {
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950 px-4 py-10 text-slate-100">
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-slate-950 px-4 py-10 text-slate-100">
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -left-24 top-10 h-72 w-72 rounded-full bg-cyan-400/25 blur-3xl" />
         <div className="absolute -right-20 bottom-0 h-80 w-80 rounded-full bg-blue-500/20 blur-3xl" />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.10),transparent_35%),radial-gradient(circle_at_80%_70%,rgba(125,211,252,0.15),transparent_40%)]" />
       </div>
 
-      <div className="relative mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-md items-center">
+      <div className="relative w-full max-w-md">
         <div className="glass-login-card fade-in-up w-full rounded-3xl p-7 md:p-8">
           <div className="mb-7 text-center fade-in-up-delay">
             <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-full border border-cyan-300/40 bg-cyan-300/20">
@@ -126,9 +126,9 @@ export default function ClientLoginPage() {
             </Link>
           </div>
         </div>
-      </div>
 
-      <p className="relative mt-3 text-center text-xs text-slate-300/75">&copy; {new Date().getFullYear()} Jiedai System</p>
+        <p className="mt-6 text-center text-xs text-slate-300/75">&copy; {new Date().getFullYear()} Jiedai System</p>
+      </div>
     </div>
   );
 }
