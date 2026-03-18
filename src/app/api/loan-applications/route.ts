@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
+import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -28,22 +29,28 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? undefined;
+  const pagination = parsePagination(url);
 
-  const list = await prisma.loanApplication.findMany({
-    where: {
-      deletedAt: null,
-      ...(status ? { status } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    include: {
-      customer: { select: { id: true, name: true, phone: true } },
-      product: { select: { id: true, name: true } },
-    },
-    take: 100,
-  });
+  const where = {
+    deletedAt: null,
+    ...(status ? { status } : {}),
+  };
 
-  return NextResponse.json({
-    items: list.map((x: {
+  const [list, total] = await Promise.all([
+    prisma.loanApplication.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        product: { select: { id: true, name: true } },
+      },
+      ...toPrismaArgs(pagination),
+    }),
+    prisma.loanApplication.count({ where }),
+  ]);
+
+  return NextResponse.json(paginatedResponse(
+    list.map((x: {
       id: string;
       applicationNo: string;
       status: string;
@@ -64,7 +71,9 @@ export async function GET(req: Request) {
       product: x.product,
       createdAt: x.createdAt,
     })),
-  });
+    total,
+    pagination,
+  ));
 }
 
 export async function POST(req: Request) {
@@ -119,7 +128,7 @@ export async function POST(req: Request) {
       amount: Number(created.amount),
     },
     changeSummary: "创建借款申请",
-  }).catch(() => undefined);
+  }).catch((e) => console.error("[AuditLog] loan-application-create", e));
 
   return NextResponse.json({
     id: created.id,

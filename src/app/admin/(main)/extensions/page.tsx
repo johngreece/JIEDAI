@@ -1,0 +1,138 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+type Extension = {
+  id: string;
+  applicationId: string;
+  extensionDays: number;
+  extensionFee: number;
+  applyReason: string | null;
+  status: string;
+  createdAt: string;
+  application?: { applicationNo: string; customer?: { name: string } };
+};
+
+const STATUS_MAP: Record<string, { label: string; cls: string }> = {
+  PENDING: { label: "待审批", cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  APPROVED: { label: "已批准", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  REJECTED: { label: "已拒绝", cls: "bg-red-50 text-red-700 border-red-200" },
+};
+
+export default function ExtensionsPage() {
+  const [items, setItems] = useState<Extension[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(page), pageSize: "20" });
+      if (status) params.set("status", status);
+      const res = await fetch(`/api/extensions?${params}`);
+      const data = await res.json();
+      setItems(data.items ?? []);
+      setTotal(data.total ?? 0);
+    } catch { /* */ } finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(); }, [page, status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function approve(id: string, action: "APPROVE" | "REJECT") {
+    setActing(id);
+    try {
+      const res = await fetch(`/api/extensions/${id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (!res.ok) alert(data.error ?? "操作失败");
+      load();
+    } catch { alert("操作失败"); } finally { setActing(null); }
+  }
+
+  const totalPages = Math.ceil(total / 20);
+
+  return (
+    <div className="space-y-6">
+      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">展期管理</h1>
+          <p className="mt-1 text-sm text-slate-600">审批和管理借款展期申请</p>
+        </div>
+        <div className="flex gap-2">
+          <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
+            <option value="">全部状态</option>
+            <option value="PENDING">待审批</option>
+            <option value="APPROVED">已批准</option>
+            <option value="REJECTED">已拒绝</option>
+          </select>
+          <button onClick={load} className="btn-soft rounded-lg px-3 py-2 text-sm">刷新</button>
+        </div>
+      </header>
+
+      <section className="table-shell overflow-hidden rounded-xl">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
+                <th className="px-4 py-3">申请编号</th>
+                <th className="px-4 py-3">客户</th>
+                <th className="px-4 py-3">展期天数</th>
+                <th className="px-4 py-3">展期费用</th>
+                <th className="px-4 py-3">原因</th>
+                <th className="px-4 py-3">状态</th>
+                <th className="px-4 py-3">申请时间</th>
+                <th className="px-4 py-3">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
+              ) : items.length === 0 ? (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">暂无展期记录</td></tr>
+              ) : items.map((ext) => {
+                const s = STATUS_MAP[ext.status] ?? { label: ext.status, cls: "bg-slate-50 text-slate-600 border-slate-200" };
+                return (
+                  <tr key={ext.id} className="hover:bg-slate-50/50">
+                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{ext.application?.applicationNo ?? ext.applicationId.slice(0, 8)}</td>
+                    <td className="px-4 py-3 text-slate-900">{ext.application?.customer?.name ?? "-"}</td>
+                    <td className="px-4 py-3 text-slate-700">{ext.extensionDays} 天</td>
+                    <td className="px-4 py-3 text-slate-700">¥{ext.extensionFee.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{ext.applyReason ?? "-"}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">{new Date(ext.createdAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">
+                      {ext.status === "PENDING" ? (
+                        <div className="flex gap-2">
+                          <button disabled={acting === ext.id} onClick={() => approve(ext.id, "APPROVE")} className="text-emerald-600 hover:underline text-sm disabled:opacity-50">批准</button>
+                          <button disabled={acting === ext.id} onClick={() => approve(ext.id, "REJECT")} className="text-red-600 hover:underline text-sm disabled:opacity-50">拒绝</button>
+                        </div>
+                      ) : "-"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
+            <span className="text-slate-500">共 {total} 条</span>
+            <div className="flex gap-1">
+              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border px-2 py-1 disabled:opacity-30">上一页</button>
+              <span className="px-2 py-1 text-slate-600">{page}/{totalPages}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="rounded border px-2 py-1 disabled:opacity-30">下一页</button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

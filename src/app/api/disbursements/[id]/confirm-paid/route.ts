@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
+import { recordDisbursementLedger } from "@/services/ledger.service";
+import { generateSchedule } from "@/services/schedule.service";
 import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -53,36 +55,78 @@ export async function POST(
     });
 
     if (!existingPlan) {
+      // 查询产品配置与定价规则
+      const application = await tx.loanApplication.findUnique({
+        where: { id: disbursement.applicationId },
+        include: { product: { include: { pricingRules: { where: { isActive: true }, orderBy: { priority: "desc" } } } } },
+      });
+
+      // 从定价规则中获取利率（优先取 INTEREST 类型规则）
+      let annualRate = 0;
+      if (application?.product?.pricingRules?.length) {
+        const interestRule = application.product.pricingRules.find(
+          (r) => r.ruleType === "INTEREST" || r.ruleType === "BASE_RATE"
+        ) ?? application.product.pricingRules[0];
+        annualRate = Number(interestRule.rateValue);
+      }
+
+      const schedule = generateSchedule({
+        principal: Number(disbursement.amount),
+        termValue: application!.termValue,
+        termUnit: (application!.termUnit as "MONTH" | "DAY"),
+        repaymentMethod: (application!.product.repaymentMethod as "ONE_TIME" | "EQUAL_INSTALLMENT" | "EQUAL_PRINCIPAL"),
+        annualRate,
+        feeAmount: Number(disbursement.feeAmount),
+        startDate: new Date(),
+      });
+
       const plan = await tx.repaymentPlan.create({
         data: {
           planNo: genPlanNo(),
           applicationId: disbursement.applicationId,
-          totalPrincipal: disbursement.amount,
-          totalInterest: 0,
-          totalFee: disbursement.feeAmount,
-          totalPeriods: 1,
+          totalPrincipal: schedule.totalPrincipal.toNumber(),
+          totalInterest: schedule.totalInterest.toNumber(),
+          totalFee: schedule.totalFee.toNumber(),
+          totalPeriods: schedule.totalPeriods,
+          rulesSnapshotJson: JSON.stringify({ annualRate, repaymentMethod: application!.product.repaymentMethod }),
           status: "ACTIVE",
         },
       });
 
-      const dueDate = new Date();
-      dueDate.setMonth(dueDate.getMonth() + 1);
-
-      const totalDue = Number(disbursement.amount) + Number(disbursement.feeAmount);
-      await tx.repaymentScheduleItem.create({
-        data: {
-          planId: plan.id,
-          periodNumber: 1,
-          dueDate,
-          principal: disbursement.amount,
-          interest: 0,
-          fee: disbursement.feeAmount,
-          totalDue,
-          remaining: totalDue,
-          status: "PENDING",
-        },
-      });
+      for (const item of schedule.items) {
+        await tx.repaymentScheduleItem.create({
+          data: {
+            planId: plan.id,
+            periodNumber: item.periodNumber,
+            dueDate: item.dueDate,
+            principal: item.principal.toNumber(),
+            interest: item.interest.toNumber(),
+            fee: item.fee.toNumber(),
+            totalDue: item.totalDue.toNumber(),
+            remaining: item.totalDue.toNumber(),
+            status: "PENDING",
+          },
+        });
+      }
     }
+
+    // 台账记账：放款
+    await recordDisbursementLedger(tx, {
+      disbursementId: disbursement.id,
+      amount: disbursement.amount,
+      feeAmount: disbursement.feeAmount,
+      customerId: current.application.customerId,
+      operatorId: session.sub,
+    });
+
+    // 更新资金账户余额
+    await tx.fundAccount.update({
+      where: { id: disbursement.fundAccountId },
+      data: {
+        balance: { decrement: disbursement.netAmount },
+        totalOutflow: { increment: disbursement.netAmount },
+      },
+    });
 
     return disbursement;
   });
@@ -95,7 +139,7 @@ export async function POST(
     oldValue: { status: current.status },
     newValue: { status: result.status, disbursedAt: result.disbursedAt?.toISOString() ?? null },
     changeSummary: "确认已打款",
-  }).catch(() => undefined);
+  }).catch((e) => console.error("[AuditLog] confirm-paid", e));
 
   return NextResponse.json({ id: result.id, status: result.status });
 }

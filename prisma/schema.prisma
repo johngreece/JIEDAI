@@ -9,8 +9,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -178,7 +179,7 @@ model FundAccount {
   funderId     String    @map("funder_id")
   accountName  String    @map("account_name")
   bankName     String    @map("bank_name")
-  accountNo    String    @map("account_no")
+  accountNo    String    @unique @map("account_no")
   balance      Decimal   @default(0) @db.Decimal(18, 4)
   totalInflow  Decimal   @default(0) @map("total_inflow") @db.Decimal(18, 4)
   totalOutflow Decimal   @default(0) @map("total_outflow") @db.Decimal(18, 4)

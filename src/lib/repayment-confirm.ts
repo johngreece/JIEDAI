@@ -7,6 +7,8 @@
 import { prisma } from "./prisma";
 import { Prisma } from "@prisma/client";
 import { writeAuditLog } from "./audit";
+import { recordRepaymentLedger } from "@/services/ledger.service";
+import { resolveOverdue } from "@/services/overdue.service";
 
 export type RepaymentStatus =
   | "PENDING"
@@ -72,6 +74,32 @@ export async function confirmRepayment(params: {
       where: { id: params.repaymentId },
       data: { status: newStatus },
     });
+
+    // 确认成功：写入台账 + 更新还款计划条目 + 解除逾期
+    if (params.action === "CONFIRMED") {
+      await recordRepaymentLedger(tx, {
+        repaymentId: params.repaymentId,
+        principalPart: repayment.principalPart,
+        interestPart: repayment.interestPart,
+        feePart: repayment.feePart,
+        penaltyPart: repayment.penaltyPart,
+        customerId: params.customerId,
+        operatorId: params.operatorId,
+      });
+
+      // 更新分配到的还款计划条目状态
+      const allocations = await tx.repaymentAllocation.findMany({
+        where: { repaymentId: params.repaymentId },
+      });
+      for (const alloc of allocations) {
+        await tx.repaymentScheduleItem.update({
+          where: { id: alloc.itemId },
+          data: { status: "PAID", paidAt: now },
+        });
+        // 解除该条目的逾期记录
+        await resolveOverdue(alloc.itemId);
+      }
+    }
   });
 
   await writeAuditLog({

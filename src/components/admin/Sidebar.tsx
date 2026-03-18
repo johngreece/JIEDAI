@@ -56,14 +56,27 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[], user
 
   const navigation = [
     { name: "工作台", href: "/admin/dashboard", icon: HomeIcon },
-    { name: "客户管理", href: "/admin/register", icon: UsersIcon },
+    { name: "客户管理", href: "/admin/customers", icon: UsersIcon },
     { name: "借款申请", href: "/admin/loan-applications", icon: DocIcon },
     { name: "放款管理", href: "/admin/disbursements", icon: CashIcon },
     { name: "还款管理", href: "/admin/repayments", icon: ReceiptIcon },
+    { name: "还款计划", href: "/admin/repayment-plans", icon: DocIcon },
+    { name: "展期管理", href: "/admin/extensions", icon: DocIcon },
+    { name: "贷款重组", href: "/admin/restructures", icon: DocIcon },
+    { name: "逾期管理", href: "/admin/overdue", icon: ReceiptIcon },
+    { name: "台账查询", href: "/admin/ledger", icon: CashIcon },
+    { name: "贷款产品", href: "/admin/products", icon: CogIcon },
+    { name: "合同模板", href: "/admin/templates", icon: DocIcon },
+    { name: "资金方", href: "/admin/funders", icon: CashIcon },
   ];
 
   if (userRole?.includes("super_admin")) {
-    navigation.push({ name: "系统配置", href: "/admin/settings/loan-fee", icon: CogIcon });
+    navigation.push(
+      { name: "用户管理", href: "/admin/users", icon: UsersIcon },
+      { name: "角色管理", href: "/admin/roles", icon: CogIcon },
+      { name: "审计日志", href: "/admin/audit-logs", icon: ReceiptIcon },
+      { name: "系统配置", href: "/admin/settings/loan-fee", icon: CogIcon },
+    );
   }
 
   return (

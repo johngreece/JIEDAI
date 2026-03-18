@@ -3,6 +3,8 @@ import { z } from "zod";
 import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
+import { getIdempotencyKey, checkIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -26,27 +28,33 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? undefined;
+  const pagination = parsePagination(url);
 
-  const list = await prisma.disbursement.findMany({
-    where: {
-      ...(status ? { status } : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    include: {
-      application: {
-        select: {
-          id: true,
-          applicationNo: true,
-          customer: { select: { id: true, name: true, phone: true } },
+  const where = {
+    ...(status ? { status } : {}),
+  };
+
+  const [list, total] = await Promise.all([
+    prisma.disbursement.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      include: {
+        application: {
+          select: {
+            id: true,
+            applicationNo: true,
+            customer: { select: { id: true, name: true, phone: true } },
+          },
         },
+        fundAccount: { select: { id: true, accountName: true, accountNo: true } },
       },
-      fundAccount: { select: { id: true, accountName: true, accountNo: true } },
-    },
-    take: 100,
-  });
+      ...toPrismaArgs(pagination),
+    }),
+    prisma.disbursement.count({ where }),
+  ]);
 
-  return NextResponse.json({
-    items: list.map((x: {
+  return NextResponse.json(paginatedResponse(
+    list.map((x: {
       id: string;
       disbursementNo: string;
       status: string;
@@ -71,7 +79,9 @@ export async function GET(req: Request) {
       application: x.application,
       fundAccount: x.fundAccount,
     })),
-  });
+    total,
+    pagination,
+  ));
 }
 
 export async function POST(req: Request) {
@@ -79,6 +89,11 @@ export async function POST(req: Request) {
   if (!session) {
     return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
   }
+
+  // 幂等性检查
+  const idemKey = getIdempotencyKey(req);
+  const cached = checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -137,7 +152,9 @@ export async function POST(req: Request) {
       netAmount: Number(created.netAmount),
     },
     changeSummary: "创建放款单",
-  }).catch(() => undefined);
+  }).catch((e) => console.error("[AuditLog] disbursement-create", e));
 
-  return NextResponse.json({ id: created.id, disbursementNo: created.disbursementNo, status: created.status });
+  const result = { id: created.id, disbursementNo: created.disbursementNo, status: created.status };
+  saveIdempotencyResult(idemKey, result);
+  return NextResponse.json(result);
 }
