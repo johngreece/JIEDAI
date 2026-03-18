@@ -3,15 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "postcss": {
-    "plugins": [
-      "next/dist/compiled/postcss-flexbugs-fixes",
-      ["next/dist/compiled/postcss-preset-env", {
-        "browsers": "defaults",
-        "autoprefixer": { "flexbox": "no-2009" },
-        "stage": 3,
-        "features": { "custom-properties": false }
-      }]
-    ]
+    "plugins": {
+      "tailwindcss": {},
+      "autoprefixer": {}
+    }
   },
   "scripts": {
     "dev": "npx next dev -p 3001",
