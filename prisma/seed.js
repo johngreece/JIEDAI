@@ -323,6 +323,81 @@ async function main() {
   }
   console.log("PricingRules seeded for FULL_AMOUNT_7D:", fullRules.length);
 
+  // ── 测试贷款申请（多种状态方便测试） ──
+  const adminUser = await prisma.user.findUnique({ where: { username: "admin" } });
+  const customer1 = await prisma.customer.findUnique({ where: { phone: "13800000001" } });
+  const customer2 = await prisma.customer.findUnique({ where: { phone: "13800000002" } });
+  const customer3 = await prisma.customer.findUnique({ where: { phone: "13800000003" } });
+  const customer4 = await prisma.customer.findUnique({ where: { phone: "13800000004" } });
+
+  if (adminUser && customer1 && customer2 && customer3 && customer4) {
+    const testApps = [
+      {
+        applicationNo: "LA-TEST-001",
+        customerId: customer1.id,
+        productId: product1.id,
+        amount: 6000,
+        termValue: 7,
+        termUnit: "DAY",
+        purpose: "经营周转",
+        status: "DRAFT",
+        createdById: adminUser.id,
+        remark: "测试 — 草稿状态，等待提交",
+      },
+      {
+        applicationNo: "LA-TEST-002",
+        customerId: customer2.id,
+        productId: product1.id,
+        amount: 10000,
+        termValue: 7,
+        termUnit: "DAY",
+        purpose: "进货资金",
+        status: "PENDING_RISK",
+        createdById: adminUser.id,
+        remark: "测试 — 等待风控审核",
+      },
+      {
+        applicationNo: "LA-TEST-003",
+        customerId: customer3.id,
+        productId: product1.id,
+        amount: 8000,
+        termValue: 7,
+        termUnit: "DAY",
+        purpose: "紧急周转",
+        status: "PENDING_APPROVAL",
+        riskScore: 75,
+        riskComment: "风控通过，客户信用良好",
+        createdById: adminUser.id,
+        remark: "测试 — 等待审批",
+      },
+      {
+        applicationNo: "LA-TEST-004",
+        customerId: customer4.id,
+        productId: product2.id,
+        amount: 5000,
+        termValue: 7,
+        termUnit: "DAY",
+        purpose: "店铺租金",
+        status: "APPROVED",
+        riskScore: 82,
+        riskComment: "风控通过",
+        totalApprovedAmount: 5000,
+        approvedAt: new Date(),
+        createdById: adminUser.id,
+        remark: "测试 — 已审批，等待放款",
+      },
+    ];
+
+    for (const app of testApps) {
+      await prisma.loanApplication.upsert({
+        where: { applicationNo: app.applicationNo },
+        create: app,
+        update: { status: app.status, riskScore: app.riskScore, riskComment: app.riskComment },
+      });
+    }
+    console.log("Test loan applications seeded:", testApps.length, "apps in 4 different states");
+  }
+
   // ── 资金方 & 资金账户 ──
   const funderPwd = await bcrypt.hash("funder123", 12);
   const funder = await prisma.funder.upsert({
