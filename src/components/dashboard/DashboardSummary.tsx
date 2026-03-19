@@ -32,7 +32,7 @@ function MiniBarChart({ data, valueKey, label, color = "#3b82f6" }: {
           return (
             <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group relative">
               <div className="absolute -top-6 left-1/2 -translate-x-1/2 hidden group-hover:block bg-slate-800 text-white text-[10px] px-1.5 py-0.5 rounded whitespace-nowrap z-10">
-                {d.date.slice(5)}: ¥{vals[i].toFixed(0)}
+                {d.date.slice(5)}: €{vals[i].toFixed(0)}
               </div>
               <div
                 className="w-full rounded-t transition-all"
@@ -248,7 +248,7 @@ export function DashboardSummary() {
 
   const fmt = (v: any) => {
     const n = Number(v || 0);
-    return n >= 10000 ? (n / 10000).toFixed(2) + "万" : n.toFixed(2);
+    return n >= 10000 ? n .toLocaleString() : n.toFixed(2);
   };
 
   const tabs = [
@@ -293,7 +293,7 @@ export function DashboardSummary() {
               </div>
               <div className="flex-1">
                 <div className="font-semibold">{smart.overdue.severe} 笔严重逾期（超14天）需立即处理</div>
-                <div className="text-sm text-white/80">逾期总额 ¥{fmt(smart.overdue.totalAmount)}，罚息 ¥{fmt(smart.overdue.totalPenalty)}</div>
+                <div className="text-sm text-white/80">逾期总额 €{fmt(smart.overdue.totalAmount)}，罚息 €{fmt(smart.overdue.totalPenalty)}</div>
               </div>
               <a href="/admin/repayments" className="px-4 py-2 bg-white text-red-600 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors whitespace-nowrap">
                 立即处理
@@ -303,17 +303,17 @@ export function DashboardSummary() {
 
           {/* 核心 KPI */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <KpiCard title="今日放款" value={`¥${fmt(data.todayDisbursement)}`}
-              sub={`${data.todayDisbursementCount}笔 · 费用¥${fmt(data.todayDisbursementFee)}`}
+            <KpiCard title="今日放款" value={`€${fmt(data.todayDisbursement)}`}
+              sub={`${data.todayDisbursementCount}笔 · 费用€${fmt(data.todayDisbursementFee)}`}
               icon={ICO.money} />
-            <KpiCard title="今日收款" value={`¥${fmt(data.todayRepayment)}`}
-              sub={`${data.todayRepaymentCount}笔 · 利润¥${fmt(data.todayRepaymentProfit)}`}
+            <KpiCard title="今日收款" value={`€${fmt(data.todayRepayment)}`}
+              sub={`${data.todayRepaymentCount}笔 · 利润€${fmt(data.todayRepaymentProfit)}`}
               icon={ICO.money} />
-            <KpiCard title="在贷余额" value={`¥${fmt(data.outstandingBalance)}`}
+            <KpiCard title="在贷余额" value={`€${fmt(data.outstandingBalance)}`}
               sub={`${data.outstandingCount}笔活跃计划`}
               icon={ICO.bank} />
-            <KpiCard title="资方余额" value={`¥${fmt(data.funderBalance)}`}
-              sub={`累计利润 ¥${fmt(data.funderTotalProfit)}`}
+            <KpiCard title="资方余额" value={`€${fmt(data.funderBalance)}`}
+              sub={`累计利润 €${fmt(data.funderTotalProfit)}`}
               icon={ICO.bank} />
           </div>
 
@@ -373,7 +373,7 @@ export function DashboardSummary() {
           <div className="grid gap-4 lg:grid-cols-2">
             <TimelineCard title="最近放款" items={(data.recentDisbursements || []).map((d: any) => ({
               id: d.id, label: d.disbursementNo, amount: d.amount, time: d.disbursedAt,
-              sub: `实发 ¥${fmt(d.netAmount)} · 费用 ¥${fmt(d.feeAmount)}`,
+              sub: `实发 €${fmt(d.netAmount)} · 费用 €${fmt(d.feeAmount)}`,
             }))} color="blue" />
             <TimelineCard title="最近还款" items={(data.recentRepayments || []).map((r: any) => ({
               id: r.id, label: r.repaymentNo, amount: r.amount, time: r.receivedAt,
@@ -443,8 +443,8 @@ export function DashboardSummary() {
                 <OverdueLevel label="轻度逾期 (1-7天)" count={smart.overdue?.mild || 0} color="#eab308" icon="🟡" desc="宽限期内可短信提醒" />
               </div>
               <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-4 text-sm">
-                <div><span className="text-slate-500">逾期总额</span> <b className="text-red-600 ml-2">¥{fmt(smart.overdue?.totalAmount)}</b></div>
-                <div><span className="text-slate-500">罚息累计</span> <b className="text-amber-600 ml-2">¥{fmt(smart.overdue?.totalPenalty)}</b></div>
+                <div><span className="text-slate-500">逾期总额</span> <b className="text-red-600 ml-2">€{fmt(smart.overdue?.totalAmount)}</b></div>
+                <div><span className="text-slate-500">罚息累计</span> <b className="text-amber-600 ml-2">€{fmt(smart.overdue?.totalPenalty)}</b></div>
               </div>
             </div>
 
@@ -464,8 +464,8 @@ export function DashboardSummary() {
                         <div className="text-[10px] text-slate-400">{c.phone} · {c.count}笔逾期 · 最长{c.maxDays}天</div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="text-sm font-bold text-red-600">¥{fmt(c.totalAmount)}</div>
-                        <div className="text-[10px] text-slate-400">罚息 ¥{Number(c.totalPenalty).toFixed(0)}</div>
+                        <div className="text-sm font-bold text-red-600">€{fmt(c.totalAmount)}</div>
+                        <div className="text-[10px] text-slate-400">罚息 €{Number(c.totalPenalty).toFixed(0)}</div>
                       </div>
                     </div>
                   ))}
@@ -532,7 +532,7 @@ export function DashboardSummary() {
               customers={(smart.customers?.topBorrowers || []).map((c: any) => ({
                 name: c.name, phone: c.phone,
                 tag: c.valueTier, tagColor: "emerald",
-                detail: `累计借款 ¥${fmt(c.totalBorrowed)}`,
+                detail: `累计借款 €${fmt(c.totalBorrowed)}`,
                 sub: `活跃 ${c.activeLoans} 笔 · ${c.riskLevel}`,
               }))} />
 
@@ -541,7 +541,7 @@ export function DashboardSummary() {
               customers={(smart.customers?.riskCustomers || []).map((c: any) => ({
                 name: c.name, phone: c.phone,
                 tag: `逾期${c.overdueCount}笔`, tagColor: "red",
-                detail: `累计借款 ¥${fmt(c.totalBorrowed)}`,
+                detail: `累计借款 €${fmt(c.totalBorrowed)}`,
                 sub: c.riskLevel,
               }))} />
 
@@ -550,7 +550,7 @@ export function DashboardSummary() {
               customers={(smart.customers?.potentialReborrow || []).map((c: any) => ({
                 name: c.name, phone: c.phone,
                 tag: `结清${c.settledLoans}笔`, tagColor: "blue",
-                detail: `历史借款 ¥${fmt(c.totalBorrowed)}`,
+                detail: `历史借款 €${fmt(c.totalBorrowed)}`,
                 sub: "无逾期 · 可主动营销",
               }))} />
           </div>
@@ -580,11 +580,11 @@ export function DashboardSummary() {
         <>
           {/* 核心财务 KPI */}
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <KpiCard title="累计放款" value={`¥${fmt(data.totalDisbursedAmount)}`}
+            <KpiCard title="累计放款" value={`€${fmt(data.totalDisbursedAmount)}`}
               sub={`${data.totalDisbursedCount}笔`} icon={ICO.money} />
-            <KpiCard title="累计收款" value={`¥${fmt(data.totalRepaidAmount)}`}
+            <KpiCard title="累计收款" value={`€${fmt(data.totalRepaidAmount)}`}
               sub={`${data.totalRepaidCount}笔`} icon={ICO.money} />
-            <KpiCard title="总利润" value={`¥${fmt(data.totalProfit)}`}
+            <KpiCard title="总利润" value={`€${fmt(data.totalProfit)}`}
               sub={`利润率 ${data.profitRate}%`} icon={ICO.profit} />
             <KpiCard title="资金周转率" value={`${data.turnoverRate}x`}
               sub={`结清 ${data.settledCount}笔`} icon={ICO.chart} />
@@ -595,14 +595,14 @@ export function DashboardSummary() {
             <div className="stat-tile rounded-xl p-5">
               <div className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">{ICO.bank} 收入结构明细</div>
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <Row label="砍头费收入" value={`¥${fmt(data.totalDisbursedFee)}`} accent="text-emerald-600" />
-                <Row label="实际出借" value={`¥${fmt(data.totalDisbursedNet)}`} />
-                <Row label="收回本金" value={`¥${fmt(data.totalRepaidPrincipal)}`} />
-                <Row label="利息收入" value={`¥${fmt(data.totalRepaidInterest)}`} accent="text-emerald-600" />
-                <Row label="费用收入" value={`¥${fmt(data.totalRepaidFee)}`} accent="text-emerald-600" />
-                <Row label="罚息收入" value={`¥${fmt(data.totalRepaidPenalty)}`} accent="text-amber-600" />
-                <Row label="逾期未收" value={`¥${fmt(data.overdueAmount)}`} accent="text-red-600" />
-                <Row label="7天内到期" value={`¥${fmt(data.upcomingDue7d)}`} highlight />
+                <Row label="砍头费收入" value={`€${fmt(data.totalDisbursedFee)}`} accent="text-emerald-600" />
+                <Row label="实际出借" value={`€${fmt(data.totalDisbursedNet)}`} />
+                <Row label="收回本金" value={`€${fmt(data.totalRepaidPrincipal)}`} />
+                <Row label="利息收入" value={`€${fmt(data.totalRepaidInterest)}`} accent="text-emerald-600" />
+                <Row label="费用收入" value={`€${fmt(data.totalRepaidFee)}`} accent="text-emerald-600" />
+                <Row label="罚息收入" value={`€${fmt(data.totalRepaidPenalty)}`} accent="text-amber-600" />
+                <Row label="逾期未收" value={`€${fmt(data.overdueAmount)}`} accent="text-red-600" />
+                <Row label="7天内到期" value={`€${fmt(data.upcomingDue7d)}`} highlight />
               </div>
             </div>
 
@@ -610,13 +610,13 @@ export function DashboardSummary() {
             <div className="stat-tile rounded-xl p-5">
               <div className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">{ICO.profit} 砍头息利润模型</div>
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
-                <Row label="砍头差额(放款-实发)" value={`¥${fmt(data.upfrontProfit)}`} accent="text-emerald-600" />
-                <Row label="还款利润(息+费+罚)" value={`¥${fmt(data.repaymentProfit)}`} accent="text-emerald-600" />
+                <Row label="砍头差额(放款-实发)" value={`€${fmt(data.upfrontProfit)}`} accent="text-emerald-600" />
+                <Row label="还款利润(息+费+罚)" value={`€${fmt(data.repaymentProfit)}`} accent="text-emerald-600" />
                 <div className="col-span-2 border-t border-slate-100 my-1" />
-                <Row label="总利润" value={`¥${fmt(data.totalProfit)}`} accent="text-emerald-700 font-bold" />
+                <Row label="总利润" value={`€${fmt(data.totalProfit)}`} accent="text-emerald-700 font-bold" />
                 <Row label="综合利润率" value={`${data.profitRate}%`} accent="text-blue-600 font-bold" />
                 <Row label="资金周转率" value={`${data.turnoverRate}x`} />
-                <Row label="逾期罚息贡献" value={`¥${fmt(data.totalPenaltyIncome)}`} />
+                <Row label="逾期罚息贡献" value={`€${fmt(data.totalPenaltyIncome)}`} />
               </div>
               <div className="mt-4 bg-amber-50 border border-amber-100 rounded-lg p-3">
                 <div className="text-xs font-semibold text-amber-800 mb-1">利益最大化建议</div>
@@ -677,7 +677,7 @@ function TimelineCard({ title, items, color }: {
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-700 truncate">{it.label}</span>
-                  <span className="text-slate-800 font-medium whitespace-nowrap">¥{Number(it.amount).toFixed(2)}</span>
+                  <span className="text-slate-800 font-medium whitespace-nowrap">€{Number(it.amount).toFixed(2)}</span>
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">
                   {new Date(it.time).toLocaleString("zh-CN")}
@@ -710,14 +710,14 @@ function AlertCard({ title, count, amount, color, items, fmt }: {
         <h3 className={`text-sm font-semibold ${c.text}`}>{title}</h3>
         <span className={`${c.badge} text-white text-xs font-bold px-2 py-0.5 rounded-full`}>{count}</span>
       </div>
-      <div className={`text-2xl font-bold ${c.text} mb-1`}>¥{fmt(amount)}</div>
+      <div className={`text-2xl font-bold ${c.text} mb-1`}>€{fmt(amount)}</div>
       <div className="text-xs text-slate-500">{count > 0 ? `${count} 笔待回收` : "暂无到期"}</div>
       {items.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-200/50 space-y-1.5">
           {items.slice(0, 3).map((item: any) => (
             <div key={item.id} className="flex justify-between text-xs">
               <span className="text-slate-600">第{item.periodNumber}期</span>
-              <span className="font-medium text-slate-700">¥{Number(item.amount).toFixed(0)}</span>
+              <span className="font-medium text-slate-700">€{Number(item.amount).toFixed(0)}</span>
             </div>
           ))}
           {items.length > 3 && <div className="text-[10px] text-slate-400 text-center">还有 {items.length - 3} 笔...</div>}

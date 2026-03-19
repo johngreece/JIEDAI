@@ -29,6 +29,7 @@ export function ClientHeader({ username }: { username: string }) {
     { name: "我的借款", href: "/client/dashboard" },
     { name: "我的还款", href: "/client/repayments" },
     { name: "还款计划", href: "/client/repayment-plans" },
+    { name: "我的证件", href: "/client/documents" },
   ];
 
   return (

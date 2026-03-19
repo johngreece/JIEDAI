@@ -112,9 +112,9 @@ export default function DisbursementDetailPage({ params }: { params: { id: strin
       </header>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">放款金额</p><p className="text-2xl font-bold">¥ {data.amount.toFixed(2)}</p></div>
-        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">手续费</p><p className="text-2xl font-bold">¥ {data.feeAmount.toFixed(2)}</p></div>
-        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">净到账</p><p className="text-2xl font-bold text-emerald-700">¥ {data.netAmount.toFixed(2)}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">放款金额</p><p className="text-2xl font-bold">€ {data.amount.toFixed(2)}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">手续费</p><p className="text-2xl font-bold">€ {data.feeAmount.toFixed(2)}</p></div>
+        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">净到账</p><p className="text-2xl font-bold text-emerald-700">€ {data.netAmount.toFixed(2)}</p></div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">
@@ -130,7 +130,7 @@ export default function DisbursementDetailPage({ params }: { params: { id: strin
           <p className="text-sm">资金方：{data.fundAccount.funder.name}</p>
           <p className="text-sm">账户：{data.fundAccount.accountName}</p>
           <p className="text-sm">账号：{data.fundAccount.accountNo}</p>
-          <p className="text-sm">当前余额：¥ {data.fundAccount.balance.toFixed(2)}</p>
+          <p className="text-sm">当前余额：€ {data.fundAccount.balance.toFixed(2)}</p>
         </div>
       </section>
 
@@ -143,9 +143,9 @@ export default function DisbursementDetailPage({ params }: { params: { id: strin
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
               <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">计划编号</p><p className="text-sm font-medium">{data.repaymentPlan.planNo}</p></div>
               <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">期数</p><p className="text-sm font-medium">{data.repaymentPlan.totalPeriods}</p></div>
-              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">本金</p><p className="text-sm font-medium">¥ {data.repaymentPlan.totalPrincipal.toFixed(2)}</p></div>
-              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">利息</p><p className="text-sm font-medium">¥ {data.repaymentPlan.totalInterest.toFixed(2)}</p></div>
-              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">费用</p><p className="text-sm font-medium">¥ {data.repaymentPlan.totalFee.toFixed(2)}</p></div>
+              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">本金</p><p className="text-sm font-medium">€ {data.repaymentPlan.totalPrincipal.toFixed(2)}</p></div>
+              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">利息</p><p className="text-sm font-medium">€ {data.repaymentPlan.totalInterest.toFixed(2)}</p></div>
+              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">费用</p><p className="text-sm font-medium">€ {data.repaymentPlan.totalFee.toFixed(2)}</p></div>
             </div>
 
             <div className="overflow-x-auto border rounded-lg">
@@ -169,11 +169,11 @@ export default function DisbursementDetailPage({ params }: { params: { id: strin
                     <tr key={x.id} className="border-t">
                       <td className="px-3 py-2">第 {x.periodNumber} 期</td>
                       <td className="px-3 py-2">{new Date(x.dueDate).toLocaleDateString()}</td>
-                      <td className="px-3 py-2">¥ {x.principal.toFixed(2)}</td>
-                      <td className="px-3 py-2">¥ {x.interest.toFixed(2)}</td>
-                      <td className="px-3 py-2">¥ {x.fee.toFixed(2)}</td>
-                      <td className="px-3 py-2">¥ {x.totalDue.toFixed(2)}</td>
-                      <td className="px-3 py-2">¥ {x.remaining.toFixed(2)}</td>
+                      <td className="px-3 py-2">€ {x.principal.toFixed(2)}</td>
+                      <td className="px-3 py-2">€ {x.interest.toFixed(2)}</td>
+                      <td className="px-3 py-2">€ {x.fee.toFixed(2)}</td>
+                      <td className="px-3 py-2">€ {x.totalDue.toFixed(2)}</td>
+                      <td className="px-3 py-2">€ {x.remaining.toFixed(2)}</td>
                       <td className="px-3 py-2"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(x.status)}`}>{getStatusLabel(x.status)}</span></td>
                     </tr>
                   ))}

@@ -98,8 +98,8 @@ export default function OverduePage() {
                     <td className="px-4 py-3 font-mono text-xs text-slate-700">{o.application?.applicationNo ?? o.applicationId.slice(0, 8)}</td>
                     <td className="px-4 py-3 text-slate-900">{o.application?.customer?.name ?? "-"}</td>
                     <td className="px-4 py-3 font-semibold text-red-600">{o.overdueDays} 天</td>
-                    <td className="px-4 py-3 text-slate-700">¥{o.overdueAmount.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-amber-700">¥{o.penaltyAmount.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-700">€{o.overdueAmount.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-amber-700">€{o.penaltyAmount.toLocaleString()}</td>
                     <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span></td>
                     <td className="px-4 py-3 text-slate-500">{new Date(o.createdAt).toLocaleDateString()}</td>
                   </tr>

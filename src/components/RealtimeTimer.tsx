@@ -205,7 +205,7 @@ export default function RealtimeTimer({
       <div className="px-6 py-5 border-b">
         <div className="text-sm text-gray-500 mb-1">当前应还金额</div>
         <div className="text-4xl font-bold text-gray-900 tabular-nums">
-          ¥{currentRepayment.toLocaleString("zh-CN", {
+          €{currentRepayment.toLocaleString("zh-CN", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           })}
@@ -228,11 +228,11 @@ export default function RealtimeTimer({
       <div className="px-6 py-4 grid grid-cols-2 gap-4 text-sm">
         <div>
           <span className="text-gray-500">借款本金</span>
-          <p className="font-medium">¥{data.principal.toLocaleString()}</p>
+          <p className="font-medium">€{data.principal.toLocaleString()}</p>
         </div>
         <div>
           <span className="text-gray-500">实际到手</span>
-          <p className="font-medium">¥{data.netDisbursement.toLocaleString()}</p>
+          <p className="font-medium">€{data.netDisbursement.toLocaleString()}</p>
         </div>
         <div>
           <span className="text-gray-500">通道</span>
@@ -276,7 +276,7 @@ export default function RealtimeTimer({
                   {tier.label} ({tier.ratePercent}%)
                 </span>
                 <span className="tabular-nums">
-                  ¥{repay.toLocaleString("zh-CN", {
+                  €{repay.toLocaleString("zh-CN", {
                     minimumFractionDigits: 2,
                   })}
                 </span>
@@ -302,19 +302,19 @@ export default function RealtimeTimer({
             <div>
               <span className="text-red-500">今日预估利息</span>
               <p className="font-medium text-red-700">
-                ¥{data.todayInterest.toLocaleString()}
+                €{data.todayInterest.toLocaleString()}
               </p>
             </div>
             <div>
               <span className="text-red-500">累计逾期罚息</span>
               <p className="font-medium text-red-700">
-                ¥{data.overduePenalty.toLocaleString()}
+                €{data.overduePenalty.toLocaleString()}
               </p>
             </div>
             <div>
               <span className="text-red-500">总应还金额</span>
               <p className="font-medium text-red-700">
-                ¥{data.totalRepayment.toLocaleString()}
+                €{data.totalRepayment.toLocaleString()}
               </p>
             </div>
           </div>

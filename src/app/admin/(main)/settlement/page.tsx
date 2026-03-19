@@ -9,7 +9,7 @@ const API = "/api/settlement";
 
 function fmt(v: any) {
   const n = Number(v || 0);
-  return n >= 10000 ? (n / 10000).toFixed(2) + "万" : n.toFixed(2);
+  return n >= 10000 ? n .toLocaleString() : n.toFixed(2);
 }
 
 export default function SettlementPage() {
@@ -134,9 +134,9 @@ function SummaryView({ data }: { data: D }) {
       icon: "💰",
       items: [
         { label: "放款笔数", value: data.disbursedCount },
-        { label: "放款总额", value: `¥${fmt(data.disbursedAmount)}` },
-        { label: "砍头费收入", value: `¥${fmt(data.disbursedFee)}`, accent: true },
-        { label: "实际出借", value: `¥${fmt(data.disbursedNet)}` },
+        { label: "放款总额", value: `€${fmt(data.disbursedAmount)}` },
+        { label: "砍头费收入", value: `€${fmt(data.disbursedFee)}`, accent: true },
+        { label: "实际出借", value: `€${fmt(data.disbursedNet)}` },
       ],
     },
     {
@@ -144,21 +144,21 @@ function SummaryView({ data }: { data: D }) {
       icon: "📥",
       items: [
         { label: "还款笔数", value: data.repaidCount },
-        { label: "还款总额", value: `¥${fmt(data.repaidAmount)}` },
-        { label: "回收本金", value: `¥${fmt(data.repaidPrincipal)}` },
-        { label: "利息收入", value: `¥${fmt(data.repaidInterest)}`, accent: true },
-        { label: "费用收入", value: `¥${fmt(data.repaidFee)}`, accent: true },
-        { label: "罚息收入", value: `¥${fmt(data.repaidPenalty)}`, accent: true },
+        { label: "还款总额", value: `€${fmt(data.repaidAmount)}` },
+        { label: "回收本金", value: `€${fmt(data.repaidPrincipal)}` },
+        { label: "利息收入", value: `€${fmt(data.repaidInterest)}`, accent: true },
+        { label: "费用收入", value: `€${fmt(data.repaidFee)}`, accent: true },
+        { label: "罚息收入", value: `€${fmt(data.repaidPenalty)}`, accent: true },
       ],
     },
     {
       title: "利润分析",
       icon: "📊",
       items: [
-        { label: "总收入", value: `¥${fmt(data.totalIncome)}`, accent: true },
-        { label: "总出借", value: `¥${fmt(data.totalOutflow)}` },
-        { label: "本金回收", value: `¥${fmt(data.capitalRecovery)}` },
-        { label: "净利润", value: `¥${fmt(data.netProfit)}`, accent: true },
+        { label: "总收入", value: `€${fmt(data.totalIncome)}`, accent: true },
+        { label: "总出借", value: `€${fmt(data.totalOutflow)}` },
+        { label: "本金回收", value: `€${fmt(data.capitalRecovery)}` },
+        { label: "净利润", value: `€${fmt(data.netProfit)}`, accent: true },
         { label: "毛利率", value: data.grossROI },
         { label: "净利率", value: data.netROI },
       ],
@@ -168,10 +168,10 @@ function SummaryView({ data }: { data: D }) {
       icon: "⚠️",
       items: [
         { label: "逾期笔数", value: data.overdueCount },
-        { label: "逾期金额", value: `¥${fmt(data.overdueAmount)}` },
-        { label: "逾期罚息", value: `¥${fmt(data.overduePenalty)}` },
-        { label: "资金方余额", value: `¥${fmt(data.funderBalance)}` },
-        { label: "资金方利润", value: `¥${fmt(data.funderProfit)}` },
+        { label: "逾期金额", value: `€${fmt(data.overdueAmount)}` },
+        { label: "逾期罚息", value: `€${fmt(data.overduePenalty)}` },
+        { label: "资金方余额", value: `€${fmt(data.funderBalance)}` },
+        { label: "资金方利润", value: `€${fmt(data.funderProfit)}` },
       ],
     },
   ];
@@ -200,11 +200,11 @@ function SummaryView({ data }: { data: D }) {
       <div className="stat-tile rounded-xl p-5 lg:col-span-2">
         <div className="text-sm font-semibold text-slate-700 mb-2">🔍 台账校验</div>
         <div className="flex gap-8 text-sm">
-          <div><span className="text-slate-500">DEBIT 合计(入):</span> <span className="font-medium text-slate-800">¥{fmt(data.ledgerDebitTotal)}</span></div>
-          <div><span className="text-slate-500">CREDIT 合计(出):</span> <span className="font-medium text-slate-800">¥{fmt(data.ledgerCreditTotal)}</span></div>
+          <div><span className="text-slate-500">DEBIT 合计(入):</span> <span className="font-medium text-slate-800">€{fmt(data.ledgerDebitTotal)}</span></div>
+          <div><span className="text-slate-500">CREDIT 合计(出):</span> <span className="font-medium text-slate-800">€{fmt(data.ledgerCreditTotal)}</span></div>
           <div><span className="text-slate-500">差额:</span>
             <span className="font-medium text-slate-800">
-              ¥{fmt(Math.abs(Number(data.ledgerDebitTotal) - Number(data.ledgerCreditTotal)))}
+              €{fmt(Math.abs(Number(data.ledgerDebitTotal) - Number(data.ledgerCreditTotal)))}
             </span>
           </div>
         </div>
@@ -236,12 +236,12 @@ function DailyView({ data }: { data: any[] }) {
           {data.map((row: any) => (
             <tr key={row.date} className="hover:bg-slate-50">
               <td className="px-4 py-2.5 font-medium text-slate-700">{row.date}</td>
-              <td className="px-4 py-2.5 text-right text-slate-600">¥{fmt(row.disbursedAmount)}</td>
-              <td className="px-4 py-2.5 text-right text-emerald-600">¥{fmt(row.disbursedFee)}</td>
-              <td className="px-4 py-2.5 text-right text-blue-600">¥{fmt(row.repaidAmount)}</td>
-              <td className="px-4 py-2.5 text-right text-emerald-600 font-medium">¥{fmt(row.repaidProfit)}</td>
+              <td className="px-4 py-2.5 text-right text-slate-600">€{fmt(row.disbursedAmount)}</td>
+              <td className="px-4 py-2.5 text-right text-emerald-600">€{fmt(row.disbursedFee)}</td>
+              <td className="px-4 py-2.5 text-right text-blue-600">€{fmt(row.repaidAmount)}</td>
+              <td className="px-4 py-2.5 text-right text-emerald-600 font-medium">€{fmt(row.repaidProfit)}</td>
               <td className={`px-4 py-2.5 text-right font-medium ${row.netCashflow >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                {row.netCashflow >= 0 ? "+" : ""}¥{fmt(row.netCashflow)}
+                {row.netCashflow >= 0 ? "+" : ""}€{fmt(row.netCashflow)}
               </td>
             </tr>
           ))}
@@ -249,11 +249,11 @@ function DailyView({ data }: { data: any[] }) {
         <tfoot>
           <tr className="bg-slate-50 font-semibold text-sm">
             <td className="px-4 py-2.5 text-slate-700">合计</td>
-            <td className="px-4 py-2.5 text-right">¥{fmt(data.reduce((s: number, r: any) => s + r.disbursedAmount, 0))}</td>
-            <td className="px-4 py-2.5 text-right text-emerald-600">¥{fmt(data.reduce((s: number, r: any) => s + r.disbursedFee, 0))}</td>
-            <td className="px-4 py-2.5 text-right text-blue-600">¥{fmt(data.reduce((s: number, r: any) => s + r.repaidAmount, 0))}</td>
-            <td className="px-4 py-2.5 text-right text-emerald-600">¥{fmt(data.reduce((s: number, r: any) => s + r.repaidProfit, 0))}</td>
-            <td className="px-4 py-2.5 text-right">¥{fmt(data.reduce((s: number, r: any) => s + r.netCashflow, 0))}</td>
+            <td className="px-4 py-2.5 text-right">€{fmt(data.reduce((s: number, r: any) => s + r.disbursedAmount, 0))}</td>
+            <td className="px-4 py-2.5 text-right text-emerald-600">€{fmt(data.reduce((s: number, r: any) => s + r.disbursedFee, 0))}</td>
+            <td className="px-4 py-2.5 text-right text-blue-600">€{fmt(data.reduce((s: number, r: any) => s + r.repaidAmount, 0))}</td>
+            <td className="px-4 py-2.5 text-right text-emerald-600">€{fmt(data.reduce((s: number, r: any) => s + r.repaidProfit, 0))}</td>
+            <td className="px-4 py-2.5 text-right">€{fmt(data.reduce((s: number, r: any) => s + r.netCashflow, 0))}</td>
           </tr>
         </tfoot>
       </table>
@@ -288,10 +288,10 @@ function CustomerView({ data }: { data: any[] }) {
               <td className="px-4 py-2.5 font-medium text-slate-700">{c.customerName}</td>
               <td className="px-4 py-2.5 text-slate-500">{c.phone}</td>
               <td className="px-4 py-2.5 text-right text-slate-600">{c.loanCount}</td>
-              <td className="px-4 py-2.5 text-right text-slate-600">¥{fmt(c.totalBorrowed)}</td>
-              <td className="px-4 py-2.5 text-right text-blue-600">¥{fmt(c.totalRepaid)}</td>
-              <td className="px-4 py-2.5 text-right text-slate-800 font-medium">¥{fmt(c.outstandingBalance)}</td>
-              <td className="px-4 py-2.5 text-right text-emerald-600 font-semibold">¥{fmt(c.profitFromCustomer)}</td>
+              <td className="px-4 py-2.5 text-right text-slate-600">€{fmt(c.totalBorrowed)}</td>
+              <td className="px-4 py-2.5 text-right text-blue-600">€{fmt(c.totalRepaid)}</td>
+              <td className="px-4 py-2.5 text-right text-slate-800 font-medium">€{fmt(c.outstandingBalance)}</td>
+              <td className="px-4 py-2.5 text-right text-emerald-600 font-semibold">€{fmt(c.profitFromCustomer)}</td>
               <td className="px-4 py-2.5">
                 {c.isOverdue ? (
                   <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">逾期</span>
@@ -304,7 +304,7 @@ function CustomerView({ data }: { data: any[] }) {
         </tbody>
       </table>
       <div className="px-4 py-3 text-xs text-slate-400 bg-slate-50 border-t border-slate-100">
-        共 {data.length} 位客户 · 总利润贡献 ¥{fmt(data.reduce((s: number, c: any) => s + c.profitFromCustomer, 0))}
+        共 {data.length} 位客户 · 总利润贡献 €{fmt(data.reduce((s: number, c: any) => s + c.profitFromCustomer, 0))}
       </div>
     </div>
   );
@@ -337,11 +337,11 @@ function FunderView({ data }: { data: any[] }) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
             <div>
               <span className="text-slate-400 text-xs">账户余额</span>
-              <div className="text-slate-800 font-medium">¥{fmt(f.totalBalance)}</div>
+              <div className="text-slate-800 font-medium">€{fmt(f.totalBalance)}</div>
             </div>
             <div>
               <span className="text-slate-400 text-xs">累计入金</span>
-              <div className="text-slate-800 font-medium">¥{fmt(f.totalInflow)}</div>
+              <div className="text-slate-800 font-medium">€{fmt(f.totalInflow)}</div>
             </div>
             <div>
               <span className="text-slate-400 text-xs">分润比例</span>
@@ -349,11 +349,11 @@ function FunderView({ data }: { data: any[] }) {
             </div>
             <div>
               <span className="text-slate-400 text-xs">应分利润</span>
-              <div className="text-emerald-600 font-semibold">¥{fmt(f.shareAmount)}</div>
+              <div className="text-emerald-600 font-semibold">€{fmt(f.shareAmount)}</div>
             </div>
           </div>
           <div className="mt-2 text-xs text-slate-400">
-            期间总利息收入: ¥{fmt(f.periodTotalInterest)}
+            期间总利息收入: €{fmt(f.periodTotalInterest)}
           </div>
         </div>
       ))}
@@ -370,15 +370,15 @@ function ProfitView({ data }: { data: D }) {
       {/* 核心利润指标 */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard label="总放款笔数" value={data.totalLoans} />
-        <MetricCard label="实际出借资金" value={`¥${fmt(data.totalCapitalDeployed)}`} />
-        <MetricCard label="总收入" value={`¥${fmt(data.totalRevenue)}`} accent />
-        <MetricCard label="净利润" value={`¥${fmt(data.netProfit)}`} accent />
+        <MetricCard label="实际出借资金" value={`€${fmt(data.totalCapitalDeployed)}`} />
+        <MetricCard label="总收入" value={`€${fmt(data.totalRevenue)}`} accent />
+        <MetricCard label="净利润" value={`€${fmt(data.netProfit)}`} accent />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <MetricCard label="综合 ROI" value={data.overallROI} accent />
-        <MetricCard label="本金回收" value={`¥${fmt(data.totalPrincipalRecovered)}`} />
-        <MetricCard label="资金缺口(未回收)" value={`¥${fmt(Number(data.totalCapitalDeployed) - Number(data.totalPrincipalRecovered))}`}
+        <MetricCard label="本金回收" value={`€${fmt(data.totalPrincipalRecovered)}`} />
+        <MetricCard label="资金缺口(未回收)" value={`€${fmt(Number(data.totalCapitalDeployed) - Number(data.totalPrincipalRecovered))}`}
           danger={Number(data.totalCapitalDeployed) > Number(data.totalPrincipalRecovered)} />
       </div>
 
@@ -389,12 +389,12 @@ function ProfitView({ data }: { data: D }) {
           <div className="text-center p-3 bg-emerald-50 rounded-lg">
             <div className="text-2xl font-bold text-emerald-600">{data.repaymentSpeed?.fastRepay?.count || 0}</div>
             <div className="text-xs text-slate-500 mt-1">24h内还款</div>
-            <div className="text-xs text-emerald-600 font-medium">收入 ¥{fmt(data.repaymentSpeed?.fastRepay?.revenue)}</div>
+            <div className="text-xs text-emerald-600 font-medium">收入 €{fmt(data.repaymentSpeed?.fastRepay?.revenue)}</div>
           </div>
           <div className="text-center p-3 bg-amber-50 rounded-lg">
             <div className="text-2xl font-bold text-amber-600">{data.repaymentSpeed?.slowRepay?.count || 0}</div>
             <div className="text-xs text-slate-500 mt-1">24h后还款</div>
-            <div className="text-xs text-amber-600 font-medium">收入 ¥{fmt(data.repaymentSpeed?.slowRepay?.revenue)}</div>
+            <div className="text-xs text-amber-600 font-medium">收入 €{fmt(data.repaymentSpeed?.slowRepay?.revenue)}</div>
           </div>
           <div className="text-center p-3 bg-red-50 rounded-lg">
             <div className="text-2xl font-bold text-red-600">{data.repaymentSpeed?.noRepay?.count || 0}</div>

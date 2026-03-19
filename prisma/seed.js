@@ -34,7 +34,7 @@ const defaultContractHtml = `
   <p>乙方（借款人）：{{ customer_name }}</p>
   <p>证件号：{{ customer_id_number }}</p>
   <p>联系电话：{{ customer_phone }}</p>
-  <p>借款金额：{{ loan_amount }} 元（大写：{{ loan_amount_cn }}）</p>
+  <p>借款金额：{{ loan_amount }} 欧元（大写：{{ loan_amount_cn }}）</p>
   <p>借款期限：{{ term_value }}{{ term_unit }}</p>
   <p>利率/费用：{{ interest_rate }}；服务费：{{ service_fee }}</p>
   <p>应还总额：{{ total_repay }}</p>

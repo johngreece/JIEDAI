@@ -102,7 +102,7 @@ export default function ExtensionsPage() {
                     <td className="px-4 py-3 font-mono text-xs text-slate-700">{ext.application?.applicationNo ?? ext.applicationId.slice(0, 8)}</td>
                     <td className="px-4 py-3 text-slate-900">{ext.application?.customer?.name ?? "-"}</td>
                     <td className="px-4 py-3 text-slate-700">{ext.extensionDays} 天</td>
-                    <td className="px-4 py-3 text-slate-700">¥{ext.extensionFee.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-700">€{ext.extensionFee.toLocaleString()}</td>
                     <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{ext.applyReason ?? "-"}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>

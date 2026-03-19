@@ -15,8 +15,8 @@
 | customer_name | 借款人姓名 | 张三 |
 | customer_id_number | 证件号 | 310*** |
 | customer_phone | 手机 | 138**** |
-| loan_amount | 借款金额（元） | 100,000.00 |
-| loan_amount_cn | 借款金额大写 | 壹拾万元整 |
+| loan_amount | 借款金额（欧元） | 100,000.00 |
+| loan_amount_cn | 借款金额大写 | 壹拾万欧元整 |
 | term_value | 期限数值 | 12 |
 | term_unit | 期限单位 | 月 |
 | interest_rate | 年化利率 | 10.5% |

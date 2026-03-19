@@ -110,13 +110,15 @@ model Customer {
   bankAccount              String?   @map("bank_account")
   bankName                 String?   @map("bank_name")
   riskLevel                String    @default("NORMAL") @map("risk_level")
+  creditLimit              Decimal   @default(10000) @map("credit_limit") @db.Decimal(14,2)
+  creditLimitOverride      Decimal?  @map("credit_limit_override") @db.Decimal(14,2)
   source                   String?
   remark                   String?
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
   deletedAt                DateTime? @map("deleted_at")
 
-  kyc                  CustomerKyc?
+  kyc                  CustomerKyc[]
   loanApplications     LoanApplication[]
   contracts            Contract[]
   repaymentConfirms    RepaymentConfirmation[]
@@ -133,7 +135,7 @@ model Customer {
 
 model CustomerKyc {
   id           String    @id @default(uuid())
-  customerId   String    @unique @map("customer_id")
+  customerId   String    @map("customer_id")
   kycType      String    @map("kyc_type")
   documentUrl  String?   @map("document_url")
   status       String    @default("PENDING")
@@ -145,6 +147,7 @@ model CustomerKyc {
 
   customer Customer @relation(fields: [customerId], references: [id])
 
+  @@unique([customerId, kycType])
   @@index([status])
   @@map("customer_kyc")
 }
@@ -157,6 +160,15 @@ model Funder {
   id               String    @id @default(uuid())
   name             String    @unique
   type             String    @default("INDIVIDUAL")
+  loginPhone       String?   @unique @map("login_phone")
+  passwordHash     String?   @map("password_hash")
+  cooperationMode  String    @default("FIXED_MONTHLY") @map("cooperation_mode")
+  monthlyRate      Decimal   @default(2) @map("monthly_rate") @db.Decimal(5,2)
+  weeklyRate       Decimal   @default(1.5) @map("weekly_rate") @db.Decimal(5,2)
+  priority         Int       @default(0)
+  riskSharing      Boolean   @default(false) @map("risk_sharing")
+  riskShareRatio   Decimal   @default(0) @map("risk_share_ratio") @db.Decimal(5,4)
+  withdrawalCooldownDays Int @default(0) @map("withdrawal_cooldown_days")
   contactPerson    String?   @map("contact_person")
   contactPhone     String?   @map("contact_phone")
   contactEmail     String?   @map("contact_email")
@@ -167,10 +179,14 @@ model Funder {
   updatedAt        DateTime  @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
-  accounts        FundAccount[]
-  profitShares    FundProfitShare[]
+  accounts          FundAccount[]
+  profitShares      FundProfitShare[]
+  withdrawalRequests FunderWithdrawal[]
+  notifications      FunderNotification[]
+  contracts          FunderContract[]
 
   @@index([deletedAt])
+  @@index([priority])
   @@map("funders")
 }
 
@@ -235,6 +251,65 @@ model FundProfitShare {
   @@index([periodStart, periodEnd])
   @@index([status])
   @@map("fund_profit_shares")
+}
+
+model FunderWithdrawal {
+  id            String    @id @default(uuid())
+  funderId      String    @map("funder_id")
+  accountId     String?   @map("account_id")
+  amount        Decimal   @db.Decimal(18, 4)
+  type          String    @default("INTEREST")
+  status        String    @default("PENDING")
+  includeInterest Boolean @default(true) @map("include_interest")
+  interestAmount Decimal  @default(0) @map("interest_amount") @db.Decimal(18, 4)
+  approvedAt    DateTime? @map("approved_at")
+  approvedBy    String?   @map("approved_by")
+  rejectedAt    DateTime? @map("rejected_at")
+  rejectedReason String?  @map("rejected_reason")
+  remark        String?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  funder Funder @relation(fields: [funderId], references: [id])
+
+  @@index([funderId])
+  @@index([status])
+  @@map("funder_withdrawals")
+}
+
+model FunderNotification {
+  id        String   @id @default(uuid())
+  funderId  String   @map("funder_id")
+  type      String   @default("INFO")
+  title     String
+  content   String
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  funder Funder @relation(fields: [funderId], references: [id])
+
+  @@index([funderId, isRead])
+  @@index([createdAt])
+  @@map("funder_notifications")
+}
+
+model FunderContract {
+  id              String   @id @default(uuid())
+  funderId        String   @map("funder_id")
+  cooperationMode String   @map("cooperation_mode")
+  title           String
+  content         String
+  signedAt        DateTime? @map("signed_at")
+  status          String   @default("DRAFT")
+  generatedBy     String?  @map("generated_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  funder Funder @relation(fields: [funderId], references: [id])
+
+  @@index([funderId])
+  @@index([status])
+  @@map("funder_contracts")
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════╗

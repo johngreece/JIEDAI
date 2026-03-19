@@ -140,7 +140,7 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
           <p className="text-sm text-slate-700">产品：{data.product.name}</p>
           {data.riskScore != null ? <p className="text-sm text-slate-700">风控分：{data.riskScore}</p> : null}
           {data.rejectedReason ? <p className="text-sm text-red-700">拒绝原因：{data.rejectedReason}</p> : null}
-          {data.totalApprovedAmount != null ? <p className="text-sm text-emerald-700">审批金额：¥ {data.totalApprovedAmount.toFixed(2)}</p> : null}
+          {data.totalApprovedAmount != null ? <p className="text-sm text-emerald-700">审批金额：€ {data.totalApprovedAmount.toFixed(2)}</p> : null}
         </div>
       </section>
 

@@ -91,8 +91,8 @@ export default async function ClientRepaymentPlansPage() {
                     <div className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(p.status)}`}>{getStatusLabel(p.status)}</div>
                   </div>
                   <div className="text-right text-xs text-slate-600">
-                    <div>本金 ¥ {Number(p.totalPrincipal).toFixed(2)}</div>
-                    <div>利息 ¥ {Number(p.totalInterest).toFixed(2)} · 费用 ¥ {Number(p.totalFee).toFixed(2)}</div>
+                    <div>本金 € {Number(p.totalPrincipal).toFixed(2)}</div>
+                    <div>利息 € {Number(p.totalInterest).toFixed(2)} · 费用 € {Number(p.totalFee).toFixed(2)}</div>
                   </div>
                 </div>
 
@@ -117,11 +117,11 @@ export default async function ClientRepaymentPlansPage() {
                         <tr key={x.id} className="border-t border-slate-100">
                           <td className="px-4 py-2">第 {x.periodNumber} 期</td>
                           <td className="px-4 py-2">{new Date(x.dueDate).toLocaleDateString()}</td>
-                          <td className="px-4 py-2">¥ {Number(x.principal).toFixed(2)}</td>
-                          <td className="px-4 py-2">¥ {Number(x.interest).toFixed(2)}</td>
-                          <td className="px-4 py-2">¥ {Number(x.fee).toFixed(2)}</td>
-                          <td className="px-4 py-2">¥ {Number(x.totalDue).toFixed(2)}</td>
-                          <td className="px-4 py-2">¥ {Number(x.remaining).toFixed(2)}</td>
+                          <td className="px-4 py-2">€ {Number(x.principal).toFixed(2)}</td>
+                          <td className="px-4 py-2">€ {Number(x.interest).toFixed(2)}</td>
+                          <td className="px-4 py-2">€ {Number(x.fee).toFixed(2)}</td>
+                          <td className="px-4 py-2">€ {Number(x.totalDue).toFixed(2)}</td>
+                          <td className="px-4 py-2">€ {Number(x.remaining).toFixed(2)}</td>
                           <td className="px-4 py-2"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(x.status)}`}>{getStatusLabel(x.status)}</span></td>
                         </tr>
                       ))}

@@ -69,6 +69,7 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[], user
     { name: "贷款产品", href: "/admin/products", icon: CogIcon },
     { name: "合同模板", href: "/admin/templates", icon: DocIcon },
     { name: "资金方", href: "/admin/funders", icon: CashIcon },
+    { name: "提现审批", href: "/admin/funder-withdrawals", icon: ReceiptIcon },
     { name: "客户登记", href: "/admin/register", icon: UsersIcon },
   ];
 

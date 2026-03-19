@@ -103,7 +103,7 @@ export default function LedgerPage() {
                       {e.direction === "DEBIT" ? "入账" : "出账"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 font-semibold text-slate-900">¥{e.amount.toLocaleString()}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-900">€{e.amount.toLocaleString()}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">{e.balanceBefore.toLocaleString()} → {e.balanceAfter.toLocaleString()}</td>
                   <td className="px-4 py-3 text-slate-700">{e.customer?.name ?? "-"}</td>
                   <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{e.description ?? "-"}</td>

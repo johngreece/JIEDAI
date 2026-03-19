@@ -168,7 +168,7 @@ export default function LoanApplicationsPage() {
                   <td className="px-4 py-3 font-medium text-slate-800">{x.applicationNo}</td>
                   <td className="px-4 py-3">{x.customer.name}<div className="text-xs text-slate-500">{x.customer.phone}</div></td>
                   <td className="px-4 py-3">{x.product.name}</td>
-                  <td className="px-4 py-3">¥ {x.amount.toFixed(2)}</td>
+                  <td className="px-4 py-3">€ {x.amount.toFixed(2)}</td>
                   <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${statusCls(x.status)}`}>{statusText(x.status)}</span></td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">

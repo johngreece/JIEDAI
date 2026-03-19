@@ -138,7 +138,7 @@ export default function DisbursementPage() {
               setForm((f) => ({ ...f, applicationId: e.target.value, amount: app ? String(app.amount) : f.amount }));
             }} className="input-base">
               <option value="">请选择申请</option>
-              {approvedApps.map((x) => <option key={x.id} value={x.id}>{x.applicationNo} · {x.customer.name} · ¥{x.amount.toFixed(2)}</option>)}
+              {approvedApps.map((x) => <option key={x.id} value={x.id}>{x.applicationNo} · {x.customer.name} · €{x.amount.toFixed(2)}</option>)}
             </select>
           </label>
 
@@ -146,7 +146,7 @@ export default function DisbursementPage() {
             <span className="text-slate-500">资金账户</span>
             <select required value={form.fundAccountId} onChange={(e) => setForm((f) => ({ ...f, fundAccountId: e.target.value }))} className="input-base">
               <option value="">请选择账户</option>
-              {fundAccounts.map((x) => <option key={x.id} value={x.id}>{x.funder.name} · {x.accountName} · 余额¥{x.balance.toFixed(2)}</option>)}
+              {fundAccounts.map((x) => <option key={x.id} value={x.id}>{x.funder.name} · {x.accountName} · 余额€{x.balance.toFixed(2)}</option>)}
             </select>
           </label>
 
@@ -201,7 +201,7 @@ export default function DisbursementPage() {
                 <tr key={x.id} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-medium text-slate-800">{x.disbursementNo}</td>
                   <td className="px-4 py-3">{x.application.applicationNo}<div className="text-xs text-slate-500">{x.application.customer.name} · {x.application.customer.phone}</div></td>
-                  <td className="px-4 py-3">¥{x.amount.toFixed(2)}<div className="text-xs text-slate-500">净额 ¥{x.netAmount.toFixed(2)}</div></td>
+                  <td className="px-4 py-3">€{x.amount.toFixed(2)}<div className="text-xs text-slate-500">净额 €{x.netAmount.toFixed(2)}</div></td>
                   <td className="px-4 py-3">{x.fundAccount.accountName}<div className="text-xs text-slate-500">{x.fundAccount.accountNo}</div></td>
                   <td className="px-4 py-3">{x.status}</td>
                   <td className="px-4 py-3">

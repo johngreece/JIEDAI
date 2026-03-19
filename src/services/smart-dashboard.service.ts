@@ -248,7 +248,7 @@ export class SmartDashboardService {
       smartTodos.push({
         priority: 1, type: "overdue_severe",
         label: `严重逾期 ${severeOverdue.length} 笔`,
-        description: `超过14天未还，累计金额 ¥${overdueByCustomer ? Object.values(overdueByCustomer).filter(c => c.maxDays > 14).reduce((s, c) => s + c.totalAmount, 0).toFixed(0) : 0}`,
+        description: `超过14天未还，累计金额 €${overdueByCustomer ? Object.values(overdueByCustomer).filter(c => c.maxDays > 14).reduce((s, c) => s + c.totalAmount, 0).toFixed(0) : 0}`,
         count: severeOverdue.length, href: "/admin/repayments", urgency: "critical",
       });
     }
@@ -265,7 +265,7 @@ export class SmartDashboardService {
       smartTodos.push({
         priority: 3, type: "due_today",
         label: `今日到期 ${dueTodayItems.length} 笔`,
-        description: `合计 ¥${todayAmt.toFixed(0)}，请提醒客户按时还款`,
+        description: `合计 €${todayAmt.toFixed(0)}，请提醒客户按时还款`,
         count: dueTodayItems.length, href: "/admin/repayments", urgency: "high",
       });
     }
@@ -314,7 +314,7 @@ export class SmartDashboardService {
       smartTodos.push({
         priority: 9, type: "due_3day",
         label: `3天内到期 ${due3DayItems.length} 笔`,
-        description: `合计 ¥${amt3.toFixed(0)}，建议提前联系客户准备还款`,
+        description: `合计 €${amt3.toFixed(0)}，建议提前联系客户准备还款`,
         count: due3DayItems.length, href: "/admin/repayments", urgency: "low",
       });
     }

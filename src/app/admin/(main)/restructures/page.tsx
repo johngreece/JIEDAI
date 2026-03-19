@@ -105,8 +105,8 @@ export default function RestructuresPage() {
                 return (
                   <tr key={r.id} className="hover:bg-slate-50/50">
                     <td className="px-4 py-3 font-mono text-xs text-slate-700">{r.applicationId.slice(0, 8)}</td>
-                    <td className="px-4 py-3 text-slate-700">¥{Number(r.remainingPrincipal).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-slate-500">¥{Number(r.remainingInterest).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-700">€{Number(r.remainingPrincipal).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-500">€{Number(r.remainingInterest).toLocaleString()}</td>
                     <td className="px-4 py-3 text-slate-700">{r.newTermValue} {r.newTermUnit === "MONTH" ? "月" : "天"}</td>
                     <td className="px-4 py-3 text-slate-700">{(Number(r.newRate) * 100).toFixed(2)}%</td>
                     <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{r.applyReason ?? "-"}</td>

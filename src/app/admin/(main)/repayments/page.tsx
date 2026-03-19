@@ -197,7 +197,7 @@ export default function AdminRepaymentsPage() {
             >
               <option value="">请选择还款单</option>
               {pendingRegister.map((r) => (
-                <option key={r.id} value={r.id}>{r.repaymentNo} · ¥{r.amount.toFixed(2)} · {r.application?.applicationNo ?? "-"}</option>
+                <option key={r.id} value={r.id}>{r.repaymentNo} · €{r.amount.toFixed(2)} · {r.application?.applicationNo ?? "-"}</option>
               ))}
             </select>
           </label>
@@ -206,7 +206,7 @@ export default function AdminRepaymentsPage() {
             <select required value={allocForm.itemId} onChange={(e) => setAllocForm((f) => ({ ...f, itemId: e.target.value }))} className="input-base">
               <option value="">请选择期次</option>
               {schedule.map((s) => (
-                <option key={s.id} value={s.id}>第{s.periodNumber}期 · 剩余¥{s.remaining.toFixed(2)} · {new Date(s.dueDate).toLocaleDateString()}</option>
+                <option key={s.id} value={s.id}>第{s.periodNumber}期 · 剩余€{s.remaining.toFixed(2)} · {new Date(s.dueDate).toLocaleDateString()}</option>
               ))}
             </select>
           </label>
@@ -244,7 +244,7 @@ export default function AdminRepaymentsPage() {
             {pendingQueue.map((x) => (
               <div key={x.id} className="px-4 py-3 flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-medium text-slate-900">{x.repaymentNo} · ¥ {x.amount.toFixed(2)}</p>
+                  <p className="text-sm font-medium text-slate-900">{x.repaymentNo} · € {x.amount.toFixed(2)}</p>
                   <p className="text-xs text-slate-500 mt-1">{x.application?.applicationNo ?? "-"} · {x.application?.customer.name ?? "-"}</p>
                 </div>
                 <span className="inline-flex rounded-full border px-2 py-0.5 text-xs bg-blue-50 text-blue-700 border-blue-200">待客户确认</span>

@@ -21,12 +21,22 @@ type CustomerDetail = {
   source: string | null;
   remark: string | null;
   createdAt: string;
-  kyc: { id: string; kycType: string; status: string; verifiedAt: string | null } | null;
+  kyc: { id: string; kycType: string; status: string; verifiedAt: string | null }[];
   loanApplications: { id: string; applicationNo: string; amount: number; status: string; createdAt: string }[];
+};
+
+type CreditInfo = {
+  creditLimit: number;
+  creditLimitOverride: number | null;
+  effectiveLimit: number;
+  baseLimit: number;
+  allDocumentsUploaded: boolean;
+  documents: { kycType: string; status: string; hasDocument: boolean; createdAt: string }[];
 };
 
 const RISK_OPTIONS = ["LOW", "NORMAL", "HIGH", "BLACKLIST"];
 const RISK_LABELS: Record<string, string> = { LOW: "低风险", NORMAL: "正常", HIGH: "高风险", BLACKLIST: "黑名单" };
+const KYC_TYPE_LABELS: Record<string, string> = { PASSPORT: "护照", CHINA_ID: "国内身份证", GREEK_RESIDENCE_PERMIT: "希腊居留卡" };
 
 export default function CustomerDetailPage() {
   const params = useParams();
@@ -40,6 +50,10 @@ export default function CustomerDetailPage() {
   const [newPassword, setNewPassword] = useState("");
   const [pwdSaving, setPwdSaving] = useState(false);
   const [pwdMsg, setPwdMsg] = useState("");
+  const [credit, setCredit] = useState<CreditInfo | null>(null);
+  const [creditOverride, setCreditOverride] = useState("");
+  const [creditSaving, setCreditSaving] = useState(false);
+  const [creditMsg, setCreditMsg] = useState("");
 
   async function load() {
     setLoading(true);
@@ -55,7 +69,40 @@ export default function CustomerDetailPage() {
     }
   }
 
-  useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); loadCredit(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function loadCredit() {
+    try {
+      const res = await fetch(`/api/customers/${id}/credit-limit`);
+      if (res.ok) {
+        const json = await res.json();
+        setCredit(json);
+        setCreditOverride(json.creditLimitOverride != null ? String(json.creditLimitOverride) : "");
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function saveCreditOverride(e: React.FormEvent) {
+    e.preventDefault();
+    setCreditSaving(true);
+    setCreditMsg("");
+    try {
+      const val = creditOverride.trim() === "" ? null : Number(creditOverride);
+      const res = await fetch(`/api/customers/${id}/credit-limit`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creditLimitOverride: val }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "保存失败");
+      setCreditMsg("额度已更新");
+      loadCredit();
+    } catch (e) {
+      setCreditMsg(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setCreditSaving(false);
+    }
+  }
 
   function startEdit() {
     if (!data) return;
@@ -175,16 +222,89 @@ export default function CustomerDetailPage() {
             {data.remark && <p className="mt-3 text-sm text-slate-500">备注：{data.remark}</p>}
           </section>
 
-          {data.kyc && (
+          {data.kyc && data.kyc.length > 0 && (
             <section className="panel-soft rounded-xl p-5">
               <h2 className="text-lg font-semibold text-slate-900 mb-3">KYC 认证</h2>
-              <div className="text-sm space-y-1">
-                <p>类型：{data.kyc.kycType}</p>
-                <p>状态：{data.kyc.status}</p>
-                {data.kyc.verifiedAt && <p>认证时间：{new Date(data.kyc.verifiedAt).toLocaleString()}</p>}
+              <div className="space-y-2">
+                {data.kyc.map((k) => (
+                  <div key={k.id} className="flex items-center gap-3 text-sm rounded-lg border border-slate-200 p-3">
+                    <span className="font-medium text-slate-700">{KYC_TYPE_LABELS[k.kycType] || k.kycType}</span>
+                    <span className={`rounded px-2 py-0.5 text-xs font-medium ${k.status === "UPLOADED" ? "bg-blue-50 text-blue-600" : k.status === "VERIFIED" ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>{k.status}</span>
+                    {k.verifiedAt && <span className="text-xs text-slate-400">认证于 {new Date(k.verifiedAt).toLocaleString()}</span>}
+                  </div>
+                ))}
               </div>
             </section>
           )}
+
+          {/* 额度管理 */}
+          <section className="panel-soft rounded-xl p-5">
+            <h2 className="text-lg font-semibold text-slate-900 mb-3">额度管理</h2>
+            {credit ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="rounded-lg border bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">基础额度</p>
+                    <p className="text-lg font-bold text-slate-800">€{credit.baseLimit.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">生效额度</p>
+                    <p className="text-lg font-bold text-cyan-700">€{credit.effectiveLimit.toLocaleString()}</p>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">特殊额度</p>
+                    <p className="text-lg font-bold text-amber-600">{credit.creditLimitOverride != null ? `€${credit.creditLimitOverride.toLocaleString()}` : "未设置"}</p>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">证件上传</p>
+                    <p className="text-lg font-bold">{credit.allDocumentsUploaded ? <span className="text-emerald-600">全部完成</span> : <span className="text-amber-600">{credit.documents.length}/3</span>}</p>
+                  </div>
+                </div>
+                {credit.documents.length > 0 && (
+                  <div className="text-xs text-slate-500 space-x-3">
+                    {credit.documents.map((d) => (
+                      <span key={d.kycType} className={d.hasDocument ? "text-emerald-600" : "text-slate-400"}>
+                        {d.hasDocument ? "✓" : "○"} {KYC_TYPE_LABELS[d.kycType] || d.kycType}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <form onSubmit={saveCreditOverride} className="flex gap-2 items-end border-t pt-4">
+                  <div className="flex-1">
+                    <label className="text-sm text-slate-600">设置特殊额度（留空=使用系统计算额度）</label>
+                    <input
+                      type="number"
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="例如 50000"
+                      value={creditOverride}
+                      onChange={(e) => setCreditOverride(e.target.value)}
+                      min="0"
+                      step="1000"
+                    />
+                  </div>
+                  <button type="submit" disabled={creditSaving} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap">
+                    {creditSaving ? "保存中..." : "保存额度"}
+                  </button>
+                  {credit.creditLimitOverride != null && (
+                    <button type="button" onClick={async () => {
+                      setCreditSaving(true); setCreditMsg("");
+                      try {
+                        const res = await fetch(`/api/customers/${id}/credit-limit`, {
+                          method: "PATCH", headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ creditLimitOverride: null }),
+                        });
+                        if (!res.ok) throw new Error("清除失败");
+                        setCreditOverride(""); setCreditMsg("额度已更新"); loadCredit();
+                      } catch { setCreditMsg("清除失败"); } finally { setCreditSaving(false); }
+                    }} className="btn-soft rounded-lg px-3 py-2 text-sm whitespace-nowrap">清除特殊额度</button>
+                  )}
+                </form>
+                {creditMsg && <p className={`text-xs ${creditMsg.includes("已更新") ? "text-emerald-600" : "text-red-600"}`}>{creditMsg}</p>}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">加载中...</p>
+            )}
+          </section>
 
           {/* 重置密码 */}
           <section className="panel-soft rounded-xl p-5">
@@ -220,7 +340,7 @@ export default function CustomerDetailPage() {
                   {data.loanApplications.map((a) => (
                     <tr key={a.id}>
                       <td className="py-2"><Link href={`/admin/loan-applications/${a.id}`} className="text-blue-600 hover:underline">{a.applicationNo}</Link></td>
-                      <td className="py-2">¥{a.amount.toLocaleString()}</td>
+                      <td className="py-2">€{a.amount.toLocaleString()}</td>
                       <td className="py-2">{a.status}</td>
                       <td className="py-2 text-slate-500">{new Date(a.createdAt).toLocaleDateString()}</td>
                     </tr>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,15 @@ const updateSchema = z.object({
   profitShareRatio: z.number().min(0).max(1).optional(),
   isActive: z.boolean().optional(),
   remark: z.string().optional(),
+  cooperationMode: z.enum(["FIXED_MONTHLY", "VOLUME_BASED"]).optional(),
+  monthlyRate: z.number().min(0).max(100).optional(),
+  weeklyRate: z.number().min(0).max(100).optional(),
+  loginPhone: z.string().min(1).optional(),
+  loginPassword: z.string().min(6).optional(),
+  priority: z.number().int().min(0).optional(),
+  riskSharing: z.boolean().optional(),
+  riskShareRatio: z.number().min(0).max(1).optional(),
+  withdrawalCooldownDays: z.number().int().min(0).optional(),
 });
 
 export async function GET(
@@ -38,7 +48,10 @@ export async function GET(
   return NextResponse.json({
     ...funder,
     profitShareRatio: funder.profitShareRatio ? Number(funder.profitShareRatio) : null,
+    monthlyRate: Number(funder.monthlyRate),
+    weeklyRate: Number(funder.weeklyRate),
     accounts: funder.accounts.map((a) => ({ ...a, balance: Number(a.balance) })),
+    passwordHash: undefined,
   });
 }
 
@@ -66,10 +79,19 @@ export async function PUT(
     if (dup) return NextResponse.json({ error: "资金方名称已存在" }, { status: 409 });
   }
 
-  const updated = await prisma.funder.update({ where: { id }, data: parsed.data });
+  const { loginPassword, ...updateFields } = parsed.data;
+  const updateData: Record<string, unknown> = { ...updateFields };
+  if (loginPassword) {
+    updateData.passwordHash = await bcrypt.hash(loginPassword, 10);
+  }
+
+  const updated = await prisma.funder.update({ where: { id }, data: updateData as any });
   return NextResponse.json({
     ...updated,
     profitShareRatio: updated.profitShareRatio ? Number(updated.profitShareRatio) : null,
+    monthlyRate: Number(updated.monthlyRate),
+    weeklyRate: Number(updated.weeklyRate),
+    passwordHash: undefined,
   });
 }
 

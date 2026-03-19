@@ -97,7 +97,7 @@ export default async function ClientRepaymentsPage() {
             {pending.map((x) => (
               <div key={x.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm font-medium text-slate-900">{x.repaymentNo} · ¥ {Number(x.amount).toFixed(2)}</p>
+                  <p className="text-sm font-medium text-slate-900">{x.repaymentNo} · € {Number(x.amount).toFixed(2)}</p>
                   <p className="text-xs text-slate-500 mt-1">申请 {x.application?.applicationNo ?? "-"} · {x.application?.product.name ?? "-"}</p>
                 </div>
                 <Link href={`/client/sign/repayment/${x.id}`} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">去确认</Link>
@@ -127,7 +127,7 @@ export default async function ClientRepaymentsPage() {
                 <tr key={x.id} className="border-t border-slate-100">
                   <td className="px-4 py-3 font-medium">{x.repaymentNo}</td>
                   <td className="px-4 py-3">{appMap.get(planMap.get(x.plan.id)?.applicationId ?? "")?.applicationNo ?? "-"}<div className="text-xs text-slate-500">{appMap.get(planMap.get(x.plan.id)?.applicationId ?? "")?.product.name ?? "-"}</div></td>
-                  <td className="px-4 py-3">¥ {Number(x.amount).toFixed(2)}</td>
+                  <td className="px-4 py-3">€ {Number(x.amount).toFixed(2)}</td>
                   <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(x.status)}`}>{getStatusLabel(x.status)}</span></td>
                   <td className="px-4 py-3">{x.receivedAt ? new Date(x.receivedAt).toLocaleString() : "-"}</td>
                   <td className="px-4 py-3">

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
+import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,15 @@ const createSchema = z.object({
   contactEmail: z.string().email().optional().or(z.literal("")),
   profitShareRatio: z.number().min(0).max(1).optional(),
   remark: z.string().optional(),
+  cooperationMode: z.enum(["FIXED_MONTHLY", "VOLUME_BASED"]).default("FIXED_MONTHLY"),
+  monthlyRate: z.number().min(0).max(100).default(2),
+  weeklyRate: z.number().min(0).max(100).default(1.5),
+  loginPhone: z.string().min(1).optional(),
+  loginPassword: z.string().min(6).optional(),
+  priority: z.number().int().min(0).default(0),
+  riskSharing: z.boolean().default(false),
+  riskShareRatio: z.number().min(0).max(1).default(0),
+  withdrawalCooldownDays: z.number().int().min(0).default(0),
 });
 
 export async function GET(req: Request) {
@@ -41,8 +51,11 @@ export async function GET(req: Request) {
     items.map((f) => ({
       ...f,
       profitShareRatio: f.profitShareRatio ? Number(f.profitShareRatio) : null,
+      monthlyRate: Number(f.monthlyRate),
+      weeklyRate: Number(f.weeklyRate),
       accountCount: f._count.accounts,
       _count: undefined,
+      passwordHash: undefined,
     })),
     total,
     pagination,
@@ -64,9 +77,18 @@ export async function POST(req: Request) {
   });
   if (dup) return NextResponse.json({ error: "资金方名称已存在" }, { status: 409 });
 
-  const funder = await prisma.funder.create({ data: parsed.data });
+  const { loginPassword, ...rest } = parsed.data;
+  const createData: Record<string, unknown> = { ...rest };
+  if (loginPassword) {
+    createData.passwordHash = await bcrypt.hash(loginPassword, 10);
+  }
+  delete createData.loginPassword;
+
+  const funder = await prisma.funder.create({ data: createData as any });
   return NextResponse.json({
     ...funder,
     profitShareRatio: funder.profitShareRatio ? Number(funder.profitShareRatio) : null,
+    monthlyRate: Number(funder.monthlyRate),
+    weeklyRate: Number(funder.weeklyRate),
   }, { status: 201 });
 }

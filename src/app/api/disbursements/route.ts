@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
   applicationId: z.string().min(1),
-  fundAccountId: z.string().min(1),
+  fundAccountId: z.string().min(1).optional(),
   amount: z.number().positive(),
   feeAmount: z.number().min(0).default(0),
   remark: z.string().optional(),
@@ -107,9 +107,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "实到金额必须大于 0" }, { status: 400 });
   }
 
+  // 如果未指定资金账户，按资金方优先级自动选择余额充足的账户
+  let fundAccountId = input.fundAccountId;
+  if (!fundAccountId) {
+    const candidateAccount = await prisma.fundAccount.findFirst({
+      where: {
+        isActive: true,
+        balance: { gte: input.amount },
+        funder: { isActive: true, deletedAt: null },
+      },
+      orderBy: { funder: { priority: "desc" } },
+      select: { id: true },
+    });
+    if (!candidateAccount) {
+      return NextResponse.json({ error: "无可用资金账户（余额不足或无活跃资金方）" }, { status: 400 });
+    }
+    fundAccountId = candidateAccount.id;
+  }
+
   const [app, fundAccount, existing] = await Promise.all([
     prisma.loanApplication.findUnique({ where: { id: input.applicationId } }),
-    prisma.fundAccount.findUnique({ where: { id: input.fundAccountId } }),
+    prisma.fundAccount.findUnique({ where: { id: fundAccountId } }),
     prisma.disbursement.findFirst({ where: { applicationId: input.applicationId } }),
   ]);
 
@@ -130,7 +148,7 @@ export async function POST(req: Request) {
     data: {
       disbursementNo: genDisbursementNo(),
       applicationId: input.applicationId,
-      fundAccountId: input.fundAccountId,
+      fundAccountId: fundAccountId,
       amount: input.amount,
       feeAmount: input.feeAmount,
       netAmount,

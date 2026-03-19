@@ -8,7 +8,7 @@ import {
 
 describe("contract variable engine", () => {
   it("parseVariableNames extracts variable names", () => {
-    const html = "甲方：{{ customer_name }}，借款金额 {{ loan_amount }} 元。";
+    const html = "甲方：{{ customer_name }}，借款金额 {{ loan_amount }} 欧元。";
     expect(parseVariableNames(html)).toEqual(
       expect.arrayContaining(["customer_name", "loan_amount"])
     );
@@ -16,12 +16,12 @@ describe("contract variable engine", () => {
   });
 
   it("fillTemplate replaces placeholders", () => {
-    const html = "甲方：{{ customer_name }}，金额 {{ loan_amount }} 元。";
+    const html = "甲方：{{ customer_name }}，金额 {{ loan_amount }} 欧元。";
     const out = fillTemplate(html, {
       customer_name: "张三",
       loan_amount: "100,000.00",
     });
-    expect(out).toBe("甲方：张三，金额 100,000.00 元。");
+    expect(out).toBe("甲方：张三，金额 100,000.00 欧元。");
   });
 
   it("fillTemplate uses empty string for missing vars", () => {

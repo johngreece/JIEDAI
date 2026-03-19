@@ -93,6 +93,23 @@ export default async function ClientDashboardPage() {
     return acc + Number(x.disbursement.netAmount);
   }, 0);
 
+  // Credit limit info
+  const customer = await prisma.customer.findUnique({
+    where: { id: session.sub },
+    select: { creditLimit: true, creditLimitOverride: true },
+  });
+  const kycDocs = await prisma.customerKyc.findMany({
+    where: { customerId: session.sub },
+    select: { kycType: true },
+  });
+  const DOC_TYPES = ["PASSPORT", "CHINA_ID", "GREEK_RESIDENCE_PERMIT"];
+  const uploadedTypes = new Set(kycDocs.map((d) => d.kycType));
+  const allDocsUploaded = DOC_TYPES.every((t) => uploadedTypes.has(t));
+  const baseLimit = allDocsUploaded ? 30000 : 10000;
+  const effectiveLimit = customer?.creditLimitOverride
+    ? Number(customer.creditLimitOverride)
+    : baseLimit;
+
   const nearestItem = plans
     .flatMap((p) => p.scheduleItems)
     .filter((x) => x.status === "PENDING")
@@ -119,7 +136,7 @@ export default async function ClientDashboardPage() {
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-3xl font-bold text-slate-900">{applications.length > 0 ? `${applications.length} 笔` : "无借款"}</span>
             </div>
-            <p className="mt-1 text-xs text-slate-400">累计实收 ¥ {disbursedTotal.toFixed(2)}</p>
+            <p className="mt-1 text-xs text-slate-400">累计实收 € {disbursedTotal.toFixed(2)}</p>
           </div>
           <div className="mt-4">
              <Link href="/client/dashboard" className="inline-flex items-center text-sm font-medium text-blue-600 hover:underline">
@@ -133,7 +150,7 @@ export default async function ClientDashboardPage() {
            <div>
             <h3 className="font-medium text-slate-500 text-sm">本期应还</h3>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-3xl font-bold text-slate-900">¥ {nearestDueAmount.toFixed(2)}</span>
+              <span className="text-3xl font-bold text-slate-900">€ {nearestDueAmount.toFixed(2)}</span>
             </div>
             <p className="mt-1 text-xs text-slate-400">{nearestItem ? `第 ${nearestItem.periodNumber} 期 · 到期 ${new Date(nearestItem.dueDate).toLocaleDateString()}` : "暂无需还款项"}</p>
           </div>
@@ -142,13 +159,23 @@ export default async function ClientDashboardPage() {
           </div>
         </div>
 
-        {/* Action Card */}
-         <div className="stat-tile flex h-40 flex-col items-center justify-center rounded-2xl border-blue-100 bg-blue-50 p-6 text-center">
-            <div className="mb-3 h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-               <IconDoc />
+        {/* Credit Limit Card */}
+         <div className="stat-tile flex h-40 flex-col justify-between rounded-2xl border-cyan-100 bg-gradient-to-br from-cyan-50 to-blue-50 p-6">
+            <div>
+              <h3 className="font-medium text-slate-500 text-sm">可用额度</h3>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-3xl font-bold text-cyan-700">€{effectiveLimit.toLocaleString()}</span>
+              </div>
+              <p className="mt-1 text-xs text-slate-400">
+                {allDocsUploaded ? "✓ 证件齐全" : `已上传 ${uploadedTypes.size}/3 证件`}
+                {!allDocsUploaded && " · 上传全部可达 €30,000"}
+              </p>
             </div>
-            <h3 className="font-semibold text-slate-900">申请借款</h3>
-            <p className="text-xs text-slate-500 mt-1 mb-3">待确认收款 {pendingReceive.length} 笔</p>
+            <div className="mt-4">
+              <Link href="/client/documents" className="text-sm font-medium text-cyan-600 hover:underline">
+                {allDocsUploaded ? "查看证件" : "上传证件提额"} &rarr;
+              </Link>
+            </div>
          </div>
       </div>
 
@@ -176,9 +203,9 @@ export default async function ClientDashboardPage() {
               <div key={x.id} className="p-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-slate-900">{x.applicationNo} · {x.product.name}</p>
-                  <p className="text-xs text-slate-500 mt-1">申请金额 ¥ {Number(x.amount).toFixed(2)} · 状态 {getStatusLabel(x.status)}</p>
+                  <p className="text-xs text-slate-500 mt-1">申请金额 € {Number(x.amount).toFixed(2)} · 状态 {getStatusLabel(x.status)}</p>
                   {x.disbursement ? (
-                    <p className="text-xs text-slate-500 mt-1">放款单 {x.disbursement.disbursementNo} · {getStatusLabel(x.disbursement.status)} · 净额 ¥ {Number(x.disbursement.netAmount).toFixed(2)}</p>
+                    <p className="text-xs text-slate-500 mt-1">放款单 {x.disbursement.disbursementNo} · {getStatusLabel(x.disbursement.status)} · 净额 € {Number(x.disbursement.netAmount).toFixed(2)}</p>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2">

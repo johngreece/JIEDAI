@@ -119,9 +119,9 @@ export default function RepaymentPlansPage() {
                         {p.application?.applicationNo ?? p.applicationId.slice(0, 8)}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-slate-700">¥{p.totalPrincipal.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-slate-700">¥{p.totalInterest.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-slate-500">¥{p.totalFee.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-700">€{p.totalPrincipal.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-700">€{p.totalInterest.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-500">€{p.totalFee.toLocaleString()}</td>
                     <td className="px-4 py-3 text-slate-700">{p.totalPeriods} 期</td>
                     <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span></td>
                     <td className="px-4 py-3">
@@ -166,11 +166,11 @@ export default function RepaymentPlansPage() {
                       <tr key={si.id}>
                         <td className="py-2 px-3">{si.periodNumber}</td>
                         <td className="py-2 px-3">{new Date(si.dueDate).toLocaleDateString()}</td>
-                        <td className="py-2 px-3">¥{si.principal.toLocaleString()}</td>
-                        <td className="py-2 px-3">¥{si.interest.toLocaleString()}</td>
-                        <td className="py-2 px-3">¥{si.fee.toLocaleString()}</td>
-                        <td className="py-2 px-3 font-medium">¥{si.totalDue.toLocaleString()}</td>
-                        <td className="py-2 px-3">{si.remaining > 0 ? `¥${si.remaining.toLocaleString()}` : "-"}</td>
+                        <td className="py-2 px-3">€{si.principal.toLocaleString()}</td>
+                        <td className="py-2 px-3">€{si.interest.toLocaleString()}</td>
+                        <td className="py-2 px-3">€{si.fee.toLocaleString()}</td>
+                        <td className="py-2 px-3 font-medium">€{si.totalDue.toLocaleString()}</td>
+                        <td className="py-2 px-3">{si.remaining > 0 ? `€${si.remaining.toLocaleString()}` : "-"}</td>
                         <td className="py-2 px-3">
                           <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${si.status === "PAID" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : si.status === "OVERDUE" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
                             {ITEM_STATUS[si.status] ?? si.status}
