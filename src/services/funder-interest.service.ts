@@ -3,11 +3,14 @@ import { prisma } from "@/lib/prisma";
 /**
  * 资金方利息计算引擎
  *
+ * 放款优先级: 自有资金(10) > 固定月息(8) > 流动业务量(5)
+ * 核心原则: 有放有利息，没放没利息。资金方不承担风险，平台承担所有风险。
+ *
  * 模式1: FIXED_MONTHLY — 固定月息
- *   - 按投入总额 × 月利率(默认2%)计算
- *   - 满1个月可提现（本金+利息 或 仅利息）
- *   - 提前取回本金不付利息
- *   - 系统优先使用该资金方的资金放款
+ *   - 仅按实际放出资金 × 月利率计算（没放出的不计利息）
+ *   - 满30天为一个计息周期，可提现
+ *   - 闲置资金可随时提现，但无利息
+ *   - 系统优先使用该模式资金放款
  *
  * 模式2: VOLUME_BASED — 按业务量（流动资金）
  *   - 按比例分成: 资金方收益 = 平台实际收取费用 × 分成比例(profitShareRatio)
@@ -16,6 +19,7 @@ import { prisma } from "@/lib/prisma";
  *   - 早还时双方按固定比例分摊收入减少
  *   - 未回款放款按5%/周估算（不可提现）
  *   - 闲置资金可随时提现
+ *   - 不承担任何风险
  */
 
 interface FunderEarnings {
@@ -84,52 +88,47 @@ export class FunderInterestService {
     const earningSummary: EarningPeriod[] = [];
 
     if (mode === "FIXED_MONTHLY") {
-      // 固定月息模式
+      // 固定月息模式：有放有利息，没放没利息
+      // 仅按实际放出的每笔放款金额 × 月利率计算
       const monthlyRate = Number(funder.monthlyRate) / 100;
 
-      // 找每个资金注入的开始日期，按月计算利息
-      for (const account of funder.accounts) {
-        const inflows = await prisma.capitalInflow.findMany({
-          where: { fundAccountId: account.id, status: "CONFIRMED" },
-          orderBy: { inflowDate: "asc" },
-        });
+      for (const disb of activeDisbursements) {
+        const disbDate = new Date(disb.disbursedAt!);
+        const daysSince = Math.floor(
+          (now.getTime() - disbDate.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        const fullMonths = Math.floor(daysSince / 30);
+        const deployed = Number(disb.netAmount);
 
-        for (const inflow of inflows) {
-          const inflowDate = new Date(inflow.inflowDate);
-          const daysSince = Math.floor((now.getTime() - inflowDate.getTime()) / (1000 * 60 * 60 * 24));
-          const fullMonths = Math.floor(daysSince / 30);
-          const principal = Number(inflow.amount);
+        if (fullMonths >= 1) {
+          const interest = deployed * monthlyRate * fullMonths;
+          accruedInterest += interest;
+          withdrawableInterest += interest;
 
-          if (fullMonths >= 1) {
-            const interest = principal * monthlyRate * fullMonths;
-            accruedInterest += interest;
-            withdrawableInterest += interest;
-
-            earningSummary.push({
-              periodStart: inflowDate,
-              periodEnd: now,
-              principal,
-              deployed: totalDeployed,
-              rate: Number(funder.monthlyRate),
-              interest,
-              withdrawable: true,
-            });
-          } else {
-            // 不满1个月，可提前取回本金但无利息
-            earningSummary.push({
-              periodStart: inflowDate,
-              periodEnd: now,
-              principal,
-              deployed: totalDeployed,
-              rate: Number(funder.monthlyRate),
-              interest: 0,
-              withdrawable: false,
-            });
-          }
+          earningSummary.push({
+            periodStart: disbDate,
+            periodEnd: now,
+            principal: deployed,
+            deployed,
+            rate: Number(funder.monthlyRate),
+            interest,
+            withdrawable: true,
+          });
+        } else {
+          // 不满30天，已放款但利息未成熟
+          earningSummary.push({
+            periodStart: disbDate,
+            periodEnd: now,
+            principal: deployed,
+            deployed,
+            rate: Number(funder.monthlyRate),
+            interest: 0,
+            withdrawable: false,
+          });
         }
       }
 
-      // 可提现本金 = 总余额（提前取回不付利息）
+      // 可提现本金 = 闲置资金（未放出部分可随时提现）
       withdrawablePrincipal = totalBalance;
 
     } else if (mode === "VOLUME_BASED") {
@@ -261,8 +260,9 @@ export class FunderInterestService {
       .reduce((s, w) => s + Number(w.interestAmount), 0);
     withdrawableInterest = Math.max(0, withdrawableInterest - withdrawnInterest);
 
-    // 逾期风险分担：如果资金方开启了风险共担，按比例扣减利息
-    let riskDeduction = 0;
+    // 风险说明：资金方不承担风险，平台承担所有逾期风险
+    // 逾期风险分担功能保留但默认关闭(riskSharing=false)
+    // 仅当管理员明确为特定资金方开启时才进行扣减
     if (funder.riskSharing && Number(funder.riskShareRatio) > 0 && accountIds.length) {
       const overdueDisbursements = await prisma.disbursement.findMany({
         where: {
@@ -272,7 +272,7 @@ export class FunderInterestService {
         select: { netAmount: true },
       });
       const overdueTotal = overdueDisbursements.reduce((s, d) => s + Number(d.netAmount), 0);
-      riskDeduction = overdueTotal * Number(funder.riskShareRatio);
+      const riskDeduction = overdueTotal * Number(funder.riskShareRatio);
       withdrawableInterest = Math.max(0, withdrawableInterest - riskDeduction);
     }
 
