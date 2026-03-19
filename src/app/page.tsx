@@ -34,7 +34,7 @@ export default function HomePage() {
           </p>
         </section>
 
-        <section className="mx-auto mt-10 grid w-full max-w-5xl grid-cols-1 gap-5 md:grid-cols-2 md:gap-6">
+        <section className="mx-auto mt-10 grid w-full max-w-5xl grid-cols-1 gap-5 md:grid-cols-3 md:gap-6">
           <Link
             href="/admin/login"
             className="glass-login-card group rounded-3xl p-7 transition duration-300 hover:-translate-y-1"
@@ -69,6 +69,25 @@ export default function HomePage() {
             </p>
             <span className="mt-6 inline-flex items-center text-sm font-semibold text-cyan-100">
               立即登录
+              <span className="ml-1 transition-transform group-hover:translate-x-1">→</span>
+            </span>
+          </Link>
+
+          <Link
+            href="/funder/login"
+            className="glass-login-card group rounded-3xl p-7 transition duration-300 hover:-translate-y-1"
+          >
+            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-2xl border border-emerald-200/30 bg-emerald-300/20 text-emerald-100">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-semibold text-white">资金方入口</h2>
+            <p className="mt-3 text-sm leading-relaxed text-slate-200/80">
+              面向资金合作伙伴，查看投资收益、放款明细、提现管理与合作协议。
+            </p>
+            <span className="mt-6 inline-flex items-center text-sm font-semibold text-emerald-100">
+              资金方登录
               <span className="ml-1 transition-transform group-hover:translate-x-1">→</span>
             </span>
           </Link>
