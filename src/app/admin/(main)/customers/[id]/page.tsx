@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 
@@ -34,9 +34,28 @@ type CreditInfo = {
   documents: { kycType: string; status: string; hasDocument: boolean; createdAt: string }[];
 };
 
+type DocItem = {
+  id: string;
+  kycType: string;
+  documentUrl: string;
+  status: string;
+  verifiedAt: string | null;
+  createdAt: string;
+};
+
 const RISK_OPTIONS = ["LOW", "NORMAL", "HIGH", "BLACKLIST"];
 const RISK_LABELS: Record<string, string> = { LOW: "低风险", NORMAL: "正常", HIGH: "高风险", BLACKLIST: "黑名单" };
 const KYC_TYPE_LABELS: Record<string, string> = { PASSPORT: "护照", CHINA_ID: "国内身份证", GREEK_RESIDENCE_PERMIT: "希腊居留卡" };
+const DOC_TYPES = ["PASSPORT", "CHINA_ID", "GREEK_RESIDENCE_PERMIT"] as const;
+const STATUS_STYLES: Record<string, string> = {
+  UPLOADED: "bg-blue-50 text-blue-600",
+  VERIFIED: "bg-emerald-50 text-emerald-600",
+  REJECTED: "bg-red-50 text-red-600",
+  PENDING: "bg-slate-100 text-slate-500",
+};
+const STATUS_LABELS: Record<string, string> = {
+  UPLOADED: "已上传", VERIFIED: "已验证", REJECTED: "已驳回", PENDING: "待上传",
+};
 
 export default function CustomerDetailPage() {
   const params = useParams();
@@ -55,7 +74,14 @@ export default function CustomerDetailPage() {
   const [creditSaving, setCreditSaving] = useState(false);
   const [creditMsg, setCreditMsg] = useState("");
 
-  async function load() {
+  // 证件管理
+  const [docs, setDocs] = useState<DocItem[]>([]);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [uploadMsg, setUploadMsg] = useState("");
+  const [previewDoc, setPreviewDoc] = useState<DocItem | null>(null);
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/customers/${id}`);
@@ -67,11 +93,9 @@ export default function CustomerDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [id]);
 
-  useEffect(() => { load(); loadCredit(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function loadCredit() {
+  const loadCredit = useCallback(async () => {
     try {
       const res = await fetch(`/api/customers/${id}/credit-limit`);
       if (res.ok) {
@@ -80,7 +104,19 @@ export default function CustomerDetailPage() {
         setCreditOverride(json.creditLimitOverride != null ? String(json.creditLimitOverride) : "");
       }
     } catch { /* ignore */ }
-  }
+  }, [id]);
+
+  const loadDocs = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/customers/${id}/documents`);
+      if (res.ok) {
+        const json = await res.json();
+        setDocs(json.documents || []);
+      }
+    } catch { /* ignore */ }
+  }, [id]);
+
+  useEffect(() => { load(); loadCredit(); loadDocs(); }, [load, loadCredit, loadDocs]);
 
   async function saveCreditOverride(e: React.FormEvent) {
     e.preventDefault();
@@ -140,6 +176,39 @@ export default function CustomerDetailPage() {
     }
   }
 
+  async function handleUpload(kycType: string, file: File) {
+    setUploading(kycType);
+    setUploadMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("kycType", kycType);
+      fd.append("file", file);
+      const res = await fetch(`/api/customers/${id}/documents`, { method: "POST", body: fd });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "上传失败");
+      setUploadMsg(`${KYC_TYPE_LABELS[kycType]} 上传成功`);
+      loadDocs();
+      loadCredit();
+      load();
+    } catch (e) {
+      setUploadMsg(e instanceof Error ? e.message : "上传失败");
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  function handleDownload(doc: DocItem) {
+    const link = document.createElement("a");
+    link.href = doc.documentUrl;
+    const ext = doc.documentUrl.startsWith("data:application/pdf") ? "pdf" : "jpg";
+    link.download = `${data?.name ?? "客户"}_${KYC_TYPE_LABELS[doc.kycType]}.${ext}`;
+    link.click();
+  }
+
+  function getDocByType(type: string) {
+    return docs.find((d) => d.kycType === type);
+  }
+
   if (loading) return <div className="p-8 text-center text-slate-400">加载中...</div>;
   if (!data) return <div className="p-8 text-center text-slate-400">客户不存在</div>;
 
@@ -165,8 +234,11 @@ export default function CustomerDetailPage() {
     }
   }
 
+  const uploadedCount = DOC_TYPES.filter((t) => getDocByType(t)).length;
+
   return (
     <div className="space-y-6">
+      {/* 顶部头部 */}
       <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">客户详情</h1>
@@ -205,6 +277,7 @@ export default function CustomerDetailPage() {
         </section>
       ) : (
         <>
+          {/* 基本信息 */}
           <section className="panel-soft rounded-xl p-5">
             <h2 className="text-lg font-semibold text-slate-900 mb-4">基本信息</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-y-3 gap-x-6 text-sm">
@@ -222,19 +295,153 @@ export default function CustomerDetailPage() {
             {data.remark && <p className="mt-3 text-sm text-slate-500">备注：{data.remark}</p>}
           </section>
 
-          {data.kyc && data.kyc.length > 0 && (
-            <section className="panel-soft rounded-xl p-5">
-              <h2 className="text-lg font-semibold text-slate-900 mb-3">KYC 认证</h2>
-              <div className="space-y-2">
-                {data.kyc.map((k) => (
-                  <div key={k.id} className="flex items-center gap-3 text-sm rounded-lg border border-slate-200 p-3">
-                    <span className="font-medium text-slate-700">{KYC_TYPE_LABELS[k.kycType] || k.kycType}</span>
-                    <span className={`rounded px-2 py-0.5 text-xs font-medium ${k.status === "UPLOADED" ? "bg-blue-50 text-blue-600" : k.status === "VERIFIED" ? "bg-emerald-50 text-emerald-600" : "bg-slate-100 text-slate-500"}`}>{k.status}</span>
-                    {k.verifiedAt && <span className="text-xs text-slate-400">认证于 {new Date(k.verifiedAt).toLocaleString()}</span>}
-                  </div>
-                ))}
+          {/* ═══════ 证件管理（上传/下载/预览） ═══════ */}
+          <section className="panel-soft rounded-xl p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">证件管理</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  已上传 {uploadedCount}/{DOC_TYPES.length} 种证件
+                  {uploadedCount === DOC_TYPES.length && <span className="ml-2 text-emerald-600 font-medium">✓ 全部齐全</span>}
+                </p>
               </div>
-            </section>
+            </div>
+            {uploadMsg && (
+              <p className={`text-xs mb-3 rounded-lg px-3 py-2 ${uploadMsg.includes("成功") ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`}>{uploadMsg}</p>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {DOC_TYPES.map((type) => {
+                const doc = getDocByType(type);
+                const isUploading = uploading === type;
+                const isPdf = doc?.documentUrl?.startsWith("data:application/pdf");
+
+                return (
+                  <div key={type} className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                    {/* 预览区域 */}
+                    <div
+                      className="relative h-48 bg-slate-50 flex items-center justify-center cursor-pointer group"
+                      onClick={() => doc && setPreviewDoc(doc)}
+                    >
+                      {doc ? (
+                        isPdf ? (
+                          <div className="text-center">
+                            <svg className="mx-auto h-16 w-16 text-red-400" fill="currentColor" viewBox="0 0 24 24">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm-1 2l5 5h-5V4zm-3 9h4v2h-4v-2zm0 3h4v2h-4v-2zm-2-6h2v8H8v-8z"/>
+                            </svg>
+                            <p className="mt-1 text-xs text-slate-500">PDF 文件</p>
+                          </div>
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={doc.documentUrl}
+                            alt={KYC_TYPE_LABELS[type]}
+                            className="h-full w-full object-cover group-hover:opacity-80 transition-opacity"
+                          />
+                        )
+                      ) : (
+                        <div className="text-center text-slate-300">
+                          <svg className="mx-auto h-12 w-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"/>
+                          </svg>
+                          <p className="mt-1 text-xs">未上传</p>
+                        </div>
+                      )}
+                      {doc && (
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <span className="bg-black/60 text-white text-xs px-2 py-1 rounded">点击预览</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 信息 + 操作 */}
+                    <div className="p-3 border-t border-slate-100">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-sm text-slate-800">{KYC_TYPE_LABELS[type]}</span>
+                        <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[doc?.status ?? "PENDING"]}`}>
+                          {STATUS_LABELS[doc?.status ?? "PENDING"]}
+                        </span>
+                      </div>
+                      {doc && (
+                        <p className="text-xs text-slate-400 mb-2">
+                          上传于 {new Date(doc.createdAt).toLocaleString()}
+                        </p>
+                      )}
+                      <div className="flex gap-2">
+                        {/* 上传按钮 */}
+                        <input
+                          ref={(el) => { fileInputRefs.current[type] = el; }}
+                          type="file"
+                          className="hidden"
+                          accept="image/jpeg,image/png,image/webp,application/pdf"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleUpload(type, f);
+                            e.target.value = "";
+                          }}
+                        />
+                        <button
+                          onClick={() => fileInputRefs.current[type]?.click()}
+                          disabled={isUploading}
+                          className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          {isUploading ? (
+                            <span className="animate-pulse">上传中...</span>
+                          ) : (
+                            <>{doc ? "重新上传" : "上传"}</>
+                          )}
+                        </button>
+                        {/* 下载按钮 */}
+                        {doc && (
+                          <button
+                            onClick={() => handleDownload(doc)}
+                            className="flex items-center justify-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                            title="下载"
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                            </svg>
+                            下载
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* ═══════ 预览弹窗 ═══════ */}
+          {previewDoc && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreviewDoc(null)}>
+              <div className="relative max-h-[90vh] max-w-[90vw] bg-white rounded-xl overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b px-4 py-3">
+                  <h3 className="font-semibold text-slate-800">{KYC_TYPE_LABELS[previewDoc.kycType]} — {data.name}</h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleDownload(previewDoc)}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white hover:bg-slate-800"
+                    >
+                      下载文件
+                    </button>
+                    <button onClick={() => setPreviewDoc(null)} className="rounded p-1 hover:bg-slate-100">
+                      <svg className="h-5 w-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div className="overflow-auto max-h-[80vh] p-2 bg-slate-50 flex items-center justify-center">
+                  {previewDoc.documentUrl.startsWith("data:application/pdf") ? (
+                    <iframe src={previewDoc.documentUrl} className="w-[800px] h-[75vh] border-0" title="PDF预览" />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={previewDoc.documentUrl} alt={KYC_TYPE_LABELS[previewDoc.kycType]} className="max-w-full max-h-[75vh] object-contain" />
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
           {/* 额度管理 */}
@@ -256,19 +463,10 @@ export default function CustomerDetailPage() {
                     <p className="text-lg font-bold text-amber-600">{credit.creditLimitOverride != null ? `€${credit.creditLimitOverride.toLocaleString()}` : "未设置"}</p>
                   </div>
                   <div className="rounded-lg border bg-slate-50 p-3">
-                    <p className="text-xs text-slate-500">证件上传</p>
-                    <p className="text-lg font-bold">{credit.allDocumentsUploaded ? <span className="text-emerald-600">全部完成</span> : <span className="text-amber-600">{credit.documents.length}/3</span>}</p>
+                    <p className="text-xs text-slate-500">证件完成度</p>
+                    <p className="text-lg font-bold">{credit.allDocumentsUploaded ? <span className="text-emerald-600">全部完成</span> : <span className="text-amber-600">{uploadedCount}/3</span>}</p>
                   </div>
                 </div>
-                {credit.documents.length > 0 && (
-                  <div className="text-xs text-slate-500 space-x-3">
-                    {credit.documents.map((d) => (
-                      <span key={d.kycType} className={d.hasDocument ? "text-emerald-600" : "text-slate-400"}>
-                        {d.hasDocument ? "✓" : "○"} {KYC_TYPE_LABELS[d.kycType] || d.kycType}
-                      </span>
-                    ))}
-                  </div>
-                )}
                 <form onSubmit={saveCreditOverride} className="flex gap-2 items-end border-t pt-4">
                   <div className="flex-1">
                     <label className="text-sm text-slate-600">设置特殊额度（留空=使用系统计算额度）</label>
@@ -329,6 +527,7 @@ export default function CustomerDetailPage() {
             {pwdMsg && <p className={`text-xs mt-2 ${pwdMsg.includes("成功") ? "text-emerald-600" : "text-red-600"}`}>{pwdMsg}</p>}
           </section>
 
+          {/* 近期借款 */}
           {data.loanApplications.length > 0 && (
             <section className="panel-soft rounded-xl p-5">
               <h2 className="text-lg font-semibold text-slate-900 mb-3">近期借款</h2>
