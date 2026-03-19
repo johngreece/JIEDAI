@@ -359,22 +359,26 @@ async function main() {
   });
   console.log("Funder '自有资金' seeded:", funder.id, "(phone: 13900000001 / funder123)");
 
-  // ── 更多测试资金方 ──
+  // ── 删除旧测试资金方（名称已改为项目名） ──
+  for (const oldName of ["鸿运投资", "Athens Capital", "周老板"]) {
+    await prisma.funder.updateMany({ where: { name: oldName }, data: { deletedAt: new Date(), loginPhone: null } }).catch(() => {});
+  }
+
+  // ── 更多测试资金方（按项目命名） ──
   const testFunders = [
     {
-      name: "鸿运投资",
+      name: "稳利月息项目A",
       type: "COMPANY",
-      contactPerson: "陈老板",
+      contactPerson: "陈总",
       contactPhone: "13900000010",
       loginPhone: "13900000010",
       cooperationMode: "FIXED_MONTHLY",
       monthlyRate: 2.5,
       priority: 8,
-      withdrawalCooldownDays: 7,
-      remark: "固定月息合作方",
+      remark: "固定月息合作项目",
     },
     {
-      name: "Athens Capital",
+      name: "欧洲业务量项目",
       type: "COMPANY",
       contactPerson: "Dimitris K.",
       contactPhone: "6973000003",
@@ -384,10 +388,10 @@ async function main() {
       priority: 5,
       riskSharing: true,
       riskShareRatio: 0.3,
-      remark: "希腊本地资金方，按业务量结算",
+      remark: "按实际放款量结算利息",
     },
     {
-      name: "周老板",
+      name: "月息保底项目B",
       type: "INDIVIDUAL",
       contactPerson: "周先生",
       contactPhone: "13900000020",
@@ -395,8 +399,7 @@ async function main() {
       cooperationMode: "FIXED_MONTHLY",
       monthlyRate: 2,
       priority: 3,
-      withdrawalCooldownDays: 14,
-      remark: "个人投资者",
+      remark: "个人投资者固定月息项目",
     },
   ];
   for (const f of testFunders) {
