@@ -3,7 +3,11 @@ import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { recordDisbursementLedger } from "@/services/ledger.service";
-import { generateSchedule } from "@/services/schedule.service";
+import {
+  parseTiersFromPricingRules,
+  calcNetDisbursement,
+  loadFeeConfig,
+} from "@/lib/interest-engine";
 import { Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -35,11 +39,13 @@ export async function POST(
   }
 
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const now = new Date();
+
     const disbursement = await tx.disbursement.update({
       where: { id },
       data: {
         status: "PAID",
-        disbursedAt: new Date(),
+        disbursedAt: now,          // 计时起点
         operatorId: session.sub,
       },
     });
@@ -55,59 +61,87 @@ export async function POST(
     });
 
     if (!existingPlan) {
-      // 查询产品配置与定价规则
+      // 查询产品定价规则（阶梯费率）
       const application = await tx.loanApplication.findUnique({
         where: { id: disbursement.applicationId },
-        include: { product: { include: { pricingRules: { where: { isActive: true }, orderBy: { priority: "desc" } } } } },
+        include: {
+          product: {
+            include: {
+              pricingRules: {
+                where: { isActive: true },
+                orderBy: { priority: "desc" },
+              },
+            },
+          },
+        },
       });
 
-      // 从定价规则中获取利率（优先取 INTEREST 类型规则）
-      let annualRate = 0;
-      if (application?.product?.pricingRules?.length) {
-        const interestRule = application.product.pricingRules.find(
-          (r) => r.ruleType === "INTEREST" || r.ruleType === "BASE_RATE"
-        ) ?? application.product.pricingRules[0];
-        annualRate = Number(interestRule.rateValue);
+      // 解析费率配置：优先 system_settings + loan override，兼容 PricingRules
+      const settingsRows = await tx.systemSetting.findMany();
+      const sysMap: Record<string, string | number> = {};
+      for (const s of settingsRows) sysMap[s.key] = s.value;
+
+      const loanOverride = null;
+
+      let pricingConfig;
+      const pricingRules = application?.product?.pricingRules ?? [];
+      if (pricingRules.length > 0) {
+        pricingConfig = parseTiersFromPricingRules(pricingRules);
+      } else {
+        pricingConfig = loadFeeConfig(sysMap, loanOverride);
       }
+      const { tiers, overdueConfig, upfrontFeeRate, channel } = pricingConfig;
 
-      const schedule = generateSchedule({
-        principal: Number(disbursement.amount),
-        termValue: application!.termValue,
-        termUnit: (application!.termUnit as "MONTH" | "DAY"),
-        repaymentMethod: (application!.product.repaymentMethod as "ONE_TIME" | "EQUAL_INSTALLMENT" | "EQUAL_PRINCIPAL"),
-        annualRate,
-        feeAmount: Number(disbursement.feeAmount),
-        startDate: new Date(),
-      });
+      const principal = Number(disbursement.amount);
+      const netAmount = calcNetDisbursement(principal, upfrontFeeRate, channel);
+
+      // 到期日 = 确认时间 + 7天（标准借款周期）
+      const sortedTiers = [...tiers].sort((a, b) => a.maxDays - b.maxDays);
+      const maxTierDays = sortedTiers.length > 0
+        ? sortedTiers[sortedTiers.length - 1].maxDays
+        : 7;
+      const dueDate = new Date(now.getTime() + maxTierDays * 24 * 60 * 60 * 1000);
+
+      // 快照规则用于后续实时计算
+      const rulesSnapshot = {
+        channel,
+        upfrontFeeRate,
+        tiers: sortedTiers,
+        overdueConfig,
+        startTime: now.toISOString(),
+        dueDate: dueDate.toISOString(),
+      };
+
+      // 固定费用（砍头息）
+      const upfrontFee = principal - netAmount;
 
       const plan = await tx.repaymentPlan.create({
         data: {
           planNo: genPlanNo(),
           applicationId: disbursement.applicationId,
-          totalPrincipal: schedule.totalPrincipal.toNumber(),
-          totalInterest: schedule.totalInterest.toNumber(),
-          totalFee: schedule.totalFee.toNumber(),
-          totalPeriods: schedule.totalPeriods,
-          rulesSnapshotJson: JSON.stringify({ annualRate, repaymentMethod: application!.product.repaymentMethod }),
+          totalPrincipal: principal,
+          totalInterest: 0,       // 利息在还款时动态计算
+          totalFee: upfrontFee,
+          totalPeriods: 1,
+          rulesSnapshotJson: JSON.stringify(rulesSnapshot),
           status: "ACTIVE",
         },
       });
 
-      for (const item of schedule.items) {
-        await tx.repaymentScheduleItem.create({
-          data: {
-            planId: plan.id,
-            periodNumber: item.periodNumber,
-            dueDate: item.dueDate,
-            principal: item.principal.toNumber(),
-            interest: item.interest.toNumber(),
-            fee: item.fee.toNumber(),
-            totalDue: item.totalDue.toNumber(),
-            remaining: item.totalDue.toNumber(),
-            status: "PENDING",
-          },
-        });
-      }
+      // 创建单期还款计划条目（到期日 = 最大阶梯时间）
+      await tx.repaymentScheduleItem.create({
+        data: {
+          planId: plan.id,
+          periodNumber: 1,
+          dueDate,
+          principal,
+          interest: 0,            // 动态计算
+          fee: upfrontFee,
+          totalDue: principal,    // 至少还本金（实际金额实时算）
+          remaining: principal,
+          status: "PENDING",
+        },
+      });
     }
 
     // 台账记账：放款
@@ -138,7 +172,7 @@ export async function POST(
     entityId: id,
     oldValue: { status: current.status },
     newValue: { status: result.status, disbursedAt: result.disbursedAt?.toISOString() ?? null },
-    changeSummary: "确认已打款",
+    changeSummary: "确认已打款，计时开始",
   }).catch((e) => console.error("[AuditLog] confirm-paid", e));
 
   return NextResponse.json({ id: result.id, status: result.status });

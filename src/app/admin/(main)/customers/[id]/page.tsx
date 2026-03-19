@@ -37,6 +37,9 @@ export default function CustomerDetailPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [pwdSaving, setPwdSaving] = useState(false);
+  const [pwdMsg, setPwdMsg] = useState("");
 
   async function load() {
     setLoading(true);
@@ -92,6 +95,28 @@ export default function CustomerDetailPage() {
 
   if (loading) return <div className="p-8 text-center text-slate-400">加载中...</div>;
   if (!data) return <div className="p-8 text-center text-slate-400">客户不存在</div>;
+
+  async function handleResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (newPassword.length < 6) { setPwdMsg("密码至少6位"); return; }
+    setPwdSaving(true);
+    setPwdMsg("");
+    try {
+      const res = await fetch(`/api/customers/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "重置失败");
+      setPwdMsg("密码已重置成功");
+      setNewPassword("");
+    } catch (e) {
+      setPwdMsg(e instanceof Error ? e.message : "重置失败");
+    } finally {
+      setPwdSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -160,6 +185,29 @@ export default function CustomerDetailPage() {
               </div>
             </section>
           )}
+
+          {/* 重置密码 */}
+          <section className="panel-soft rounded-xl p-5">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">重置登录密码</h2>
+            <p className="text-xs text-slate-400 mb-3">为客户重新设置客户端登录密码（手机号 + 密码登录）</p>
+            <form onSubmit={handleResetPassword} className="flex gap-2 items-end">
+              <div className="flex-1">
+                <input
+                  type="password"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="新密码（至少6位）"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  minLength={6}
+                  required
+                />
+              </div>
+              <button type="submit" disabled={pwdSaving} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap">
+                {pwdSaving ? "重置中..." : "重置密码"}
+              </button>
+            </form>
+            {pwdMsg && <p className={`text-xs mt-2 ${pwdMsg.includes("成功") ? "text-emerald-600" : "text-red-600"}`}>{pwdMsg}</p>}
+          </section>
 
           {data.loanApplications.length > 0 && (
             <section className="panel-soft rounded-xl p-5">

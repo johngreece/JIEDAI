@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { hashPassword } from "@/lib/password";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ const updateSchema = z.object({
   bankName: z.string().optional(),
   riskLevel: z.enum(["LOW", "NORMAL", "HIGH", "BLACKLIST"]).optional(),
   remark: z.string().optional(),
+  newPassword: z.string().min(6).optional(),
 });
 
 export async function GET(
@@ -87,9 +89,15 @@ export async function PUT(
     if (dup) return NextResponse.json({ error: "手机号已被使用" }, { status: 409 });
   }
 
+  const { newPassword, ...updateData } = parsed.data;
+  const dataToWrite: Record<string, unknown> = { ...updateData };
+  if (newPassword) {
+    dataToWrite.passwordHash = await hashPassword(newPassword);
+  }
+
   const updated = await prisma.customer.update({
     where: { id },
-    data: parsed.data,
+    data: dataToWrite,
   });
 
   const { passwordHash, ...rest } = updated;

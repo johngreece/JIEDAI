@@ -14,7 +14,8 @@ export type AuditAction =
   | "reject"
   | "disburse"
   | "repay_register"
-  | "repay_confirm";
+  | "repay_confirm"
+  | "pay_overdue_interest";
 
 export type AuditEntityType =
   | "loan_application"
@@ -22,6 +23,7 @@ export type AuditEntityType =
   | "disbursement"
   | "repayment"
   | "repayment_confirmation"
+  | "overdue_record"
   | "customer"
   | "pricing_rule"
   | "system_setting";

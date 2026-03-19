@@ -65,9 +65,11 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[], user
     { name: "贷款重组", href: "/admin/restructures", icon: DocIcon },
     { name: "逾期管理", href: "/admin/overdue", icon: ReceiptIcon },
     { name: "台账查询", href: "/admin/ledger", icon: CashIcon },
+    { name: "财务结算", href: "/admin/settlement", icon: CashIcon },
     { name: "贷款产品", href: "/admin/products", icon: CogIcon },
     { name: "合同模板", href: "/admin/templates", icon: DocIcon },
     { name: "资金方", href: "/admin/funders", icon: CashIcon },
+    { name: "客户登记", href: "/admin/register", icon: UsersIcon },
   ];
 
   if (userRole?.includes("super_admin")) {

@@ -10,6 +10,7 @@ export default function AdminRegisterPage() {
     email: "",
     idNumber: "",
     address: "",
+    password: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -75,6 +76,11 @@ export default function AdminRegisterPage() {
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">地址</label>
           <input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} className="input-base" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">登录密码 *</label>
+          <input required type="password" value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} className="input-base" placeholder="至少6位" minLength={6} />
+          <p className="text-xs text-slate-400 mt-1">客户登录客户端时使用（手机号+密码）</p>
         </div>
         <button type="submit" disabled={loading} className="btn-primary w-full py-2.5 font-medium disabled:opacity-50">
           {loading ? "提交中…" : "提交登记"}

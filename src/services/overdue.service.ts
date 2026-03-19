@@ -1,51 +1,86 @@
 /**
- * 逾期服务
+ * 逾期服务 — 自然日简单利息模型
  * - 扫描到期未还的还款计划条目 → 创建/更新 overdue_records
- * - 按费率规则自动计算罚息
- * - 提供手动/定时调用入口
+ * - 到期后24小时宽限期
+ * - 1~14天: 每天 1% (基于本金)
+ * - 15天+:  每天 2% (基于本金)
+ * - 逾期费 = 本金 × 逾期天数对应费率之和（简单利息，不复利）
  */
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import Decimal from "decimal.js";
 import {
-  DEFAULT_FEE_RATES,
-  FEE_SETTING_KEYS,
-  type FeeRates,
-} from "@/lib/loan-fee-rules";
+  DEFAULT_OVERDUE,
+  type OverdueConfig,
+  type OverdueDayRecord,
+} from "@/lib/interest-engine";
 
-/** 从 system_settings 读取逾期费率配置 */
-async function loadFeeRates(): Promise<FeeRates> {
-  const settings = await prisma.systemSetting.findMany({
-    where: {
-      key: {
-        in: Object.values(FEE_SETTING_KEYS),
-      },
-    },
+/** 从还款计划快照或系统配置中获取逾期配置 */
+async function loadOverdueConfig(applicationId: string): Promise<{
+  overdueConfig: OverdueConfig;
+  dueDate: Date | null;
+}> {
+  const plan = await prisma.repaymentPlan.findFirst({
+    where: { applicationId, status: "ACTIVE" },
+    select: { rulesSnapshotJson: true },
   });
-  const map = new Map(settings.map((s) => [s.key, s.value]));
 
-  function getVal(key: string, fallback: number): number {
-    const raw = map.get(key);
-    if (!raw) return fallback;
+  let overdueConfig: OverdueConfig = DEFAULT_OVERDUE;
+  let dueDate: Date | null = null;
+
+  if (plan?.rulesSnapshotJson) {
     try {
-      const parsed = JSON.parse(raw);
-      return typeof parsed === "object" && parsed.value != null
-        ? Number(parsed.value)
-        : Number(parsed);
-    } catch {
-      return fallback;
-    }
+      const snap = JSON.parse(plan.rulesSnapshotJson);
+      if (snap.overdueConfig) overdueConfig = snap.overdueConfig;
+      if (snap.dueDate) dueDate = new Date(snap.dueDate);
+    } catch { /* fallback */ }
+  }
+
+  return { overdueConfig, dueDate };
+}
+
+/**
+ * 计算逾期罚息（简单利息，不复利）
+ * 基于原始本金 × 每天对应费率
+ */
+function calcSimpleOverdue(
+  basePrincipal: number,
+  overdueDays: number,
+  config: OverdueConfig,
+  overdueStartDate: Date
+): {
+  totalPenalty: number;
+  records: OverdueDayRecord[];
+} {
+  const records: OverdueDayRecord[] = [];
+  let totalPenalty = new Decimal(0);
+  const p = new Decimal(basePrincipal);
+
+  for (let d = 1; d <= overdueDays; d++) {
+    const rate = d <= config.phase1MaxDays
+      ? config.phase1DailyRate
+      : config.phase2DailyRate;
+
+    const dailyInterest = p.mul(rate).div(100)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+    totalPenalty = totalPenalty.plus(dailyInterest);
+
+    const dayDate = new Date(overdueStartDate);
+    dayDate.setDate(dayDate.getDate() + d - 1);
+
+    records.push({
+      day: d,
+      date: dayDate.toISOString().slice(0, 10),
+      dailyRate: rate,
+      dailyInterest: dailyInterest.toNumber(),
+    });
   }
 
   return {
-    sameDayRate: getVal(FEE_SETTING_KEYS.sameDayRate, DEFAULT_FEE_RATES.sameDayRate),
-    nextDayRate: getVal(FEE_SETTING_KEYS.nextDayRate, DEFAULT_FEE_RATES.nextDayRate),
-    day3Day7Rate: getVal(FEE_SETTING_KEYS.day3Day7Rate, DEFAULT_FEE_RATES.day3Day7Rate),
-    otherDayRate: getVal(FEE_SETTING_KEYS.otherDayRate, DEFAULT_FEE_RATES.otherDayRate),
-    overdueGraceHours: getVal(FEE_SETTING_KEYS.overdueGraceHours, DEFAULT_FEE_RATES.overdueGraceHours),
-    overdueRatePerDayBefore14: getVal(FEE_SETTING_KEYS.overdueRateBefore14, DEFAULT_FEE_RATES.overdueRatePerDayBefore14),
-    overdueRatePerDayAfter14: getVal(FEE_SETTING_KEYS.overdueRateAfter14, DEFAULT_FEE_RATES.overdueRatePerDayAfter14),
+    totalPenalty: totalPenalty.toNumber(),
+    records,
   };
 }
 
@@ -58,26 +93,24 @@ export type OverdueScanResult = {
 
 /**
  * 逾期扫描主函数
- * 扫描所有 ACTIVE 还款计划中已到期且未还清的条目，生成/更新逾期记录
+ * 扫描所有 ACTIVE 还款计划中已到期且未还清的条目，
+ * 到期后24小时宽限期过后，使用简单利息模型生成/更新逾期记录
  */
 export async function scanOverdueItems(): Promise<OverdueScanResult> {
   const now = new Date();
-  const rates = await loadFeeRates();
-  const graceMs = rates.overdueGraceHours * 60 * 60 * 1000;
-
-  // 查找到期（含宽限期）且未还清的还款计划条目
-  const cutoff = new Date(now.getTime() - graceMs);
 
   const overdueItems = await prisma.repaymentScheduleItem.findMany({
     where: {
-      status: { in: ["PENDING", "PARTIAL"] },
-      dueDate: { lt: cutoff },
+      status: { in: ["PENDING", "PARTIAL", "OVERDUE"] },
+      dueDate: { lt: now },
       plan: { status: "ACTIVE" },
     },
     include: {
       plan: {
         select: {
           applicationId: true,
+          rulesSnapshotJson: true,
+          totalPrincipal: true,
         },
       },
     },
@@ -92,89 +125,75 @@ export async function scanOverdueItems(): Promise<OverdueScanResult> {
 
   for (const item of overdueItems) {
     try {
+      const applicationId = item.plan.applicationId;
+      const { overdueConfig } = await loadOverdueConfig(applicationId);
+
+      // 逾期起算点 = dueDate + 宽限期
       const dueEnd = new Date(item.dueDate);
       dueEnd.setHours(23, 59, 59, 999);
-      const overdueStart = new Date(dueEnd.getTime() + graceMs);
-      const overdueDays = Math.max(
-        1,
-        Math.ceil((now.getTime() - overdueStart.getTime()) / 86400000)
+      const graceMs = overdueConfig.graceHours * 60 * 60 * 1000;
+      const overdueStartDate = new Date(dueEnd.getTime() + graceMs);
+
+      // 仍在宽限期内则跳过
+      if (now.getTime() <= overdueStartDate.getTime()) continue;
+
+      const overdueMs = now.getTime() - overdueStartDate.getTime();
+      const overdueDays = Math.max(1, Math.ceil(overdueMs / 86400000));
+
+      const basePrincipal = Number(item.plan.totalPrincipal);
+
+      // 简单利息计算
+      const simple = calcSimpleOverdue(
+        basePrincipal,
+        overdueDays,
+        overdueConfig,
+        overdueStartDate
       );
 
-      // 计算罚息：逾期金额 * 日费率
-      const overdueAmount = new Decimal(item.remaining.toString()).gt(0)
-        ? new Decimal(item.remaining.toString())
-        : new Decimal(item.totalDue.toString());
-
-      const daysBefore14 = Math.min(overdueDays, 14);
-      const daysAfter14 = Math.max(0, overdueDays - 14);
-      const penaltyAmount = overdueAmount
-        .mul(daysBefore14)
-        .mul(rates.overdueRatePerDayBefore14)
-        .div(100)
-        .plus(
-          overdueAmount
-            .mul(daysAfter14)
-            .mul(rates.overdueRatePerDayAfter14)
-            .div(100)
-        )
-        .toDecimalPlaces(4);
-
-      const applicationId = item.plan.applicationId;
-
-      // 通过 applicationId 查找 customerId
       const application = await prisma.loanApplication.findUnique({
         where: { id: applicationId },
         select: { customerId: true },
       });
       const customerId = application?.customerId ?? "";
 
-      // 查找是否已有此条目的逾期记录
+      const feeDetail = JSON.stringify({
+        overdueConfig,
+        overdueDays,
+        totalPenalty: simple.totalPenalty,
+        dailyRecords: simple.records,
+        calculatedAt: now.toISOString(),
+      });
+
       const existing = await prisma.overdueRecord.findFirst({
-        where: {
-          scheduleItemId: item.id,
-          status: "OVERDUE",
-        },
+        where: { scheduleItemId: item.id, status: "OVERDUE" },
       });
 
       if (existing) {
-        // 更新逾期天数和罚息
         await prisma.overdueRecord.update({
           where: { id: existing.id },
           data: {
             overdueDays,
-            penaltyAmount: penaltyAmount.toNumber(),
-            overdueAmount: overdueAmount.toNumber(),
-            overdueFeeDetail: JSON.stringify({
-              rates,
-              daysBefore14,
-              daysAfter14,
-              calculatedAt: now.toISOString(),
-            }),
+            penaltyAmount: simple.totalPenalty,
+            overdueAmount: basePrincipal + simple.totalPenalty,
+            overdueFeeDetail: feeDetail,
           },
         });
         result.updatedOverdue++;
       } else {
-        // 创建新逾期记录
         await prisma.overdueRecord.create({
           data: {
             customerId,
             applicationId,
             scheduleItemId: item.id,
-            overdueAmount: overdueAmount.toNumber(),
-            penaltyAmount: penaltyAmount.toNumber(),
+            overdueAmount: basePrincipal + simple.totalPenalty,
+            penaltyAmount: simple.totalPenalty,
             overdueDays,
-            gracePeriodDays: Math.ceil(rates.overdueGraceHours / 24),
-            overdueFeeDetail: JSON.stringify({
-              rates,
-              daysBefore14,
-              daysAfter14,
-              calculatedAt: now.toISOString(),
-            }),
+            gracePeriodDays: Math.ceil(overdueConfig.graceHours / 24),
+            overdueFeeDetail: feeDetail,
             status: "OVERDUE",
           },
         });
 
-        // 更新还款计划条目状态为 OVERDUE
         await prisma.repaymentScheduleItem.update({
           where: { id: item.id },
           data: { status: "OVERDUE" },

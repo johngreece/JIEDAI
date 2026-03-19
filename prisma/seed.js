@@ -208,15 +208,15 @@ async function main() {
   });
   console.log("Default customer seeded (phone: 13800000001 / customer123).");
 
-  // ── 贷款产品 ──
+  // ── 贷款产品（砍头息 + 全额） ──
   const product1 = await prisma.loanProduct.upsert({
-    where: { code: "SHORT_TERM_7D" },
+    where: { code: "UPFRONT_7D" },
     create: {
-      name: "7天短期借款",
-      code: "SHORT_TERM_7D",
-      description: "7天期短期小额借款产品",
+      name: "砍头息短期贷（7天）",
+      code: "UPFRONT_7D",
+      description: "砍头息模式：借10000到手9500，阶梯费率还款",
       minAmount: 1000,
-      maxAmount: 50000,
+      maxAmount: 100000,
       minTermValue: 7,
       maxTermValue: 7,
       termUnit: "DAY",
@@ -228,15 +228,15 @@ async function main() {
     update: {},
   });
   const product2 = await prisma.loanProduct.upsert({
-    where: { code: "SHORT_TERM_14D" },
+    where: { code: "FULL_AMOUNT_7D" },
     create: {
-      name: "14天短期借款",
-      code: "SHORT_TERM_14D",
-      description: "14天期短期借款产品",
+      name: "全额短期贷（7天）",
+      code: "FULL_AMOUNT_7D",
+      description: "全额模式：借10000到手10000，阶梯费率还款（仅专属链接）",
       minAmount: 1000,
       maxAmount: 100000,
-      minTermValue: 14,
-      maxTermValue: 14,
+      minTermValue: 7,
+      maxTermValue: 7,
       termUnit: "DAY",
       repaymentMethod: "ONE_TIME",
       allowEarlyRepay: true,
@@ -245,43 +245,66 @@ async function main() {
     },
     update: {},
   });
-  const product3 = await prisma.loanProduct.upsert({
-    where: { code: "MONTH_1M" },
-    create: {
-      name: "1个月期借款",
-      code: "MONTH_1M",
-      description: "1个月期借款产品，到期一次还本付息",
-      minAmount: 5000,
-      maxAmount: 200000,
-      minTermValue: 1,
-      maxTermValue: 1,
-      termUnit: "MONTH",
-      repaymentMethod: "ONE_TIME",
-      allowEarlyRepay: true,
-      allowExtension: true,
-      maxExtensionTimes: 3,
-    },
-    update: {},
-  });
-  const product4 = await prisma.loanProduct.upsert({
-    where: { code: "MONTH_3M" },
-    create: {
-      name: "3个月期借款",
-      code: "MONTH_3M",
-      description: "3个月期借款产品，按月等额还款",
-      minAmount: 10000,
-      maxAmount: 500000,
-      minTermValue: 3,
-      maxTermValue: 3,
-      termUnit: "MONTH",
-      repaymentMethod: "EQUAL_INSTALLMENT",
-      allowEarlyRepay: true,
-      allowExtension: false,
-      maxExtensionTimes: 0,
-    },
-    update: {},
-  });
-  console.log("Loan products seeded:", product1.id, product2.id, product3.id, product4.id);
+  console.log("Loan products seeded:", product1.id, product2.id);
+
+  // ── 定价规则 — 砍头息产品 ──
+  const upfrontRules = [
+    { name: "砍头息手续费", ruleType: "UPFRONT_FEE", rateValue: 5, conditionJson: null, priority: 100 },
+    { name: "通道类型", ruleType: "CHANNEL", rateValue: 0, conditionJson: JSON.stringify({ type: "UPFRONT_DEDUCTION" }), priority: 99 },
+    { name: "当天还", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxDays: 0, label: "当天还" }), priority: 10 },
+    { name: "隔天还", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxDays: 1, label: "隔天还" }), priority: 9 },
+    { name: "第3~7天还", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxDays: 7, label: "第3~7天还" }), priority: 8 },
+    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ maxDays: 14 }), priority: 5 },
+    { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: null, priority: 4 },
+  ];
+  for (const r of upfrontRules) {
+    await prisma.pricingRule.upsert({
+      where: { id: `seed_upfront_${r.ruleType}_${r.priority}` },
+      create: {
+        id: `seed_upfront_${r.ruleType}_${r.priority}`,
+        productId: product1.id,
+        name: r.name,
+        ruleType: r.ruleType,
+        rateType: "PERCENTAGE",
+        rateValue: r.rateValue,
+        conditionJson: r.conditionJson,
+        priority: r.priority,
+        isActive: true,
+        effectiveFrom: new Date("2024-01-01"),
+      },
+      update: { rateValue: r.rateValue, conditionJson: r.conditionJson },
+    });
+  }
+  console.log("PricingRules seeded for UPFRONT_7D:", upfrontRules.length);
+
+  // ── 定价规则 — 全额产品 ──
+  const fullRules = [
+    { name: "通道类型", ruleType: "CHANNEL", rateValue: 0, conditionJson: JSON.stringify({ type: "FULL_AMOUNT" }), priority: 99 },
+    { name: "当天还", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxDays: 0, label: "当天还" }), priority: 10 },
+    { name: "隔天还", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxDays: 1, label: "隔天还" }), priority: 9 },
+    { name: "第3~7天还", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxDays: 7, label: "第3~7天还" }), priority: 8 },
+    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ maxDays: 14 }), priority: 5 },
+    { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: null, priority: 4 },
+  ];
+  for (const r of fullRules) {
+    await prisma.pricingRule.upsert({
+      where: { id: `seed_full_${r.ruleType}_${r.priority}` },
+      create: {
+        id: `seed_full_${r.ruleType}_${r.priority}`,
+        productId: product2.id,
+        name: r.name,
+        ruleType: r.ruleType,
+        rateType: "PERCENTAGE",
+        rateValue: r.rateValue,
+        conditionJson: r.conditionJson,
+        priority: r.priority,
+        isActive: true,
+        effectiveFrom: new Date("2024-01-01"),
+      },
+      update: { rateValue: r.rateValue, conditionJson: r.conditionJson },
+    });
+  }
+  console.log("PricingRules seeded for FULL_AMOUNT_7D:", fullRules.length);
 
   // ── 资金方 & 资金账户 ──
   const funder = await prisma.funder.upsert({

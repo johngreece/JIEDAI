@@ -3,6 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { ConfirmReceivedButton } from "@/components/client/ConfirmReceivedButton";
 import { getStatusLabel } from "@/lib/status-ui";
+import RealtimeTimer from "@/components/RealtimeTimer";
 
 export default async function ClientDashboardPage() {
   const session = await getClientSession();
@@ -150,6 +151,11 @@ export default async function ClientDashboardPage() {
             <p className="text-xs text-slate-500 mt-1 mb-3">待确认收款 {pendingReceive.length} 笔</p>
          </div>
       </div>
+
+      {/* 实时还款计时器 — 已放款的借款 */}
+      {applications.filter((x) => ["DISBURSED"].includes(x.status)).map((app) => (
+        <RealtimeTimer key={app.id} applicationId={app.id} />
+      ))}
 
       {/* Recent Activity List */}
       <div className="table-shell overflow-hidden rounded-2xl">

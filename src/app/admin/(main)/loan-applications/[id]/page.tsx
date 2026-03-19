@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
+import RealtimeTimer from "@/components/RealtimeTimer";
 
 type Detail = {
   id: string;
@@ -166,6 +167,14 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
 
       <section className="table-shell rounded-xl p-4">
         <h2 className="font-semibold text-slate-900 mb-3">审批历史</h2>
+
+      {/* 实时还款计时器（放款后显示） */}
+      {["DISBURSED", "OVERDUE"].includes(data.status) && (
+        <section className="mt-6">
+          <RealtimeTimer applicationId={params.id} />
+        </section>
+      )}
+
         {data.approvals.length === 0 ? (
           <p className="text-sm text-slate-500">暂无审批记录</p>
         ) : (
