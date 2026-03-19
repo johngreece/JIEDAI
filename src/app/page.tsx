@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CompanyLogo } from "@/components/CompanyLogo";
 
 export default function HomePage() {
   return (
@@ -12,12 +13,10 @@ export default function HomePage() {
       <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-8 md:px-8 md:py-10">
         <header className="glass-login-card fade-in-up flex items-center justify-between rounded-2xl px-5 py-3 md:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-200/35 bg-cyan-300/20 text-sm font-semibold text-cyan-100">
-              DK
-            </div>
+            <CompanyLogo size={36} />
             <div>
-              <p className="text-sm font-semibold tracking-wide text-white">DaiKuan System</p>
-              <p className="text-xs text-slate-300/80">Loan Operations Platform</p>
+              <p className="text-sm font-semibold tracking-wide text-white">财大气粗总公司</p>
+              <p className="text-xs text-slate-300/80">全流程借贷业务平台</p>
             </div>
           </div>
           <span className="hidden rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-slate-200 md:inline-flex">
@@ -94,7 +93,7 @@ export default function HomePage() {
         </section>
 
         <footer className="mt-auto pt-10 text-center text-xs text-slate-300/70">
-          © {new Date().getFullYear()} DaiKuan System. All rights reserved.
+          © {new Date().getFullYear()} 财大气粗总公司. All rights reserved.
         </footer>
       </div>
     </main>

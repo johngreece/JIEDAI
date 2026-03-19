@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { CompanyLogo } from "@/components/CompanyLogo";
 
 // Icons
 const MenuIcon = ({ className }: { className?: string }) => (
@@ -37,7 +38,7 @@ export function ClientHeader({ username }: { username: string }) {
       <nav className="mx-auto flex max-w-7xl items-center justify-between p-4 lg:px-8" aria-label="Global">
         <div className="flex lg:flex-1">
           <Link href="/client/dashboard" className="-m-1.5 p-1.5 flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-200/30 bg-cyan-300/20 text-xs font-semibold text-cyan-100">DK</div>
+            <CompanyLogo size={32} />
             <span className="font-semibold text-slate-100">借款中心</span>
           </Link>
         </div>
@@ -87,7 +88,7 @@ export function ClientHeader({ username }: { username: string }) {
           <div className="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-white/10 bg-slate-950/90 px-6 py-6 text-slate-100 backdrop-blur-xl sm:max-w-sm sm:ring-1 sm:ring-white/10 shadow-xl">
             <div className="flex items-center justify-between">
               <Link href="/client/dashboard" className="-m-1.5 p-1.5 flex items-center gap-2">
-                 <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-200/30 bg-cyan-300/20 text-xs font-semibold text-cyan-100">DK</div>
+                 <CompanyLogo size={32} />
                  <span className="font-bold text-slate-100">借款中心</span>
               </Link>
               <button

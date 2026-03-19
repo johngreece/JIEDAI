@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { CompanyLogo } from "@/components/CompanyLogo";
 
 // Simple icon implementations to avoid dependencies
 const HomeIcon = ({ className }: { className?: string }) => (
@@ -86,8 +87,8 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[], user
     <div className="flex grow flex-col gap-y-5 overflow-y-auto border-r border-white/10 bg-slate-950/80 px-5 pb-4 backdrop-blur-xl">
       <div className="mt-3 flex h-16 shrink-0 items-center justify-center border-b border-white/10">
         <Link href="/" className="flex items-center gap-2 font-semibold text-white text-lg tracking-wide hover:opacity-90 transition-opacity">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyan-200/30 bg-cyan-300/20 text-xs text-cyan-100">DK</div>
-          <span>DAIKUAN</span>
+          <CompanyLogo size={32} />
+          <span>财大气粗</span>
         </Link>
       </div>
       <nav className="mt-3 flex flex-1 flex-col">

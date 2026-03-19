@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { CompanyLogo } from "@/components/CompanyLogo";
 
 export function FunderHeader({ username }: { username: string }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -29,7 +30,7 @@ export function FunderHeader({ username }: { username: string }) {
       <nav className="mx-auto flex max-w-7xl items-center justify-between p-4 lg:px-8">
         <div className="flex lg:flex-1">
           <Link href="/funder/dashboard" className="-m-1.5 p-1.5 flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200/30 bg-emerald-300/20 text-xs font-semibold text-emerald-100">FD</div>
+            <CompanyLogo size={32} />
             <span className="font-semibold text-slate-100">资金方中心</span>
           </Link>
         </div>
@@ -94,7 +95,7 @@ export function FunderHeader({ username }: { username: string }) {
           <div className="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-white/10 bg-slate-950/90 px-6 py-6 text-slate-100 backdrop-blur-xl sm:max-w-sm shadow-xl">
             <div className="flex items-center justify-between">
               <Link href="/funder/dashboard" className="-m-1.5 p-1.5 flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200/30 bg-emerald-300/20 text-xs font-semibold text-emerald-100">FD</div>
+                <CompanyLogo size={32} />
                 <span className="font-bold text-slate-100">资金方中心</span>
               </Link>
               <button type="button" className="-m-2.5 rounded-md p-2.5 text-slate-200 hover:bg-white/10" onClick={() => setMobileMenuOpen(false)}>

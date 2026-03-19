@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 const FIXED_MONTHLY_TEMPLATE = `
 资金合作协议（固定月息模式）
 
-甲方（平台方）：DAIKUAN 借贷平台
+甲方（平台方）：财大气粗总公司
 乙方（资金方）：{{funderName}}
 联系人：{{contactPerson}}
 联系电话：{{contactPhone}}
@@ -61,7 +61,7 @@ const FIXED_MONTHLY_TEMPLATE = `
 const VOLUME_BASED_TEMPLATE = `
 资金合作协议（业务量结算模式）
 
-甲方（平台方）：DAIKUAN 借贷平台
+甲方（平台方）：财大气粗总公司
 乙方（资金方）：{{funderName}}
 联系人：{{contactPerson}}
 联系电话：{{contactPhone}}
