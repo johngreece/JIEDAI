@@ -208,6 +208,23 @@ async function main() {
   });
   console.log("Default customer seeded (phone: 13800000001 / customer123).");
 
+  // ── 更多测试客户账号 ──
+  const testCustomers = [
+    { name: "李四", phone: "13800000002", idNumber: "110101199203156789", address: "上海市浦东新区" },
+    { name: "王五", phone: "13800000003", idNumber: "330102198805201234", address: "杭州市西湖区" },
+    { name: "赵六", phone: "13800000004", idNumber: "440106199112085678", address: "广州市天河区" },
+    { name: "Maria Papadopoulos", phone: "6971000001", idNumber: "GR2026001234", address: "Athens, Greece" },
+    { name: "Nikos Georgiou", phone: "6972000002", idNumber: "GR2026005678", address: "Thessaloniki, Greece" },
+  ];
+  for (const c of testCustomers) {
+    await prisma.customer.upsert({
+      where: { phone: c.phone },
+      create: { ...c, passwordHash: customerPwd },
+      update: {},
+    });
+  }
+  console.log("Test customers seeded:", testCustomers.length, "(password: customer123)");
+
   // ── 贷款产品（砍头息 + 全额） ──
   const product1 = await prisma.loanProduct.upsert({
     where: { code: "UPFRONT_7D" },
@@ -307,6 +324,7 @@ async function main() {
   console.log("PricingRules seeded for FULL_AMOUNT_7D:", fullRules.length);
 
   // ── 资金方 & 资金账户 ──
+  const funderPwd = await bcrypt.hash("funder123", 12);
   const funder = await prisma.funder.upsert({
     where: { name: "自有资金" },
     create: {
@@ -314,10 +332,18 @@ async function main() {
       type: "COMPANY",
       contactPerson: "管理员",
       contactPhone: "13900000001",
+      loginPhone: "13900000001",
+      passwordHash: funderPwd,
+      cooperationMode: "FIXED_MONTHLY",
+      monthlyRate: 2,
+      priority: 10,
       profitShareRatio: 0,
       remark: "公司自有资金池",
     },
-    update: {},
+    update: {
+      loginPhone: "13900000001",
+      passwordHash: funderPwd,
+    },
   });
   const fundAccount = await prisma.fundAccount.upsert({
     where: { accountNo: "6228000000000001" },
@@ -331,6 +357,71 @@ async function main() {
       totalInflow: 1000000,
     },
   });
+  console.log("Funder '自有资金' seeded:", funder.id, "(phone: 13900000001 / funder123)");
+
+  // ── 更多测试资金方 ──
+  const testFunders = [
+    {
+      name: "鸿运投资",
+      type: "COMPANY",
+      contactPerson: "陈老板",
+      contactPhone: "13900000010",
+      loginPhone: "13900000010",
+      cooperationMode: "FIXED_MONTHLY",
+      monthlyRate: 2.5,
+      priority: 8,
+      withdrawalCooldownDays: 7,
+      remark: "固定月息合作方",
+    },
+    {
+      name: "Athens Capital",
+      type: "COMPANY",
+      contactPerson: "Dimitris K.",
+      contactPhone: "6973000003",
+      loginPhone: "6973000003",
+      cooperationMode: "VOLUME_BASED",
+      weeklyRate: 1.5,
+      priority: 5,
+      riskSharing: true,
+      riskShareRatio: 0.3,
+      remark: "希腊本地资金方，按业务量结算",
+    },
+    {
+      name: "周老板",
+      type: "INDIVIDUAL",
+      contactPerson: "周先生",
+      contactPhone: "13900000020",
+      loginPhone: "13900000020",
+      cooperationMode: "FIXED_MONTHLY",
+      monthlyRate: 2,
+      priority: 3,
+      withdrawalCooldownDays: 14,
+      remark: "个人投资者",
+    },
+  ];
+  for (const f of testFunders) {
+    const created = await prisma.funder.upsert({
+      where: { name: f.name },
+      create: { ...f, passwordHash: funderPwd },
+      update: { loginPhone: f.loginPhone, passwordHash: funderPwd },
+    });
+    // 为每个资金方创建一个资金账户
+    const acctNo = "6228" + f.loginPhone.slice(-8).padStart(12, "0");
+    await prisma.fundAccount.upsert({
+      where: { accountNo: acctNo },
+      create: {
+        funderId: created.id,
+        accountName: `${f.name}账户`,
+        bankName: "中国银行",
+        accountNo: acctNo,
+        balance: 500000,
+        totalInflow: 500000,
+      },
+      update: {},
+    });
+  }
+  console.log("Test funders seeded:", testFunders.length, "(password: funder123)");
+
   console.log("Funder & FundAccount seeded:", funder.id, fundAccount.id);
 
   // ── 修复逾期费率缺失值 ──
