@@ -103,15 +103,27 @@ function HealthGauge({ score }: { score: number }) {
   );
 }
 
-/* ─── KPI 卡 ─── */
-function KpiCard({ title, value, sub, icon, highlight, onClick }: {
+/* ─── KPI 卡（含日环比趋势） ─── */
+function KpiCard({ title, value, sub, icon, highlight, onClick, prevValue }: {
   title: string; value: string | number; sub?: string; icon: React.ReactNode;
-  highlight?: boolean; onClick?: () => void;
+  highlight?: boolean; onClick?: () => void; prevValue?: number;
 }) {
+  const curNum = typeof value === "string" ? parseFloat(value.replace(/[€,]/g, "")) : value;
+  const hasTrend = prevValue !== undefined && !isNaN(curNum);
+  let trendPct = 0;
+  let trendDir: "up" | "down" | "flat" = "flat";
+  if (hasTrend && prevValue > 0) {
+    trendPct = ((curNum - prevValue) / prevValue) * 100;
+    trendDir = trendPct > 0.5 ? "up" : trendPct < -0.5 ? "down" : "flat";
+  } else if (hasTrend && prevValue === 0 && curNum > 0) {
+    trendDir = "up";
+    trendPct = 100;
+  }
+
   return (
     <div
       onClick={onClick}
-      className={`stat-tile rounded-xl p-5 transition-all hover:shadow-md ${highlight ? "border-orange-200 bg-orange-50/30 cursor-pointer" : ""}`}
+      className={`stat-tile rounded-xl p-5 transition-all hover:shadow-md group ${highlight ? "border-orange-200 bg-orange-50/30 cursor-pointer" : ""}`}
     >
       <div className="flex items-start justify-between">
         <div className="flex flex-col gap-1">
@@ -120,8 +132,21 @@ function KpiCard({ title, value, sub, icon, highlight, onClick }: {
             {value}
           </span>
           {sub && <span className="text-[11px] text-slate-400 mt-0.5">{sub}</span>}
+          {hasTrend && trendDir !== "flat" && (
+            <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium mt-0.5 ${trendDir === "up" ? "text-emerald-600" : "text-red-500"}`}>
+              {trendDir === "up" ? (
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" /></svg>
+              ) : (
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" /></svg>
+              )}
+              较昨日 {Math.abs(trendPct).toFixed(0)}%
+            </span>
+          )}
+          {hasTrend && trendDir === "flat" && (
+            <span className="text-[10px] text-slate-400 mt-0.5">与昨日持平</span>
+          )}
         </div>
-        <div className="flex-shrink-0 text-slate-300">{icon}</div>
+        <div className="flex-shrink-0 text-slate-300 group-hover:text-slate-400 transition-colors">{icon}</div>
       </div>
     </div>
   );
@@ -179,16 +204,36 @@ export function DashboardSummary() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"overview" | "smart" | "customers" | "finance">("overview");
+  const [countdown, setCountdown] = useState(60);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   const loadData = useCallback(() => {
     setLoading(true);
     Promise.all([fetchJson(SUMMARY_API), fetchJson(SMART_API)])
-      .then(([summaryData, smartData]) => { setData(summaryData); setSmart(smartData); })
+      .then(([summaryData, smartData]) => {
+        setData(summaryData);
+        setSmart(smartData);
+        setLastRefresh(new Date());
+        setCountdown(60);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "加载失败"))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // 自动刷新倒计时
+  useEffect(() => {
+    if (!autoRefresh || loading) return;
+    const timer = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) { loadData(); return 60; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [autoRefresh, loading, loadData]);
 
   /* ─ 利润最大化建议 ─ */
   const profitTips = useMemo(() => {
@@ -275,8 +320,21 @@ export function DashboardSummary() {
             ) : null}
           </button>
         ))}
-        <div className="ml-auto">
-          <button onClick={loadData} className="text-xs text-slate-400 hover:text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+        <div className="ml-auto flex items-center gap-2">
+          {/* 自动刷新开关 */}
+          <button
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${autoRefresh ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-slate-50 text-slate-400 border-slate-200"}`}
+            title={autoRefresh ? "关闭自动刷新" : "开启自动刷新"}
+          >
+            {autoRefresh ? `⏱ ${countdown}s` : "自动刷新：关"}
+          </button>
+          {lastRefresh && (
+            <span className="text-[10px] text-slate-400 hidden sm:inline">
+              更新于 {lastRefresh.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </span>
+          )}
+          <button onClick={() => { loadData(); }} className="text-xs text-slate-400 hover:text-slate-600 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
             ↻ 刷新
           </button>
         </div>
@@ -305,10 +363,10 @@ export function DashboardSummary() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <KpiCard title="今日放款" value={`€${fmt(data.todayDisbursement)}`}
               sub={`${data.todayDisbursementCount}笔 · 费用€${fmt(data.todayDisbursementFee)}`}
-              icon={ICO.money} />
+              icon={ICO.money} prevValue={Number(data.yesterdayDisbursement || 0)} />
             <KpiCard title="今日收款" value={`€${fmt(data.todayRepayment)}`}
               sub={`${data.todayRepaymentCount}笔 · 利润€${fmt(data.todayRepaymentProfit)}`}
-              icon={ICO.money} />
+              icon={ICO.money} prevValue={Number(data.yesterdayRepayment || 0)} />
             <KpiCard title="在贷余额" value={`€${fmt(data.outstandingBalance)}`}
               sub={`${data.outstandingCount}笔活跃计划`}
               icon={ICO.bank} />

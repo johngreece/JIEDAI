@@ -10,6 +10,8 @@ export class DashboardService {
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
 
     // 7 天前 / 30 天前
     const d7ago = new Date(today);
@@ -40,6 +42,9 @@ export class DashboardService {
       activePlanItems,
       recentDisbursements,
       recentRepayments,
+      // ── 昨日对比 ──
+      yesterdayDisbursements,
+      yesterdayRepayments,
     ] = await Promise.all([
       // 今日放款总额
       prisma.disbursement.aggregate({
@@ -145,6 +150,20 @@ export class DashboardService {
         orderBy: { receivedAt: "desc" },
         take: 5,
       }),
+
+      // ── 昨日放款 ──
+      prisma.disbursement.aggregate({
+        where: { disbursedAt: { gte: yesterday, lt: today }, status: { in: ["PAID", "CONFIRMED"] } },
+        _sum: { amount: true, feeAmount: true },
+        _count: true,
+      }).catch(() => ({ _sum: { amount: 0, feeAmount: 0 }, _count: 0 })),
+
+      // ── 昨日收款 ──
+      prisma.repayment.aggregate({
+        where: { receivedAt: { gte: yesterday, lt: today }, status: "CONFIRMED" },
+        _sum: { amount: true, interestPart: true, feePart: true, penaltyPart: true },
+        _count: true,
+      }).catch(() => ({ _sum: { amount: 0, interestPart: 0, feePart: 0, penaltyPart: 0 }, _count: 0 })),
     ]);
 
     // ── 7天趋势 ──
@@ -282,6 +301,17 @@ export class DashboardService {
       // ── 时间线 ──
       recentDisbursements,
       recentRepayments,
+
+      // ── 昨日对比 ──
+      yesterdayDisbursement: toFixed(yesterdayDisbursements._sum.amount),
+      yesterdayDisbursementCount: yesterdayDisbursements._count ?? 0,
+      yesterdayRepayment: toFixed(yesterdayRepayments._sum.amount),
+      yesterdayRepaymentCount: yesterdayRepayments._count ?? 0,
+      yesterdayRepaymentProfit: toFixed(
+        toNum(yesterdayRepayments._sum.interestPart) +
+          toNum(yesterdayRepayments._sum.feePart) +
+          toNum(yesterdayRepayments._sum.penaltyPart)
+      ),
     };
   }
 }
