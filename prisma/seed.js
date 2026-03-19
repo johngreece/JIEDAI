@@ -136,8 +136,8 @@ async function main() {
   }
   console.log("Permissions seeded:", permDefs.length);
 
-  // ── 默认管理员用户 ──
-  const hashedPwd = await bcrypt.hash("admin123", 12);
+  // ── 系统管理员账号（固定账号） ──
+  const hashedPwd = await bcrypt.hash("Wanjin888@", 12);
   await prisma.user.upsert({
     where: { username: "admin" },
     create: {
@@ -146,9 +146,9 @@ async function main() {
       realName: "系统管理员",
       roleId: superAdminRole.id,
     },
-    update: {},
+    update: { passwordHash: hashedPwd },
   });
-  console.log("Default admin user seeded (admin / admin123).");
+  console.log("Admin account ready (admin / Wanjin888@).");
 
   // ── 前台操作员用户 ──
   const operatorPwd = await bcrypt.hash("operator123", 12);
