@@ -335,14 +335,16 @@ async function main() {
       loginPhone: "13900000001",
       passwordHash: funderPwd,
       cooperationMode: "FIXED_MONTHLY",
-      monthlyRate: 2,
+      monthlyRate: 1,
       priority: 10,
       profitShareRatio: 0,
-      remark: "公司自有资金池",
+      remark: "公司自有资金池，月息1%用于核算内部资金成本",
     },
     update: {
+      monthlyRate: 1,
       loginPhone: "13900000001",
       passwordHash: funderPwd,
+      remark: "公司自有资金池，月息1%用于核算内部资金成本",
     },
   });
   const fundAccount = await prisma.fundAccount.upsert({
@@ -357,49 +359,38 @@ async function main() {
       totalInflow: 1000000,
     },
   });
-  console.log("Funder '自有资金' seeded:", funder.id, "(phone: 13900000001 / funder123)");
+  console.log("Funder '自有资金' seeded:", funder.id, "(月息1%, phone: 13900000001 / funder123)");
 
-  // ── 删除旧测试资金方（名称已改为项目名） ──
-  for (const oldName of ["鸿运投资", "Athens Capital", "周老板"]) {
+  // ── 删除旧测试资金方 ──
+  for (const oldName of ["鸿运投资", "Athens Capital", "周老板", "稳利月息项目A", "欧洲业务量项目", "月息保底项目B"]) {
     await prisma.funder.updateMany({ where: { name: oldName }, data: { deletedAt: new Date(), loginPhone: null } }).catch(() => {});
   }
 
-  // ── 更多测试资金方（按项目命名） ──
+  // ── 测试资金方项目 ──
   const testFunders = [
     {
-      name: "稳利月息项目A",
+      name: "稳利月息项目",
       type: "COMPANY",
-      contactPerson: "陈总",
+      contactPerson: "合作方A",
       contactPhone: "13900000010",
       loginPhone: "13900000010",
       cooperationMode: "FIXED_MONTHLY",
-      monthlyRate: 2.5,
+      monthlyRate: 2,
       priority: 8,
-      remark: "固定月息合作项目",
+      profitShareRatio: 0,
+      remark: "长期合作伙伴，固定月息2%，按投入总额计息",
     },
     {
-      name: "欧洲业务量项目",
+      name: "灵活业务量项目",
       type: "COMPANY",
-      contactPerson: "Dimitris K.",
+      contactPerson: "合作方B",
       contactPhone: "6973000003",
       loginPhone: "6973000003",
       cooperationMode: "VOLUME_BASED",
       weeklyRate: 1.5,
       priority: 5,
-      riskSharing: true,
-      riskShareRatio: 0.3,
-      remark: "按实际放款量结算利息",
-    },
-    {
-      name: "月息保底项目B",
-      type: "INDIVIDUAL",
-      contactPerson: "周先生",
-      contactPhone: "13900000020",
-      loginPhone: "13900000020",
-      cooperationMode: "FIXED_MONTHLY",
-      monthlyRate: 2,
-      priority: 3,
-      remark: "个人投资者固定月息项目",
+      profitShareRatio: 0.3,
+      remark: "按实际放款量结算，资金方占平台收费的30%（1.5%÷5%）",
     },
   ];
   for (const f of testFunders) {

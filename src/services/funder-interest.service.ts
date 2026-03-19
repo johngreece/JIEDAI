@@ -10,11 +10,12 @@ import { prisma } from "@/lib/prisma";
  *   - 系统优先使用该资金方的资金放款
  *
  * 模式2: VOLUME_BASED — 按业务量（流动资金）
- *   - 仅按实际放出资金计算利息
- *   - 7天周期 × 周利率(默认1.5%)
- *   - 未放出资金可随时提现
- *   - 利息每周可提现
- *   - 不承担风险，利息与平台结算
+ *   - 按比例分成: 资金方收益 = 平台实际收取费用 × 分成比例(profitShareRatio)
+ *   - 分成比例 = 资金方周利率 ÷ 平台总周费率 (如 1.5%÷5% = 30%)
+ *   - 平台收费阶梯: 当天2% / 隔天3% / 3-7天5%
+ *   - 早还时双方按固定比例分摊收入减少
+ *   - 未回款放款按5%/周估算（不可提现）
+ *   - 闲置资金可随时提现
  */
 
 interface FunderEarnings {
@@ -132,30 +133,121 @@ export class FunderInterestService {
       withdrawablePrincipal = totalBalance;
 
     } else if (mode === "VOLUME_BASED") {
-      // 按业务量模式：7天周期，仅按实际放出金额计利息
-      const weeklyRate = Number(funder.weeklyRate) / 100;
+      const profitShareRatio = Number(funder.profitShareRatio) || 0;
 
-      // 按每笔放款的实际在外天数计算
-      for (const disb of activeDisbursements) {
-        const disbDate = new Date(disb.disbursedAt!);
-        const daysSince = Math.floor((now.getTime() - disbDate.getTime()) / (1000 * 60 * 60 * 24));
-        const fullWeeks = Math.floor(daysSince / 7);
-        const deployed = Number(disb.netAmount);
+      if (profitShareRatio > 0 && accountIds.length) {
+        // ── 比例分成模式 ──
+        // 资金方收益 = 平台实际收取费用 × 分成比例
+        // 例: 平台收5%/周, 资金方占1.5%/5% = 30%, 则资金方得 actualFee × 0.3
 
-        if (fullWeeks >= 1) {
-          const interest = deployed * weeklyRate * fullWeeks;
-          accruedInterest += interest;
-          withdrawableInterest += interest;
+        // 1. 获取该资金方所有放款
+        const allDisbursements = await prisma.disbursement.findMany({
+          where: {
+            fundAccountId: { in: accountIds },
+            status: { in: ["PAID", "CONFIRMED"] },
+          },
+          select: { applicationId: true, netAmount: true, disbursedAt: true },
+        });
 
-          earningSummary.push({
-            periodStart: disbDate,
-            periodEnd: now,
-            principal: deployed,
-            deployed,
-            rate: Number(funder.weeklyRate),
-            interest,
-            withdrawable: true,
-          });
+        const appIds = allDisbursements.map((d) => d.applicationId);
+
+        // 2. 查询关联还款计划中的已完成还款（含费用明细）
+        const repaymentPlans = appIds.length
+          ? await prisma.repaymentPlan.findMany({
+              where: { applicationId: { in: appIds }, status: { not: "SUPERSEDED" } },
+              select: {
+                applicationId: true,
+                repayments: {
+                  where: { status: { in: ["PAID", "CONFIRMED"] } },
+                  select: { feePart: true, penaltyPart: true, receivedAt: true },
+                },
+              },
+            })
+          : [];
+
+        // 3. 按 applicationId 汇总已收取的费用
+        const feeByApp = new Map<string, { totalFee: number; lastDate: Date | null }>();
+        for (const plan of repaymentPlans) {
+          const existing = feeByApp.get(plan.applicationId) || { totalFee: 0, lastDate: null };
+          for (const r of plan.repayments) {
+            existing.totalFee += Number(r.feePart) + Number(r.penaltyPart);
+            if (r.receivedAt && (!existing.lastDate || r.receivedAt > existing.lastDate)) {
+              existing.lastDate = r.receivedAt;
+            }
+          }
+          feeByApp.set(plan.applicationId, existing);
+        }
+
+        // 4. 计算每笔放款的资金方收益
+        for (const disb of allDisbursements) {
+          const feeInfo = feeByApp.get(disb.applicationId);
+          const deployed = Number(disb.netAmount);
+
+          if (feeInfo && feeInfo.totalFee > 0) {
+            // 已回款：按实际收取费用 × 分成比例结算
+            const funderShare = feeInfo.totalFee * profitShareRatio;
+            accruedInterest += funderShare;
+            withdrawableInterest += funderShare;
+
+            earningSummary.push({
+              periodStart: new Date(disb.disbursedAt!),
+              periodEnd: feeInfo.lastDate || now,
+              principal: deployed,
+              deployed,
+              rate: profitShareRatio * 100,
+              interest: funderShare,
+              withdrawable: true,
+            });
+          } else {
+            // 尚未回款：按平台周费率 × 分成比例估算（不可提现）
+            const disbDate = new Date(disb.disbursedAt!);
+            const daysSince = Math.floor(
+              (now.getTime() - disbDate.getTime()) / (1000 * 60 * 60 * 24)
+            );
+            const fullWeeks = Math.floor(daysSince / 7);
+
+            if (fullWeeks >= 1) {
+              // 估算: 假设平台收满5%/周 × 资金方分成比例
+              const estimatedFee = deployed * 0.05 * fullWeeks;
+              const estimatedShare = estimatedFee * profitShareRatio;
+              accruedInterest += estimatedShare;
+
+              earningSummary.push({
+                periodStart: disbDate,
+                periodEnd: now,
+                principal: deployed,
+                deployed,
+                rate: profitShareRatio * 100,
+                interest: estimatedShare,
+                withdrawable: false, // 未回款不可提现
+              });
+            }
+          }
+        }
+      } else {
+        // 无分成比例 → 传统周利率计算
+        const weeklyRate = Number(funder.weeklyRate) / 100;
+        for (const disb of activeDisbursements) {
+          const disbDate = new Date(disb.disbursedAt!);
+          const daysSince = Math.floor(
+            (now.getTime() - disbDate.getTime()) / (1000 * 60 * 60 * 24)
+          );
+          const fullWeeks = Math.floor(daysSince / 7);
+          const deployed = Number(disb.netAmount);
+          if (fullWeeks >= 1) {
+            const interest = deployed * weeklyRate * fullWeeks;
+            accruedInterest += interest;
+            withdrawableInterest += interest;
+            earningSummary.push({
+              periodStart: disbDate,
+              periodEnd: now,
+              principal: deployed,
+              deployed,
+              rate: Number(funder.weeklyRate),
+              interest,
+              withdrawable: true,
+            });
+          }
         }
       }
 
