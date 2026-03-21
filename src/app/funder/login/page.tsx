@@ -4,6 +4,12 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { normalizePhoneInput } from "@/lib/phone";
 
+const TEST_ACCOUNTS = [
+  { label: "自有资金", phone: "13900000001", password: "funder123" },
+  { label: "稳利月息", phone: "13900000010", password: "funder123" },
+  { label: "灵活项目", phone: "6973000003", password: "funder123" },
+];
+
 export default function FunderLoginPage() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -11,16 +17,17 @@ export default function FunderLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function loginWithCredentials(nextPhone: string, nextPassword: string) {
+    setPhone(nextPhone);
+    setPassword(nextPassword);
     setError("");
     setSubmitting(true);
     try {
-      const normalizedPhone = normalizePhoneInput(phone);
+      const normalizedPhone = normalizePhoneInput(nextPhone);
       const res = await fetch("/api/auth/funder/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: normalizedPhone, password }),
+        body: JSON.stringify({ phone: normalizedPhone, password: nextPassword }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -32,6 +39,11 @@ export default function FunderLoginPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await loginWithCredentials(phone, password);
   }
 
   return (
@@ -52,6 +64,36 @@ export default function FunderLoginPage() {
             </div>
             <h1 className="text-2xl font-semibold tracking-tight text-white">资金方登录</h1>
             <p className="mt-2 text-sm text-slate-200/80">查看投资收益与资金流向</p>
+          </div>
+
+          <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-white">测试账号快捷入口</h2>
+                <p className="mt-1 text-xs text-slate-300/75">内部联调时可直接一键登录常用资金方账号。</p>
+              </div>
+              <span className="rounded-full border border-emerald-300/30 bg-emerald-300/10 px-2.5 py-1 text-[11px] text-emerald-100">
+                Test Mode
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-2.5">
+              {TEST_ACCOUNTS.map((account) => (
+                <button
+                  key={account.phone}
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void loginWithCredentials(account.phone, account.password)}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/40 px-3 py-3 text-left transition hover:border-emerald-300/40 hover:bg-slate-900/70 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span>
+                    <span className="block text-sm font-medium text-white">{account.label}</span>
+                    <span className="block text-xs text-slate-300/70">{account.phone}</span>
+                  </span>
+                  <span className="text-xs font-medium text-emerald-100">一键登录</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">

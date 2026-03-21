@@ -71,6 +71,16 @@ async function expectOk(jar, path, options, label) {
   return result.data;
 }
 
+async function expectStatus(jar, path, options, expectedStatus, label) {
+  const result = await request(jar, path, options);
+  if (result.response.status !== expectedStatus) {
+    throw new Error(
+      `${label} failed: expected ${expectedStatus}, got ${result.response.status} ${JSON.stringify(result.data)}`
+    );
+  }
+  return result.data;
+}
+
 async function loginAdmin(username, password) {
   const jar = new CookieJar(username);
   await expectOk(
@@ -91,6 +101,154 @@ async function loginClient(phone, password) {
     `client login (${phone})`
   );
   return jar;
+}
+
+async function loginFunder(phone, password) {
+  const jar = new CookieJar(phone);
+  await expectOk(
+    jar,
+    "/api/auth/funder/login",
+    { method: "POST", body: { phone, password } },
+    `funder login (${phone})`
+  );
+  return jar;
+}
+
+async function runParallelSmokeChecks(context) {
+  const [operatorJar, funderPrimaryJar, funderMonthlyJar, funderVolumeJar] = await Promise.all([
+    loginAdmin("operator", "operator123"),
+    loginFunder("13900000001", "funder123"),
+    loginFunder("13900000010", "funder123"),
+    loginFunder("6973000003", "funder123"),
+  ]);
+
+  const checks = [
+    {
+      role: "admin",
+      name: "auth me",
+      run: async () => {
+        const data = await expectOk(context.adminJar, "/api/auth/me", { method: "GET" }, "admin auth me");
+        if (data.portal !== "admin") throw new Error(`admin auth me returned portal ${data.portal}`);
+        return { portal: data.portal, username: data.username };
+      },
+    },
+    {
+      role: "manager",
+      name: "loan detail",
+      run: async () => {
+        const data = await expectOk(
+          context.managerJar,
+          `/api/loan-applications/${context.applicationId}`,
+          { method: "GET" },
+          "manager loan detail"
+        );
+        return { status: data.status, applicationNo: data.applicationNo };
+      },
+    },
+    {
+      role: "manager",
+      name: "users forbidden",
+      run: async () => {
+        await expectStatus(context.managerJar, "/api/users", { method: "GET" }, 403, "manager users forbidden");
+        return { status: 403 };
+      },
+    },
+    {
+      role: "finance",
+      name: "settlement summary",
+      run: async () => {
+        const data = await expectOk(
+          context.financeJar,
+          "/api/settlement?type=summary",
+          { method: "GET" },
+          "finance settlement summary"
+        );
+        return { disbursedCount: data.disbursedCount, repaidCount: data.repaidCount };
+      },
+    },
+    {
+      role: "operator",
+      name: "disbursements list",
+      run: async () => {
+        const data = await expectOk(operatorJar, "/api/disbursements", { method: "GET" }, "operator disbursements list");
+        return { total: data.pagination?.total ?? data.total ?? null };
+      },
+    },
+    {
+      role: "operator",
+      name: "settlement forbidden",
+      run: async () => {
+        await expectStatus(operatorJar, "/api/settlement?type=summary", { method: "GET" }, 403, "operator settlement forbidden");
+        return { status: 403 };
+      },
+    },
+    {
+      role: "client",
+      name: "auth me",
+      run: async () => {
+        const data = await expectOk(context.clientJar, "/api/auth/me", { method: "GET" }, "client auth me");
+        if (data.portal !== "client") throw new Error(`client auth me returned portal ${data.portal}`);
+        return { portal: data.portal, phone: data.phone };
+      },
+    },
+    {
+      role: "client",
+      name: "admin api unauthorized",
+      run: async () => {
+        await expectStatus(context.clientJar, "/api/users", { method: "GET" }, 401, "client users unauthorized");
+        return { status: 401 };
+      },
+    },
+    {
+      role: "funder-primary",
+      name: "dashboard",
+      run: async () => {
+        const data = await expectOk(funderPrimaryJar, "/api/funder/dashboard", { method: "GET" }, "funder primary dashboard");
+        return { funderName: data.funder?.name, mode: data.funder?.cooperationMode };
+      },
+    },
+    {
+      role: "funder-monthly",
+      name: "withdrawals",
+      run: async () => {
+        const data = await expectOk(funderMonthlyJar, "/api/funder/withdrawals", { method: "GET" }, "funder monthly withdrawals");
+        return {
+          withdrawableInterest: data.withdrawableInterest,
+          withdrawablePrincipal: data.withdrawablePrincipal,
+        };
+      },
+    },
+    {
+      role: "funder-volume",
+      name: "notifications",
+      run: async () => {
+        const data = await expectOk(funderVolumeJar, "/api/funder/notifications", { method: "GET" }, "funder volume notifications");
+        return { unread: data.unread, count: data.notifications?.length ?? 0 };
+      },
+    },
+    {
+      role: "funder-volume",
+      name: "admin api unauthorized",
+      run: async () => {
+        await expectStatus(funderVolumeJar, "/api/users", { method: "GET" }, 401, "funder users unauthorized");
+        return { status: 401 };
+      },
+    },
+  ];
+
+  const results = await Promise.all(
+    checks.map(async (check) => ({
+      role: check.role,
+      name: check.name,
+      result: await check.run(),
+    }))
+  );
+
+  return {
+    totalChecks: results.length,
+    rolesCovered: [...new Set(results.map((item) => item.role))],
+    checks: results,
+  };
 }
 
 async function main() {
@@ -326,6 +484,13 @@ async function main() {
     totalIncome: settlement.totalIncome,
     netProfit: settlement.netProfit,
   };
+  summary.smoke = await runParallelSmokeChecks({
+    adminJar,
+    managerJar,
+    financeJar,
+    clientJar,
+    applicationId: created.id,
+  });
 
   console.log(JSON.stringify(summary, null, 2));
 }
