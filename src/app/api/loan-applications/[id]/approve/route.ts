@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +17,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["loan:approve"]);
+  if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));
   const parsed = approveSchema.safeParse(body);

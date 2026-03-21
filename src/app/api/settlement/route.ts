@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
 import { SettlementService } from "@/services/settlement.service";
+import { requirePermission } from "@/lib/rbac";
 
 /**
  * GET /api/settlement?type=summary|daily|customer|funder|profit
  *     &start=2024-01-01&end=2024-12-31
  */
 export async function GET(req: NextRequest) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
-  }
+  const session = await requirePermission(["ledger:view"]);
+  if (session instanceof Response) return session;
 
   const sp = req.nextUrl.searchParams;
   const type = sp.get("type") || "summary";

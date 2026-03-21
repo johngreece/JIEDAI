@@ -19,7 +19,8 @@ export async function GET() {
       cooperationMode: true,
       monthlyRate: true,
       weeklyRate: true,
-      contactPerson: true,
+      withdrawalCooldownDays: true,
+      profitShareRatio: true,
       accounts: {
         where: { isActive: true },
         select: {
@@ -41,15 +42,13 @@ export async function GET() {
 
   const earnings = await FunderInterestService.getEarnings(session.sub);
 
-  // 最近提现记录
   const withdrawals = await prisma.funderWithdrawal.findMany({
     where: { funderId: session.sub },
     orderBy: { createdAt: "desc" },
     take: 20,
   });
 
-  // 最近放款记录
-  const accountIds = funder.accounts.map((a) => a.id);
+  const accountIds = funder.accounts.map((account) => account.id);
   const recentDisbursements = accountIds.length
     ? await prisma.disbursement.findMany({
         where: { fundAccountId: { in: accountIds } },
@@ -64,47 +63,66 @@ export async function GET() {
           status: true,
           disbursedAt: true,
           application: {
-            select: { customer: { select: { name: true } } },
+            select: {
+              customer: { select: { name: true } },
+            },
           },
         },
       })
     : [];
+
+  const ruleGuide =
+    funder.cooperationMode === "FIXED_MONTHLY"
+      ? {
+          title: "固定月息",
+          formula: `按实际放款本金 × 月利率 ${Number(funder.monthlyRate)}% 计算，每满 30 天形成一笔利息。`,
+          settlement: "本金可按账户余额申请提现，利息在满周期后可提。",
+        }
+      : {
+          title: "周收益",
+          formula: `按实际放款本金 × 周利率 ${Number(funder.weeklyRate)}% 估算，每满 7 天滚动计算。`,
+          settlement: Number(funder.profitShareRatio || 0) > 0
+            ? "若启用分润比例，则实际收益以客户回款中的费用和罚息分成为准。"
+            : "未启用分润比例时，按周利率直接结算收益。",
+        };
 
   return NextResponse.json({
     funder: {
       ...funder,
       monthlyRate: Number(funder.monthlyRate),
       weeklyRate: Number(funder.weeklyRate),
-      accounts: funder.accounts.map((a) => ({
-        ...a,
-        balance: Number(a.balance),
-        totalInflow: Number(a.totalInflow),
-        totalOutflow: Number(a.totalOutflow),
-        totalProfit: Number(a.totalProfit),
+      profitShareRatio: Number(funder.profitShareRatio || 0),
+      accounts: funder.accounts.map((account) => ({
+        ...account,
+        balance: Number(account.balance),
+        totalInflow: Number(account.totalInflow),
+        totalOutflow: Number(account.totalOutflow),
+        totalProfit: Number(account.totalProfit),
       })),
     },
     earnings,
-    withdrawals: withdrawals.map((w) => ({
-      id: w.id,
-      amount: Number(w.amount),
-      type: w.type,
-      status: w.status,
-      includeInterest: w.includeInterest,
-      interestAmount: Number(w.interestAmount),
-      remark: w.remark,
-      createdAt: w.createdAt,
-      approvedAt: w.approvedAt,
-      rejectedReason: w.rejectedReason,
+    ruleGuide,
+    withdrawals: withdrawals.map((item) => ({
+      id: item.id,
+      amount: Number(item.amount),
+      type: item.type,
+      status: item.status,
+      includeInterest: item.includeInterest,
+      interestAmount: Number(item.interestAmount),
+      remark: item.remark,
+      createdAt: item.createdAt,
+      approvedAt: item.approvedAt,
+      rejectedReason: item.rejectedReason,
     })),
-    recentDisbursements: recentDisbursements.map((d) => ({
-      id: d.id,
-      disbursementNo: d.disbursementNo,
-      amount: Number(d.amount),
-      netAmount: Number(d.netAmount),
-      feeAmount: Number(d.feeAmount),
-      status: d.status,
-      disbursedAt: d.disbursedAt,
-      customerName: d.application?.customer?.name ?? "-",
+    recentDisbursements: recentDisbursements.map((item) => ({
+      id: item.id,
+      disbursementNo: item.disbursementNo,
+      amount: Number(item.amount),
+      netAmount: Number(item.netAmount),
+      feeAmount: Number(item.feeAmount),
+      status: item.status,
+      disbursedAt: item.disbursedAt,
+      customerName: item.application?.customer?.name ?? "-",
     })),
   });
 }

@@ -1,40 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-/**
- * 资金方利息计算引擎
- *
- * 放款优先级: 自有资金(10) > 固定月息(8) > 流动业务量(5)
- * 核心原则: 有放有利息，没放没利息。资金方不承担风险，平台承担所有风险。
- *
- * 模式1: FIXED_MONTHLY — 固定月息
- *   - 仅按实际放出资金 × 月利率计算（没放出的不计利息）
- *   - 满30天为一个计息周期，可提现
- *   - 闲置资金可随时提现，但无利息
- *   - 系统优先使用该模式资金放款
- *
- * 模式2: VOLUME_BASED — 按业务量（流动资金）
- *   - 按比例分成: 资金方收益 = 平台实际收取费用 × 分成比例(profitShareRatio)
- *   - 分成比例 = 资金方周利率 ÷ 平台总周费率 (如 1.5%÷5% = 30%)
- *   - 平台收费阶梯: 当天2% / 隔天3% / 3-7天5%
- *   - 早还时双方按固定比例分摊收入减少
- *   - 未回款放款按5%/周估算（不可提现）
- *   - 闲置资金可随时提现
- *   - 不承担任何风险
- */
-
-interface FunderEarnings {
-  funderId: string;
-  funderName: string;
-  cooperationMode: string;
-  totalDeposited: number;      // 总投入
-  totalDeployed: number;       // 实际放出（在贷）
-  idleFunds: number;           // 闲置资金
-  accruedInterest: number;     // 已产生利息
-  withdrawableInterest: number; // 可提现利息
-  withdrawablePrincipal: number; // 可提现本金
-  totalWithdrawn: number;      // 已提现总额
-  earningSummary: EarningPeriod[];
-}
+type WithdrawalType = "PRINCIPAL" | "INTEREST" | "PRINCIPAL_AND_INTEREST";
 
 interface EarningPeriod {
   periodStart: Date;
@@ -46,10 +12,50 @@ interface EarningPeriod {
   withdrawable: boolean;
 }
 
+interface UpcomingSettlement {
+  disbursementId: string;
+  disbursementNo: string;
+  applicationId: string;
+  customerName: string;
+  principal: number;
+  startDate: Date;
+  nextSettlementDate: Date;
+  nextCustomerDueDate: Date | null;
+  expectedInterest: number;
+  expectedCollection: number;
+  status: "accruing" | "withdrawable";
+}
+
+interface FunderEarnings {
+  funderId: string;
+  funderName: string;
+  cooperationMode: string;
+  totalDeposited: number;
+  totalDeployed: number;
+  idleFunds: number;
+  accruedInterest: number;
+  withdrawableInterest: number;
+  withdrawablePrincipal: number;
+  totalWithdrawn: number;
+  earningSummary: EarningPeriod[];
+  upcomingSettlements: UpcomingSettlement[];
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function addDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * DAY_MS);
+}
+
+function diffDays(from: Date, to: Date) {
+  return Math.max(0, Math.floor((to.getTime() - from.getTime()) / DAY_MS));
+}
+
 export class FunderInterestService {
-  /**
-   * 计算资金方的完整收益概览
-   */
   static async getEarnings(funderId: string): Promise<FunderEarnings> {
     const funder = await prisma.funder.findUniqueOrThrow({
       where: { id: funderId },
@@ -59,210 +65,237 @@ export class FunderInterestService {
       },
     });
 
-    const totalDeposited = funder.accounts.reduce((s, a) => s + Number(a.totalInflow), 0);
-    const totalBalance = funder.accounts.reduce((s, a) => s + Number(a.balance), 0);
+    const totalDeposited = funder.accounts.reduce((sum, account) => sum + Number(account.totalInflow), 0);
+    const totalBalance = funder.accounts.reduce((sum, account) => sum + Number(account.balance), 0);
     const totalWithdrawn = funder.withdrawalRequests
-      .filter((w) => w.status === "APPROVED")
-      .reduce((s, w) => s + Number(w.amount), 0);
+      .filter((item) => item.status === "APPROVED")
+      .reduce((sum, item) => sum + Number(item.amount), 0);
 
-    // 查询该资金方实际在贷的放款金额
-    const accountIds = funder.accounts.map((a) => a.id);
+    const accountIds = funder.accounts.map((account) => account.id);
     const activeDisbursements = accountIds.length
       ? await prisma.disbursement.findMany({
           where: {
             fundAccountId: { in: accountIds },
             status: { in: ["PAID", "CONFIRMED"] },
           },
-          select: { netAmount: true, disbursedAt: true },
+          select: {
+            id: true,
+            applicationId: true,
+            disbursementNo: true,
+            netAmount: true,
+            disbursedAt: true,
+            application: {
+              select: {
+                customer: {
+                  select: {
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { disbursedAt: "desc" },
         })
       : [];
-    const totalDeployed = activeDisbursements.reduce((s, d) => s + Number(d.netAmount), 0);
-    const idleFunds = Math.max(0, totalBalance - 0); // balance already excludes deployed
 
-    const mode = funder.cooperationMode;
+    const applicationIds = activeDisbursements.map((item) => item.applicationId);
+    const activePlans = applicationIds.length
+      ? await prisma.repaymentPlan.findMany({
+          where: {
+            applicationId: { in: applicationIds },
+            status: "ACTIVE",
+          },
+          select: {
+            applicationId: true,
+            scheduleItems: {
+              where: { status: { in: ["PENDING", "PARTIAL"] } },
+              orderBy: { dueDate: "asc" },
+              select: {
+                dueDate: true,
+                totalDue: true,
+                remaining: true,
+              },
+              take: 1,
+            },
+          },
+        })
+      : [];
+
+    const planMap = new Map(
+      activePlans.map((plan) => [plan.applicationId, plan.scheduleItems[0] || null])
+    );
+
+    const totalDeployed = activeDisbursements.reduce((sum, item) => sum + Number(item.netAmount), 0);
+    const idleFunds = totalBalance;
     const now = new Date();
 
     let accruedInterest = 0;
     let withdrawableInterest = 0;
     let withdrawablePrincipal = 0;
     const earningSummary: EarningPeriod[] = [];
+    const upcomingSettlements: UpcomingSettlement[] = [];
 
-    if (mode === "FIXED_MONTHLY") {
-      // 固定月息模式：有放有利息，没放没利息
-      // 仅按实际放出的每笔放款金额 × 月利率计算
+    if (funder.cooperationMode === "FIXED_MONTHLY") {
       const monthlyRate = Number(funder.monthlyRate) / 100;
 
-      for (const disb of activeDisbursements) {
-        const disbDate = new Date(disb.disbursedAt!);
-        const daysSince = Math.floor(
-          (now.getTime() - disbDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-        const fullMonths = Math.floor(daysSince / 30);
-        const deployed = Number(disb.netAmount);
+      activeDisbursements.forEach((disbursement) => {
+        if (!disbursement.disbursedAt) return;
 
-        if (fullMonths >= 1) {
-          const interest = deployed * monthlyRate * fullMonths;
-          accruedInterest += interest;
-          withdrawableInterest += interest;
+        const startDate = new Date(disbursement.disbursedAt);
+        const daysSince = diffDays(startDate, now);
+        const fullCycles = Math.floor(daysSince / 30);
+        const principal = Number(disbursement.netAmount);
+        const nextSettlementDate = addDays(startDate, (fullCycles + 1) * 30);
+        const nextPlanItem = planMap.get(disbursement.applicationId) || null;
+        const expectedCollection = nextPlanItem
+          ? Number(nextPlanItem.remaining || nextPlanItem.totalDue || 0)
+          : 0;
+        const perCycleInterest = round2(principal * monthlyRate);
+
+        if (fullCycles >= 1) {
+          const earnedInterest = round2(principal * monthlyRate * fullCycles);
+          accruedInterest += earnedInterest;
+          withdrawableInterest += earnedInterest;
 
           earningSummary.push({
-            periodStart: disbDate,
+            periodStart: startDate,
             periodEnd: now,
-            principal: deployed,
-            deployed,
+            principal,
+            deployed: principal,
             rate: Number(funder.monthlyRate),
-            interest,
+            interest: earnedInterest,
             withdrawable: true,
           });
         } else {
-          // 不满30天，已放款但利息未成熟
           earningSummary.push({
-            periodStart: disbDate,
+            periodStart: startDate,
             periodEnd: now,
-            principal: deployed,
-            deployed,
+            principal,
+            deployed: principal,
             rate: Number(funder.monthlyRate),
             interest: 0,
             withdrawable: false,
           });
         }
-      }
 
-      // 可提现本金 = 闲置资金（未放出部分可随时提现）
-      withdrawablePrincipal = totalBalance;
-
-    } else if (mode === "VOLUME_BASED") {
-      const profitShareRatio = Number(funder.profitShareRatio) || 0;
-
-      if (profitShareRatio > 0 && accountIds.length) {
-        // ── 比例分成模式 ──
-        // 资金方收益 = 平台实际收取费用 × 分成比例
-        // 例: 平台收5%/周, 资金方占1.5%/5% = 30%, 则资金方得 actualFee × 0.3
-
-        // 1. 获取该资金方所有放款
-        const allDisbursements = await prisma.disbursement.findMany({
-          where: {
-            fundAccountId: { in: accountIds },
-            status: { in: ["PAID", "CONFIRMED"] },
-          },
-          select: { applicationId: true, netAmount: true, disbursedAt: true },
+        upcomingSettlements.push({
+          disbursementId: disbursement.id,
+          disbursementNo: disbursement.disbursementNo,
+          applicationId: disbursement.applicationId,
+          customerName: disbursement.application.customer?.name ?? "-",
+          principal,
+          startDate,
+          nextSettlementDate,
+          nextCustomerDueDate: nextPlanItem?.dueDate ?? null,
+          expectedInterest: perCycleInterest,
+          expectedCollection,
+          status: fullCycles >= 1 ? "withdrawable" : "accruing",
         });
+      });
 
-        const appIds = allDisbursements.map((d) => d.applicationId);
+      withdrawablePrincipal = totalBalance;
+    } else {
+      const weeklyRate = Number(funder.weeklyRate) / 100;
+      const profitShareRatio = Number(funder.profitShareRatio || 0);
 
-        // 2. 查询关联还款计划中的已完成还款（含费用明细）
-        const repaymentPlans = appIds.length
-          ? await prisma.repaymentPlan.findMany({
-              where: { applicationId: { in: appIds }, status: { not: "SUPERSEDED" } },
-              select: {
-                applicationId: true,
-                repayments: {
-                  where: { status: { in: ["PAID", "CONFIRMED"] } },
-                  select: { feePart: true, penaltyPart: true, receivedAt: true },
+      const repaymentPlans = applicationIds.length
+        ? await prisma.repaymentPlan.findMany({
+            where: { applicationId: { in: applicationIds }, status: { not: "SUPERSEDED" } },
+            select: {
+              applicationId: true,
+              repayments: {
+                where: { status: { in: ["PAID", "CONFIRMED"] } },
+                select: {
+                  feePart: true,
+                  penaltyPart: true,
+                  receivedAt: true,
                 },
               },
-            })
-          : [];
+            },
+          })
+        : [];
 
-        // 3. 按 applicationId 汇总已收取的费用
-        const feeByApp = new Map<string, { totalFee: number; lastDate: Date | null }>();
-        for (const plan of repaymentPlans) {
-          const existing = feeByApp.get(plan.applicationId) || { totalFee: 0, lastDate: null };
-          for (const r of plan.repayments) {
-            existing.totalFee += Number(r.feePart) + Number(r.penaltyPart);
-            if (r.receivedAt && (!existing.lastDate || r.receivedAt > existing.lastDate)) {
-              existing.lastDate = r.receivedAt;
-            }
+      const feeMap = new Map<
+        string,
+        { totalFee: number; lastReceivedAt: Date | null }
+      >();
+
+      repaymentPlans.forEach((plan) => {
+        const current = feeMap.get(plan.applicationId) || { totalFee: 0, lastReceivedAt: null as Date | null };
+        plan.repayments.forEach((repayment) => {
+          current.totalFee += Number(repayment.feePart) + Number(repayment.penaltyPart);
+          if (repayment.receivedAt && (!current.lastReceivedAt || repayment.receivedAt > current.lastReceivedAt)) {
+            current.lastReceivedAt = repayment.receivedAt;
           }
-          feeByApp.set(plan.applicationId, existing);
+        });
+        feeMap.set(plan.applicationId, current);
+      });
+
+      activeDisbursements.forEach((disbursement) => {
+        if (!disbursement.disbursedAt) return;
+
+        const startDate = new Date(disbursement.disbursedAt);
+        const daysSince = diffDays(startDate, now);
+        const fullCycles = Math.floor(daysSince / 7);
+        const principal = Number(disbursement.netAmount);
+        const nextSettlementDate = addDays(startDate, (fullCycles + 1) * 7);
+        const nextPlanItem = planMap.get(disbursement.applicationId) || null;
+        const expectedCollection = nextPlanItem
+          ? Number(nextPlanItem.remaining || nextPlanItem.totalDue || 0)
+          : 0;
+
+        const realizedFee = feeMap.get(disbursement.applicationId);
+        let earnedInterest = 0;
+
+        if (profitShareRatio > 0 && realizedFee && realizedFee.totalFee > 0) {
+          earnedInterest = round2(realizedFee.totalFee * profitShareRatio);
+          accruedInterest += earnedInterest;
+          withdrawableInterest += earnedInterest;
+        } else if (fullCycles >= 1) {
+          earnedInterest = round2(principal * weeklyRate * fullCycles);
+          accruedInterest += earnedInterest;
+          withdrawableInterest += earnedInterest;
         }
 
-        // 4. 计算每笔放款的资金方收益
-        for (const disb of allDisbursements) {
-          const feeInfo = feeByApp.get(disb.applicationId);
-          const deployed = Number(disb.netAmount);
+        const expectedPerCycleInterest =
+          profitShareRatio > 0
+            ? round2(principal * weeklyRate)
+            : round2(principal * weeklyRate);
 
-          if (feeInfo && feeInfo.totalFee > 0) {
-            // 已回款：按实际收取费用 × 分成比例结算
-            const funderShare = feeInfo.totalFee * profitShareRatio;
-            accruedInterest += funderShare;
-            withdrawableInterest += funderShare;
+        earningSummary.push({
+          periodStart: startDate,
+          periodEnd: realizedFee?.lastReceivedAt || now,
+          principal,
+          deployed: principal,
+          rate: Number(funder.weeklyRate),
+          interest: earnedInterest,
+          withdrawable: earnedInterest > 0,
+        });
 
-            earningSummary.push({
-              periodStart: new Date(disb.disbursedAt!),
-              periodEnd: feeInfo.lastDate || now,
-              principal: deployed,
-              deployed,
-              rate: profitShareRatio * 100,
-              interest: funderShare,
-              withdrawable: true,
-            });
-          } else {
-            // 尚未回款：按平台周费率 × 分成比例估算（不可提现）
-            const disbDate = new Date(disb.disbursedAt!);
-            const daysSince = Math.floor(
-              (now.getTime() - disbDate.getTime()) / (1000 * 60 * 60 * 24)
-            );
-            const fullWeeks = Math.floor(daysSince / 7);
+        upcomingSettlements.push({
+          disbursementId: disbursement.id,
+          disbursementNo: disbursement.disbursementNo,
+          applicationId: disbursement.applicationId,
+          customerName: disbursement.application.customer?.name ?? "-",
+          principal,
+          startDate,
+          nextSettlementDate,
+          nextCustomerDueDate: nextPlanItem?.dueDate ?? null,
+          expectedInterest: expectedPerCycleInterest,
+          expectedCollection,
+          status: earnedInterest > 0 ? "withdrawable" : "accruing",
+        });
+      });
 
-            if (fullWeeks >= 1) {
-              // 估算: 假设平台收满5%/周 × 资金方分成比例
-              const estimatedFee = deployed * 0.05 * fullWeeks;
-              const estimatedShare = estimatedFee * profitShareRatio;
-              accruedInterest += estimatedShare;
-
-              earningSummary.push({
-                periodStart: disbDate,
-                periodEnd: now,
-                principal: deployed,
-                deployed,
-                rate: profitShareRatio * 100,
-                interest: estimatedShare,
-                withdrawable: false, // 未回款不可提现
-              });
-            }
-          }
-        }
-      } else {
-        // 无分成比例 → 传统周利率计算
-        const weeklyRate = Number(funder.weeklyRate) / 100;
-        for (const disb of activeDisbursements) {
-          const disbDate = new Date(disb.disbursedAt!);
-          const daysSince = Math.floor(
-            (now.getTime() - disbDate.getTime()) / (1000 * 60 * 60 * 24)
-          );
-          const fullWeeks = Math.floor(daysSince / 7);
-          const deployed = Number(disb.netAmount);
-          if (fullWeeks >= 1) {
-            const interest = deployed * weeklyRate * fullWeeks;
-            accruedInterest += interest;
-            withdrawableInterest += interest;
-            earningSummary.push({
-              periodStart: disbDate,
-              periodEnd: now,
-              principal: deployed,
-              deployed,
-              rate: Number(funder.weeklyRate),
-              interest,
-              withdrawable: true,
-            });
-          }
-        }
-      }
-
-      // 闲置资金可随时提现
       withdrawablePrincipal = totalBalance;
     }
 
-    // 减去已提现的利息
     const withdrawnInterest = funder.withdrawalRequests
-      .filter((w) => w.status === "APPROVED" && w.type === "INTEREST")
-      .reduce((s, w) => s + Number(w.interestAmount), 0);
-    withdrawableInterest = Math.max(0, withdrawableInterest - withdrawnInterest);
+      .filter((item) => item.status === "APPROVED" && item.type === "INTEREST")
+      .reduce((sum, item) => sum + Number(item.interestAmount), 0);
 
-    // 风险说明：资金方不承担风险，平台承担所有逾期风险
-    // 逾期风险分担功能保留但默认关闭(riskSharing=false)
-    // 仅当管理员明确为特定资金方开启时才进行扣减
+    withdrawableInterest = Math.max(0, round2(withdrawableInterest - withdrawnInterest));
+
     if (funder.riskSharing && Number(funder.riskShareRatio) > 0 && accountIds.length) {
       const overdueDisbursements = await prisma.disbursement.findMany({
         where: {
@@ -271,51 +304,51 @@ export class FunderInterestService {
         },
         select: { netAmount: true },
       });
-      const overdueTotal = overdueDisbursements.reduce((s, d) => s + Number(d.netAmount), 0);
+
+      const overdueTotal = overdueDisbursements.reduce((sum, item) => sum + Number(item.netAmount), 0);
       const riskDeduction = overdueTotal * Number(funder.riskShareRatio);
-      withdrawableInterest = Math.max(0, withdrawableInterest - riskDeduction);
+      withdrawableInterest = Math.max(0, round2(withdrawableInterest - riskDeduction));
     }
+
+    upcomingSettlements.sort((a, b) => a.nextSettlementDate.getTime() - b.nextSettlementDate.getTime());
 
     return {
       funderId: funder.id,
       funderName: funder.name,
-      cooperationMode: mode,
-      totalDeposited,
-      totalDeployed,
-      idleFunds: totalBalance,
-      accruedInterest,
+      cooperationMode: funder.cooperationMode,
+      totalDeposited: round2(totalDeposited),
+      totalDeployed: round2(totalDeployed),
+      idleFunds: round2(idleFunds),
+      accruedInterest: round2(accruedInterest),
       withdrawableInterest,
-      withdrawablePrincipal,
-      totalWithdrawn,
+      withdrawablePrincipal: round2(withdrawablePrincipal),
+      totalWithdrawn: round2(totalWithdrawn),
       earningSummary,
+      upcomingSettlements,
     };
   }
 
-  /**
-   * 创建提现申请
-   */
   static async requestWithdrawal(params: {
     funderId: string;
     amount: number;
-    type: "PRINCIPAL" | "INTEREST" | "PRINCIPAL_AND_INTEREST";
+    type: WithdrawalType;
     includeInterest: boolean;
     remark?: string;
   }) {
     const earnings = await this.getEarnings(params.funderId);
     const funder = await prisma.funder.findUniqueOrThrow({ where: { id: params.funderId } });
 
-    // 提现冷却期检查
     if (funder.withdrawalCooldownDays > 0) {
       const lastApproved = await prisma.funderWithdrawal.findFirst({
         where: { funderId: params.funderId, status: "APPROVED" },
         orderBy: { approvedAt: "desc" },
       });
+
       if (lastApproved?.approvedAt) {
-        const cooldownEnd = new Date(lastApproved.approvedAt);
-        cooldownEnd.setDate(cooldownEnd.getDate() + funder.withdrawalCooldownDays);
+        const cooldownEnd = addDays(lastApproved.approvedAt, funder.withdrawalCooldownDays);
         if (new Date() < cooldownEnd) {
-          const remaining = Math.ceil((cooldownEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-          throw new Error(`提现冷却期未结束，还需等待 ${remaining} 天`);
+          const remainDays = Math.ceil((cooldownEnd.getTime() - Date.now()) / DAY_MS);
+          throw new Error(`提现冷静期未结束，还需等待 ${remainDays} 天`);
         }
       }
     }
@@ -327,17 +360,15 @@ export class FunderInterestService {
       maxAmount = earnings.withdrawableInterest;
       interestAmount = Math.min(params.amount, maxAmount);
     } else if (params.type === "PRINCIPAL") {
-      // 提前取本金，固定月息模式下不付利息
       maxAmount = earnings.withdrawablePrincipal;
       interestAmount = 0;
     } else {
-      // 本息一起
       maxAmount = earnings.withdrawablePrincipal + earnings.withdrawableInterest;
-      interestAmount = earnings.withdrawableInterest;
+      interestAmount = Math.min(earnings.withdrawableInterest, params.amount);
     }
 
     if (params.amount > maxAmount) {
-      throw new Error(`可提现金额不足，最大可提 €${maxAmount.toFixed(2)}`);
+      throw new Error(`可提现金额不足，当前最多可提 €${maxAmount.toFixed(2)}`);
     }
 
     return prisma.funderWithdrawal.create({
@@ -352,13 +383,16 @@ export class FunderInterestService {
     });
   }
 
-  /**
-   * 管理员审批提现
-   */
   static async approveWithdrawal(withdrawalId: string, adminId: string) {
     const withdrawal = await prisma.funderWithdrawal.findUniqueOrThrow({
       where: { id: withdrawalId },
-      include: { funder: { include: { accounts: { where: { isActive: true }, take: 1 } } } },
+      include: {
+        funder: {
+          include: {
+            accounts: { where: { isActive: true }, take: 1 },
+          },
+        },
+      },
     });
 
     if (withdrawal.status !== "PENDING") {
@@ -366,13 +400,15 @@ export class FunderInterestService {
     }
 
     return prisma.$transaction(async (tx) => {
-      // 更新提现状态
       await tx.funderWithdrawal.update({
         where: { id: withdrawalId },
-        data: { status: "APPROVED", approvedAt: new Date(), approvedBy: adminId },
+        data: {
+          status: "APPROVED",
+          approvedAt: new Date(),
+          approvedBy: adminId,
+        },
       });
 
-      // 从账户扣减余额
       const account = withdrawal.funder.accounts[0];
       if (account) {
         const principalPart = Number(withdrawal.amount) - Number(withdrawal.interestAmount);
@@ -391,13 +427,14 @@ export class FunderInterestService {
     });
   }
 
-  /**
-   * 管理员拒绝提现
-   */
   static async rejectWithdrawal(withdrawalId: string, reason: string) {
     return prisma.funderWithdrawal.update({
       where: { id: withdrawalId },
-      data: { status: "REJECTED", rejectedAt: new Date(), rejectedReason: reason },
+      data: {
+        status: "REJECTED",
+        rejectedAt: new Date(),
+        rejectedReason: reason,
+      },
     });
   }
 }

@@ -38,7 +38,7 @@ export async function GET() {
   const repayments = await prisma.repayment.findMany({
     where: {
       planId: { in: typedPlans.map((x: PlanLite) => x.id) },
-      status: "PENDING_CONFIRM",
+      status: { in: ["PENDING_CONFIRM", "CUSTOMER_CONFIRMED"] },
     },
     orderBy: { createdAt: "desc" },
     include: { allocations: { select: { id: true, itemId: true, amount: true, type: true } } },

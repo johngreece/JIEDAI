@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
+import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +18,8 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["loan:view"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const data = await prisma.loanApplication.findUnique({
@@ -36,11 +34,35 @@ export async function GET(
       disbursement: {
         select: { id: true, disbursementNo: true, status: true, amount: true, netAmount: true },
       },
+      contracts: {
+        where: { contractType: "MAIN", deletedAt: null },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          contractNo: true,
+          status: true,
+          createdAt: true,
+          signedAt: true,
+          variableData: true,
+        },
+      },
     },
   });
 
   if (!data || data.deletedAt) {
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
+  }
+
+  const mainContract = data.contracts[0] || null;
+  let contractGenerationOptions: Record<string, unknown> | null = null;
+  if (mainContract?.variableData) {
+    try {
+      const parsed = JSON.parse(mainContract.variableData);
+      contractGenerationOptions = parsed.contractGenerationOptions ?? null;
+    } catch {
+      contractGenerationOptions = null;
+    }
   }
 
   return NextResponse.json({
@@ -60,26 +82,29 @@ export async function GET(
     rejectedReason: data.rejectedReason,
     customer: data.customer,
     product: data.product,
-    approvals: data.approvals.map((a: {
-      id: string;
-      action: string;
-      comment: string | null;
-      approvedAmount: unknown;
-      createdAt: Date;
-      approver: { id: string; username: string; realName: string };
-    }) => ({
-      id: a.id,
-      action: a.action,
-      comment: a.comment,
-      approvedAmount: a.approvedAmount ? Number(a.approvedAmount) : null,
-      createdAt: a.createdAt,
-      approver: a.approver,
+    approvals: data.approvals.map((approval) => ({
+      id: approval.id,
+      action: approval.action,
+      comment: approval.comment,
+      approvedAmount: approval.approvedAmount ? Number(approval.approvedAmount) : null,
+      createdAt: approval.createdAt,
+      approver: approval.approver,
     })),
     disbursement: data.disbursement
       ? {
           ...data.disbursement,
           amount: Number(data.disbursement.amount),
           netAmount: Number(data.disbursement.netAmount),
+        }
+      : null,
+    mainContract: mainContract
+      ? {
+          id: mainContract.id,
+          contractNo: mainContract.contractNo,
+          status: mainContract.status,
+          createdAt: mainContract.createdAt,
+          signedAt: mainContract.signedAt,
+          contractGenerationOptions,
         }
       : null,
   });
@@ -89,15 +114,16 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["loan:create"]);
+  if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "参数错误", details: parsed.error.flatten() },
+      { status: 400 }
+    );
   }
 
   const { id } = await params;

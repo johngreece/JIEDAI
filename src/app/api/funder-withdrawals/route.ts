@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { FunderInterestService } from "@/services/funder-interest.service";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 /* GET — 管理端查看所有提现申请 */
 export async function GET() {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["ledger:view"]);
+  if (session instanceof Response) return session;
 
   const withdrawals = await prisma.funderWithdrawal.findMany({
     orderBy: { createdAt: "desc" },
@@ -36,8 +36,8 @@ export async function GET() {
 
 /* PATCH — 审批提现申请 */
 export async function PATCH(req: NextRequest) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["settings:edit"]);
+  if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));
   const { withdrawalId, action, reason } = body;

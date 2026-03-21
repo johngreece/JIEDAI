@@ -1,12 +1,14 @@
 /**
- * 还款确认与状态机
- * - 财务登记 -> matched/pending_confirm -> 客户确认 -> confirmed
- * - 未经客户确认不自动完结，可人工复核
+ * Repayment confirmation workflow
+ * - Admin allocates a repayment to schedule items -> PENDING_CONFIRM
+ * - Customer declares "I have paid" -> CUSTOMER_CONFIRMED
+ * - Admin confirms money actually received -> CONFIRMED
+ * - If admin marks not received, the repayment stays rejected and the schedule keeps accruing
  */
 
-import { prisma } from "./prisma";
 import { Prisma } from "@prisma/client";
 import { writeAuditLog } from "./audit";
+import { prisma } from "./prisma";
 import { recordRepaymentLedger } from "@/services/ledger.service";
 import { resolveOverdue } from "@/services/overdue.service";
 
@@ -14,30 +16,31 @@ export type RepaymentStatus =
   | "PENDING"
   | "MATCHED"
   | "PENDING_CONFIRM"
+  | "CUSTOMER_CONFIRMED"
   | "CONFIRMED"
   | "REJECTED"
   | "MANUAL_REVIEW";
 
+const EPSILON = 0.0001;
+
 const ALLOWED_TRANSITIONS: Record<RepaymentStatus, RepaymentStatus[]> = {
   PENDING: ["MATCHED", "MANUAL_REVIEW"],
   MATCHED: ["PENDING_CONFIRM"],
-  PENDING_CONFIRM: ["CONFIRMED", "REJECTED", "MANUAL_REVIEW"],
+  PENDING_CONFIRM: ["CUSTOMER_CONFIRMED", "REJECTED", "MANUAL_REVIEW"],
+  CUSTOMER_CONFIRMED: ["CONFIRMED", "REJECTED", "MANUAL_REVIEW"],
   CONFIRMED: [],
   REJECTED: ["MANUAL_REVIEW"],
-  MANUAL_REVIEW: ["CONFIRMED", "REJECTED"],
+  MANUAL_REVIEW: ["PENDING_CONFIRM", "CUSTOMER_CONFIRMED", "CONFIRMED", "REJECTED"],
 };
 
-export function canTransition(
-  from: RepaymentStatus,
-  to: RepaymentStatus
-): boolean {
+export function canTransition(from: RepaymentStatus, to: RepaymentStatus): boolean {
   return ALLOWED_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
 export async function confirmRepayment(params: {
   repaymentId: string;
   customerId: string;
-  action: "CONFIRMED" | "REJECTED";
+  action: "CONFIRMED" | "DECLARED_PAID" | "REJECTED";
   signatureData?: string;
   rejectReason?: string;
   ipAddress: string;
@@ -47,59 +50,54 @@ export async function confirmRepayment(params: {
   const repayment = await prisma.repayment.findUnique({
     where: { id: params.repaymentId },
   });
-  if (!repayment)
-    throw new Error("Repayment not found");
-  if (params.action === "CONFIRMED" && !canTransition(repayment.status as RepaymentStatus, "CONFIRMED"))
-    throw new Error(`Cannot confirm from status ${repayment.status}`);
-  if (params.action === "REJECTED" && !canTransition(repayment.status as RepaymentStatus, "REJECTED"))
-    throw new Error(`Cannot reject from status ${repayment.status}`);
 
-  const newStatus = params.action === "CONFIRMED" ? "CONFIRMED" : "REJECTED";
+  if (!repayment) {
+    throw new Error("Repayment not found");
+  }
+
+  const targetStatus: RepaymentStatus =
+    params.action === "REJECTED" ? "REJECTED" : "CUSTOMER_CONFIRMED";
+
+  if (!canTransition(repayment.status as RepaymentStatus, targetStatus)) {
+    throw new Error(`Cannot move repayment from ${repayment.status} to ${targetStatus}`);
+  }
+
   const now = new Date();
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.repaymentConfirmation.create({
-      data: {
+    await tx.repaymentConfirmation.upsert({
+      where: { repaymentId: params.repaymentId },
+      create: {
         repaymentId: params.repaymentId,
         customerId: params.customerId,
         signatureData: params.signatureData,
         ipAddress: params.ipAddress,
         deviceInfo: params.deviceInfo,
-        status: newStatus,
+        status: targetStatus,
         rejectReason: params.rejectReason,
-        confirmedAt: params.action === "CONFIRMED" ? now : null,
+        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
+      },
+      update: {
+        customerId: params.customerId,
+        signatureData: params.signatureData,
+        ipAddress: params.ipAddress,
+        deviceInfo: params.deviceInfo,
+        status: targetStatus,
+        rejectReason: params.rejectReason,
+        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
       },
     });
+
     await tx.repayment.update({
       where: { id: params.repaymentId },
-      data: { status: newStatus },
+      data: {
+        status: targetStatus,
+        matchComment:
+          targetStatus === "CUSTOMER_CONFIRMED"
+            ? "客户已确认付款，等待管理端确认到账"
+            : params.rejectReason || "客户未确认本次还款",
+      },
     });
-
-    // 确认成功：写入台账 + 更新还款计划条目 + 解除逾期
-    if (params.action === "CONFIRMED") {
-      await recordRepaymentLedger(tx, {
-        repaymentId: params.repaymentId,
-        principalPart: repayment.principalPart,
-        interestPart: repayment.interestPart,
-        feePart: repayment.feePart,
-        penaltyPart: repayment.penaltyPart,
-        customerId: params.customerId,
-        operatorId: params.operatorId,
-      });
-
-      // 更新分配到的还款计划条目状态
-      const allocations = await tx.repaymentAllocation.findMany({
-        where: { repaymentId: params.repaymentId },
-      });
-      for (const alloc of allocations) {
-        await tx.repaymentScheduleItem.update({
-          where: { id: alloc.itemId },
-          data: { status: "PAID", paidAt: now },
-        });
-        // 解除该条目的逾期记录
-        await resolveOverdue(alloc.itemId);
-      }
-    }
   });
 
   await writeAuditLog({
@@ -109,8 +107,203 @@ export async function confirmRepayment(params: {
     entityId: params.repaymentId,
     newValue: {
       action: params.action,
+      targetStatus,
       ipAddress: params.ipAddress,
       deviceInfo: params.deviceInfo,
     },
+  }).catch(() => undefined);
+}
+
+export async function settleRepaymentReceipt(params: {
+  repaymentId: string;
+  operatorId: string;
+  action: "RECEIVED" | "NOT_RECEIVED";
+  rejectReason?: string;
+}) {
+  const repayment = await prisma.repayment.findUnique({
+    where: { id: params.repaymentId },
+    include: {
+      allocations: true,
+      confirmation: true,
+      plan: {
+        include: {
+          scheduleItems: true,
+        },
+      },
+    },
   });
+
+  if (!repayment) {
+    throw new Error("Repayment not found");
+  }
+
+  const targetStatus: RepaymentStatus =
+    params.action === "RECEIVED" ? "CONFIRMED" : "REJECTED";
+
+  if (!canTransition(repayment.status as RepaymentStatus, targetStatus)) {
+    throw new Error(`Cannot move repayment from ${repayment.status} to ${targetStatus}`);
+  }
+
+  const application = await prisma.loanApplication.findUnique({
+    where: { id: repayment.plan.applicationId },
+    include: {
+      disbursement: { select: { fundAccountId: true } },
+    },
+  });
+
+  if (!application) {
+    throw new Error("Loan application not found");
+  }
+
+  const now = new Date();
+
+  if (params.action === "NOT_RECEIVED") {
+    const rejected = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.repaymentConfirmation.updateMany({
+        where: { repaymentId: params.repaymentId },
+        data: {
+          status: "REJECTED",
+          rejectReason: params.rejectReason || "管理端确认未收到款项",
+        },
+      });
+
+      return tx.repayment.update({
+        where: { id: params.repaymentId },
+        data: {
+          status: "REJECTED",
+          matchComment: params.rejectReason || "管理端确认未收到款项，本笔还款无效",
+        },
+      });
+    });
+
+    await writeAuditLog({
+      userId: params.operatorId,
+      action: "confirm",
+      entityType: "repayment",
+      entityId: params.repaymentId,
+      oldValue: { status: repayment.status },
+      newValue: { status: rejected.status, rejectReason: params.rejectReason || null },
+      changeSummary: "管理端确认未收到该笔还款",
+    }).catch(() => undefined);
+
+    return rejected;
+  }
+
+  const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const received = await tx.repayment.update({
+      where: { id: params.repaymentId },
+      data: {
+        status: "CONFIRMED",
+        receivedAt: now,
+        matchComment: "管理端已确认到账",
+      },
+    });
+
+    await tx.repaymentConfirmation.updateMany({
+      where: { repaymentId: params.repaymentId },
+      data: {
+        status: "CONFIRMED",
+        rejectReason: null,
+      },
+    });
+
+    await recordRepaymentLedger(tx, {
+      repaymentId: params.repaymentId,
+      principalPart: repayment.principalPart,
+      interestPart: repayment.interestPart,
+      feePart: repayment.feePart,
+      penaltyPart: repayment.penaltyPart,
+      customerId: application.customerId,
+      operatorId: params.operatorId,
+    });
+
+    const allocationTotals = new Map<string, number>();
+    repayment.allocations.forEach((allocation) => {
+      allocationTotals.set(
+        allocation.itemId,
+        (allocationTotals.get(allocation.itemId) || 0) + Number(allocation.amount)
+      );
+    });
+
+    let allPaid = true;
+
+    for (const item of repayment.plan.scheduleItems) {
+      const applied = allocationTotals.get(item.id) || 0;
+      const currentRemaining = Number(item.remaining || item.totalDue || 0);
+      const nextRemaining = Math.max(0, currentRemaining - applied);
+      const nextStatus =
+        nextRemaining <= EPSILON
+          ? "PAID"
+          : item.status === "OVERDUE"
+            ? "OVERDUE"
+            : "PARTIAL";
+
+      if (applied > 0) {
+        await tx.repaymentScheduleItem.update({
+          where: { id: item.id },
+          data: {
+            remaining: nextRemaining,
+            status: nextStatus,
+            paidAt: nextRemaining <= EPSILON ? now : item.paidAt,
+          },
+        });
+
+        if (nextRemaining <= EPSILON) {
+          await resolveOverdue(item.id);
+        }
+      }
+
+      const projectedRemaining = applied > 0 ? nextRemaining : currentRemaining;
+      if (projectedRemaining > EPSILON) {
+        allPaid = false;
+      }
+    }
+
+    if (allPaid) {
+      await tx.repaymentPlan.update({
+        where: { id: repayment.planId },
+        data: { status: "COMPLETED" },
+      });
+
+      await tx.loanApplication.update({
+        where: { id: application.id },
+        data: { status: "SETTLED" },
+      });
+    }
+
+    if (application.disbursement?.fundAccountId) {
+      await tx.fundAccount.update({
+        where: { id: application.disbursement.fundAccountId },
+        data: {
+          balance: { increment: Number(repayment.amount) },
+          totalProfit: {
+            increment:
+              Number(repayment.interestPart) +
+              Number(repayment.feePart) +
+              Number(repayment.penaltyPart),
+          },
+        },
+      });
+    }
+
+    return received;
+  });
+
+  await writeAuditLog({
+    userId: params.operatorId,
+    action: "confirm",
+    entityType: "repayment",
+    entityId: params.repaymentId,
+    oldValue: { status: repayment.status },
+    newValue: {
+      status: updated.status,
+      principalPart: Number(repayment.principalPart),
+      interestPart: Number(repayment.interestPart),
+      feePart: Number(repayment.feePart),
+      penaltyPart: Number(repayment.penaltyPart),
+    },
+    changeSummary: "管理端确认该笔还款已经到账",
+  }).catch(() => undefined);
+
+  return updated;
 }

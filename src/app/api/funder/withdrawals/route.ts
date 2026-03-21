@@ -12,6 +12,16 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const funder = await prisma.funder.findUnique({
+    where: { id: session.sub },
+    select: {
+      cooperationMode: true,
+      monthlyRate: true,
+      weeklyRate: true,
+      withdrawalCooldownDays: true,
+    },
+  });
+
   const withdrawals = await prisma.funderWithdrawal.findMany({
     where: { funderId: session.sub },
     orderBy: { createdAt: "desc" },
@@ -20,6 +30,14 @@ export async function GET() {
   const earnings = await FunderInterestService.getEarnings(session.sub);
 
   return NextResponse.json({
+    funder: funder
+      ? {
+          cooperationMode: funder.cooperationMode,
+          monthlyRate: Number(funder.monthlyRate),
+          weeklyRate: Number(funder.weeklyRate),
+          withdrawalCooldownDays: funder.withdrawalCooldownDays,
+        }
+      : null,
     withdrawals: withdrawals.map((w) => ({
       id: w.id,
       amount: Number(w.amount),

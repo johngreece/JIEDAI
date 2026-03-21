@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { getIdempotencyKey, checkIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -21,10 +21,8 @@ function genDisbursementNo() {
 }
 
 export async function GET(req: Request) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["disbursement:view"]);
+  if (session instanceof Response) return session;
 
   const url = new URL(req.url);
   const status = url.searchParams.get("status") ?? undefined;
@@ -85,10 +83,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["disbursement:create"]);
+  if (session instanceof Response) return session;
 
   // 幂等性检查
   const idemKey = getIdempotencyKey(req);
@@ -125,10 +121,19 @@ export async function POST(req: Request) {
     fundAccountId = candidateAccount.id;
   }
 
-  const [app, fundAccount, existing] = await Promise.all([
+  const [app, fundAccount, existing, signedMainContract] = await Promise.all([
     prisma.loanApplication.findUnique({ where: { id: input.applicationId } }),
     prisma.fundAccount.findUnique({ where: { id: fundAccountId } }),
     prisma.disbursement.findFirst({ where: { applicationId: input.applicationId } }),
+    prisma.contract.findFirst({
+      where: {
+        applicationId: input.applicationId,
+        contractType: "MAIN",
+        status: "SIGNED",
+        deletedAt: null,
+      },
+      select: { id: true },
+    }),
   ]);
 
   if (!app || app.deletedAt) {
@@ -140,8 +145,21 @@ export async function POST(req: Request) {
   if (existing) {
     return NextResponse.json({ error: "该申请已创建放款单", disbursementId: existing.id }, { status: 400 });
   }
-  if (app.status !== "APPROVED") {
-    return NextResponse.json({ error: "仅审批通过的申请可创建放款单" }, { status: 400 });
+  if (!signedMainContract) {
+    return NextResponse.json({ error: "该申请未完成主合同签署，不能创建放款单" }, { status: 400 });
+  }
+
+  let applicationStatus = app.status;
+  if (applicationStatus === "APPROVED") {
+    await prisma.loanApplication.update({
+      where: { id: app.id },
+      data: { status: "CONTRACTED" },
+    });
+    applicationStatus = "CONTRACTED";
+  }
+
+  if (applicationStatus !== "CONTRACTED") {
+    return NextResponse.json({ error: "仅已签署主合同的申请可创建放款单" }, { status: 400 });
   }
 
   const created = await prisma.disbursement.create({

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
+import { writeAuditLog } from "@/lib/audit";
+import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +22,6 @@ type ScheduleItemLite = {
   id: string;
   periodNumber: number;
   remaining: unknown;
-  status: string;
-  paidAt: Date | null;
 };
 
 type AllocationInput = {
@@ -36,13 +34,16 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
+  const session = await requirePermission(["repayment:allocate"]);
+  if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));
   const parsed = allocateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "参数错误", details: parsed.error.flatten() },
+      { status: 400 }
+    );
   }
 
   const { id } = await params;
@@ -52,67 +53,104 @@ export async function POST(
     where: { id },
     include: { allocations: true },
   });
-  if (!repayment) return NextResponse.json({ error: "还款记录不存在" }, { status: 404 });
+
+  if (!repayment) {
+    return NextResponse.json({ error: "还款记录不存在" }, { status: 404 });
+  }
+
   if (repayment.allocations.length > 0) {
     return NextResponse.json({ error: "该还款已分配，不能重复分配" }, { status: 400 });
   }
+
   if (!["PENDING", "MATCHED"].includes(repayment.status)) {
     return NextResponse.json({ error: "当前状态不允许分配" }, { status: 400 });
   }
 
   const allocations = input.allocations as AllocationInput[];
-  const itemIds = allocations.map((x: AllocationInput) => x.itemId);
+  const itemIds = allocations.map((item) => item.itemId);
+
   const scheduleItems = await prisma.repaymentScheduleItem.findMany({
     where: { id: { in: itemIds }, planId: repayment.planId },
   });
   const typedScheduleItems = scheduleItems as ScheduleItemLite[];
-  if (scheduleItems.length !== itemIds.length) {
-    return NextResponse.json({ error: "存在无效期次或不属于当前计划" }, { status: 400 });
+
+  if (typedScheduleItems.length !== itemIds.length) {
+    return NextResponse.json(
+      { error: "存在无效期次，或期次不属于当前还款计划" },
+      { status: 400 }
+    );
   }
 
-  const sum = allocations.reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
-  if (sum - Number(repayment.amount) > 0.000001) {
+  const allocatedTotal = allocations.reduce((sum, item) => sum + item.amount, 0);
+  if (allocatedTotal - Number(repayment.amount) > 0.000001) {
     return NextResponse.json({ error: "分配总额不能大于还款金额" }, { status: 400 });
   }
 
-  const itemMap = new Map<string, ScheduleItemLite>(typedScheduleItems.map((x: ScheduleItemLite) => [x.id, x]));
-  for (const a of allocations) {
-    const item = itemMap.get(a.itemId);
-    if (!item) continue;
-    const remaining = Number(item.remaining);
-    if (a.amount - remaining > 0.000001) {
-      return NextResponse.json({ error: `期次 ${item.periodNumber} 分配金额超出剩余应还` }, { status: 400 });
+  const reservedAllocations = await prisma.repaymentAllocation.findMany({
+    where: {
+      itemId: { in: itemIds },
+      repayment: {
+        status: { in: ["PENDING_CONFIRM", "CUSTOMER_CONFIRMED"] },
+      },
+    },
+    select: {
+      itemId: true,
+      amount: true,
+    },
+  });
+
+  const reservedMap = new Map<string, number>();
+  reservedAllocations.forEach((allocation) => {
+    reservedMap.set(
+      allocation.itemId,
+      (reservedMap.get(allocation.itemId) || 0) + Number(allocation.amount)
+    );
+  });
+
+  const itemMap = new Map<string, ScheduleItemLite>(
+    typedScheduleItems.map((item) => [item.id, item])
+  );
+
+  for (const allocation of allocations) {
+    const scheduleItem = itemMap.get(allocation.itemId);
+    if (!scheduleItem) continue;
+
+    const remaining = Number(scheduleItem.remaining);
+    const reserved = reservedMap.get(allocation.itemId) || 0;
+    const available = Math.max(0, remaining - reserved);
+
+    if (allocation.amount - available > 0.000001) {
+      return NextResponse.json(
+        {
+          error: `期次 ${scheduleItem.periodNumber} 可分配金额不足，当前可用 ${available.toFixed(2)}`,
+        },
+        { status: 400 }
+      );
     }
   }
 
-  const principalPart = allocations.filter((x: AllocationInput) => x.type === "PRINCIPAL").reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
-  const interestPart = allocations.filter((x: AllocationInput) => x.type === "INTEREST").reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
-  const feePart = allocations.filter((x: AllocationInput) => x.type === "FEE").reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
-  const penaltyPart = allocations.filter((x: AllocationInput) => x.type === "PENALTY").reduce((acc: number, x: AllocationInput) => acc + x.amount, 0);
+  const principalPart = allocations
+    .filter((item) => item.type === "PRINCIPAL")
+    .reduce((sum, item) => sum + item.amount, 0);
+  const interestPart = allocations
+    .filter((item) => item.type === "INTEREST")
+    .reduce((sum, item) => sum + item.amount, 0);
+  const feePart = allocations
+    .filter((item) => item.type === "FEE")
+    .reduce((sum, item) => sum + item.amount, 0);
+  const penaltyPart = allocations
+    .filter((item) => item.type === "PENALTY")
+    .reduce((sum, item) => sum + item.amount, 0);
 
   const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.repaymentAllocation.createMany({
-      data: input.allocations.map((a) => ({
+      data: allocations.map((allocation) => ({
         repaymentId: id,
-        itemId: a.itemId,
-        amount: a.amount,
-        type: a.type,
+        itemId: allocation.itemId,
+        amount: allocation.amount,
+        type: allocation.type,
       })),
     });
-
-    for (const a of allocations) {
-      const current = itemMap.get(a.itemId);
-      if (!current) continue;
-      const nextRemaining = Number(current.remaining) - a.amount;
-      await tx.repaymentScheduleItem.update({
-        where: { id: a.itemId },
-        data: {
-          remaining: Math.max(0, nextRemaining),
-          status: nextRemaining <= 0.000001 ? "PAID" : current.status,
-          paidAt: nextRemaining <= 0.000001 ? new Date() : current.paidAt,
-        },
-      });
-    }
 
     return tx.repayment.update({
       where: { id },
@@ -122,7 +160,7 @@ export async function POST(
         feePart,
         penaltyPart,
         status: "PENDING_CONFIRM",
-        matchComment: input.comment ?? "系统分配完成，待客户确认",
+        matchComment: input.comment ?? "系统分配完成，等待客户确认付款",
       },
     });
   });
@@ -145,9 +183,9 @@ export async function POST(
       interestPart: Number(updated.interestPart),
       feePart: Number(updated.feePart),
       penaltyPart: Number(updated.penaltyPart),
-      allocatedTotal: sum,
+      allocatedTotal,
     },
-    changeSummary: "还款分配完成，进入待客户确认",
+    changeSummary: "还款分配完成，进入待客户确认付款状态",
   }).catch(() => undefined);
 
   return NextResponse.json({

@@ -31,15 +31,18 @@ export async function POST(req: Request) {
 
   try {
     const { applicationId, ...options } = parsed.data;
-    const result = await ContractService.generateMainContract(applicationId, options);
+    const result = await ContractService.previewMainContract(applicationId, options);
 
     if (!result.success) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, contract: result.data });
+    return NextResponse.json({
+      success: true,
+      preview: result.data,
+    });
   } catch (error) {
-    console.error("生成合同接口异常:", error);
+    console.error("合同预览接口异常:", error);
     return NextResponse.json({ error: "服务器内部错误" }, { status: 500 });
   }
 }

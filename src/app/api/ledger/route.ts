@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
 import { getLedgerList } from "@/services/ledger.service";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["ledger:view"]);
+  if (session instanceof Response) return session;
 
   const url = new URL(req.url);
   const type = url.searchParams.get("type") ?? undefined;
