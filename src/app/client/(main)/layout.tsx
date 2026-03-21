@@ -1,5 +1,7 @@
 import { getClientSession } from "@/lib/auth";
 import { ClientHeader } from "@/components/client/Header";
+import { AppRuntimeBridge } from "@/components/pwa/AppRuntimeBridge";
+import { MobileBottomNav } from "@/components/pwa/MobileBottomNav";
 
 export default async function ClientLayout({
   children,
@@ -17,11 +19,26 @@ export default async function ClientLayout({
       </div>
 
       <ClientHeader username={username} />
-      <main className="relative mx-auto flex-1 w-full max-w-7xl p-4 py-8 lg:px-8">
-        <div className="fade-in-up rounded-2xl border border-white/40 bg-white/90 p-4 text-slate-900 shadow-xl backdrop-blur-sm md:p-6">
+      <main className="app-shell-main relative flex-1 py-4 md:py-8">
+        <AppRuntimeBridge
+          portal="client"
+          notificationsEndpoint="/api/client/notifications"
+          notificationsPageHref="/client/notifications"
+          appName="借贷客户端"
+        />
+        <div className="app-surface fade-in-up p-4 text-slate-900 md:p-6">
           {children}
         </div>
       </main>
+      <MobileBottomNav
+        items={[
+          { href: "/client/dashboard", label: "借款", shortLabel: "借款" },
+          { href: "/client/repayments", label: "还款", shortLabel: "还款" },
+          { href: "/client/repayment-plans", label: "计划", shortLabel: "计划" },
+          { href: "/client/notifications", label: "消息", shortLabel: "消息" },
+        ]}
+        accentClassName="text-cyan-200"
+      />
     </div>
   );
 }

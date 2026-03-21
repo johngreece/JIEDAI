@@ -87,12 +87,17 @@ async function main() {
     create: { name: "经理", code: "manager", description: "业务管理" },
     update: {},
   });
+  const financeRole = await prisma.role.upsert({
+    where: { code: "finance" },
+    create: { name: "璐㈠姟", code: "finance", description: "鏀炬銆佽繕娆俱€佸彴璐︿笌瀵硅处" },
+    update: {},
+  });
   const operatorRole = await prisma.role.upsert({
     where: { code: "operator" },
     create: { name: "操作员", code: "operator", description: "日常操作" },
     update: {},
   });
-  console.log("Roles seeded:", superAdminRole.id, managerRole.id, operatorRole.id);
+  console.log("Roles seeded:", superAdminRole.id, managerRole.id, financeRole.id, operatorRole.id);
 
   // ── 权限 ──
   const permDefs = [
@@ -150,6 +155,34 @@ async function main() {
   });
   console.log("Admin account ready (admin / Wanjin888@).");
 
+  const managerPwd = await bcrypt.hash("manager123", 12);
+  await prisma.user.upsert({
+    where: { username: "manager" },
+    create: {
+      username: "manager",
+      passwordHash: managerPwd,
+      realName: "瀹℃壒缁忕悊",
+      phone: "13900000003",
+      roleId: managerRole.id,
+    },
+    update: { passwordHash: managerPwd, phone: "13900000003", roleId: managerRole.id },
+  });
+  console.log("Manager account ready (manager / manager123).");
+
+  const financePwd = await bcrypt.hash("finance123", 12);
+  await prisma.user.upsert({
+    where: { username: "finance" },
+    create: {
+      username: "finance",
+      passwordHash: financePwd,
+      realName: "璐㈠姟娴嬭瘯",
+      phone: "13900000004",
+      roleId: financeRole.id,
+    },
+    update: { passwordHash: financePwd, phone: "13900000004", roleId: financeRole.id },
+  });
+  console.log("Finance account ready (finance / finance123).");
+
   // ── 前台操作员用户 ──
   const operatorPwd = await bcrypt.hash("operator123", 12);
   const operatorUser = await prisma.user.upsert({
@@ -194,6 +227,60 @@ async function main() {
   console.log("Operator role permissions assigned:", operatorPerms.length);
 
   // ── 默认客户账号 ──
+  const managerPermCodes = [
+    "customer:view",
+    "loan:view",
+    "loan:risk",
+    "loan:approve",
+    "contract:view",
+    "contract:generate",
+    "repayment:view",
+    "overdue:view",
+    "extension:view",
+    "extension:approve",
+    "audit:view",
+    "dashboard:view",
+  ];
+  const managerPerms = await prisma.permission.findMany({
+    where: { code: { in: managerPermCodes } },
+  });
+  for (const perm of managerPerms) {
+    await prisma.rolePermission.upsert({
+      where: {
+        roleId_permissionId: { roleId: managerRole.id, permissionId: perm.id },
+      },
+      create: { roleId: managerRole.id, permissionId: perm.id },
+      update: {},
+    });
+  }
+  console.log("Manager role permissions assigned:", managerPerms.length);
+
+  const financePermCodes = [
+    "customer:view",
+    "contract:view",
+    "disbursement:view",
+    "disbursement:create",
+    "disbursement:confirm",
+    "repayment:view",
+    "repayment:create",
+    "repayment:allocate",
+    "ledger:view",
+    "dashboard:view",
+  ];
+  const financePerms = await prisma.permission.findMany({
+    where: { code: { in: financePermCodes } },
+  });
+  for (const perm of financePerms) {
+    await prisma.rolePermission.upsert({
+      where: {
+        roleId_permissionId: { roleId: financeRole.id, permissionId: perm.id },
+      },
+      create: { roleId: financeRole.id, permissionId: perm.id },
+      update: {},
+    });
+  }
+  console.log("Finance role permissions assigned:", financePerms.length);
+
   const customerPwd = await bcrypt.hash("customer123", 12);
   await prisma.customer.upsert({
     where: { phone: "13800000001" },

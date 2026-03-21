@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { normalizePhoneInput } from "@/lib/phone";
 
 export default function FunderLoginPage() {
   const [phone, setPhone] = useState("");
@@ -15,10 +16,11 @@ export default function FunderLoginPage() {
     setError("");
     setSubmitting(true);
     try {
+      const normalizedPhone = normalizePhoneInput(phone);
       const res = await fetch("/api/auth/funder/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, password }),
+        body: JSON.stringify({ phone: normalizedPhone, password }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -66,6 +68,8 @@ export default function FunderLoginPage() {
               <label className="mb-1.5 block text-sm text-slate-100/90">手机号码</label>
               <input
                 type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 required
@@ -73,6 +77,7 @@ export default function FunderLoginPage() {
                 placeholder="请输入手机号"
                 disabled={submitting}
               />
+              <p className="mt-1.5 text-xs text-slate-300/70">支持纯数字、带空格、横杠或国际区号手机号。</p>
             </div>
 
             <div>

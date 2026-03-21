@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { normalizePhoneInput } from "@/lib/phone";
 
 export default function ClientLoginPage() {
   const [phone, setPhone] = useState("");
@@ -16,10 +17,11 @@ export default function ClientLoginPage() {
     setError("");
     setSubmitting(true);
     try {
+      const normalizedPhone = normalizePhoneInput(phone);
       const res = await fetch("/api/auth/client/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, password }),
+        body: JSON.stringify({ phone: normalizedPhone, password }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -73,6 +75,8 @@ export default function ClientLoginPage() {
                 </div>
                 <input
                   type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   required
@@ -81,6 +85,7 @@ export default function ClientLoginPage() {
                   disabled={submitting}
                 />
               </div>
+              <p className="mt-1.5 text-xs text-slate-300/70">支持纯数字、带空格、横杠或国际区号手机号。</p>
             </div>
 
             <div>

@@ -1,6 +1,8 @@
 import { getFunderSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { FunderHeader } from "./FunderHeader";
+import { AppRuntimeBridge } from "@/components/pwa/AppRuntimeBridge";
+import { MobileBottomNav } from "@/components/pwa/MobileBottomNav";
 
 export default async function FunderLayout({
   children,
@@ -18,11 +20,26 @@ export default async function FunderLayout({
       </div>
 
       <FunderHeader username={session.name} />
-      <main className="relative mx-auto flex-1 w-full max-w-7xl p-4 py-8 lg:px-8">
-        <div className="fade-in-up rounded-2xl border border-white/40 bg-white/90 p-4 text-slate-900 shadow-xl backdrop-blur-sm md:p-6">
+      <main className="app-shell-main relative flex-1 py-4 md:py-8">
+        <AppRuntimeBridge
+          portal="funder"
+          notificationsEndpoint="/api/funder/notifications"
+          notificationsPageHref="/funder/notifications"
+          appName="资金方平台"
+        />
+        <div className="app-surface fade-in-up p-4 text-slate-900 md:p-6">
           {children}
         </div>
       </main>
+      <MobileBottomNav
+        items={[
+          { href: "/funder/dashboard", label: "概览", shortLabel: "概览" },
+          { href: "/funder/disbursements", label: "放款", shortLabel: "放款" },
+          { href: "/funder/withdrawals", label: "提现", shortLabel: "提现" },
+          { href: "/funder/notifications", label: "消息", shortLabel: "消息" },
+        ]}
+        accentClassName="text-emerald-200"
+      />
     </div>
   );
 }

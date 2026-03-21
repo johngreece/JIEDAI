@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createClientToken, setClientCookie } from "@/lib/auth";
 import { verifyPassword, isBcryptHash, hashPassword } from "@/lib/password";
 import { loginLimiter, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
+import { buildPhoneLookupCandidates, normalizePhoneInput } from "@/lib/phone";
 import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +15,15 @@ export async function POST(req: NextRequest) {
   if (!rl.allowed) return rateLimitResponse(rl.resetAt);
 
   const body = await req.json().catch(() => ({}));
-  const { phone, password } = body;
+  const rawPhone = typeof body.phone === "string" ? body.phone : "";
+  const phone = normalizePhoneInput(rawPhone);
+  const password = typeof body.password === "string" ? body.password : "";
   if (!phone || !password) {
     return NextResponse.json({ error: "手机号和密码必填" }, { status: 400 });
   }
+  const phoneCandidates = buildPhoneLookupCandidates(rawPhone);
   const customer = await prisma.customer.findFirst({
-    where: { phone, deletedAt: null },
+    where: { phone: { in: phoneCandidates }, deletedAt: null },
   });
   if (!customer) {
     return NextResponse.json({ error: "手机号或密码错误" }, { status: 401 });
