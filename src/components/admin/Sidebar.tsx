@@ -34,7 +34,10 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[]; user
     {
       label: "总览",
       icon: I.home,
-      items: [{ name: "工作台", href: "/admin/dashboard", icon: I.home }],
+      items: [
+        { name: "工作台", href: "/admin/dashboard", icon: I.home },
+        { name: "系统告警", href: "/admin/notifications", icon: I.warn },
+      ],
     },
     {
       label: "核心业务",

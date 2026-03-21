@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 
-type DeliveryAudience = "CUSTOMER" | "FUNDER";
+type DeliveryAudience = "CUSTOMER" | "FUNDER" | "ADMIN";
 type DeliveryChannel = "SMS" | "WHATSAPP" | "EMAIL";
 
 type DeliveryPayload = {
@@ -49,6 +49,14 @@ async function postToWebhook(channel: DeliveryChannel, payload: DeliveryPayload)
   } catch (error) {
     console.error(`[MessageDeliveryService] ${channel} delivery failed`, error);
   }
+}
+
+async function dispatchToContacts(payload: DeliveryPayload) {
+  await Promise.allSettled([
+    postToWebhook("SMS", payload),
+    postToWebhook("WHATSAPP", payload),
+    postToWebhook("EMAIL", payload),
+  ]);
 }
 
 export class MessageDeliveryService {
@@ -119,11 +127,60 @@ export class MessageDeliveryService {
     });
   }
 
+  static async deliverAdminAlert(params: {
+    userId: string;
+    title: string;
+    content: string;
+    type: string;
+  }) {
+    const user = await prisma.user.findUnique({
+      where: { id: params.userId },
+      select: {
+        id: true,
+        username: true,
+        realName: true,
+        phone: true,
+        email: true,
+      },
+    });
+
+    if (!user) return;
+
+    await this.dispatch({
+      audience: "ADMIN",
+      targetId: user.id,
+      name: user.realName || user.username,
+      title: params.title,
+      content: params.content,
+      phone: user.phone,
+      email: user.email,
+      meta: {
+        type: params.type,
+      },
+    });
+  }
+
+  static async deliverOperationsAlert(params: {
+    name: string;
+    title: string;
+    content: string;
+    phone?: string | null;
+    email?: string | null;
+    meta?: Record<string, unknown>;
+  }) {
+    await dispatchToContacts({
+      audience: "ADMIN",
+      targetId: "operations",
+      name: params.name,
+      title: params.title,
+      content: params.content,
+      phone: params.phone,
+      email: params.email,
+      meta: params.meta,
+    });
+  }
+
   private static async dispatch(payload: DeliveryPayload) {
-    await Promise.allSettled([
-      postToWebhook("SMS", payload),
-      postToWebhook("WHATSAPP", payload),
-      postToWebhook("EMAIL", payload),
-    ]);
+    await dispatchToContacts(payload);
   }
 }

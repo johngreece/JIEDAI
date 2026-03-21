@@ -17,6 +17,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      REGRESSION_ALERT_TOKEN: ${{ secrets.REGRESSION_ALERT_TOKEN }}
       REGRESSION_BASE_URL: http://127.0.0.1:3001
 
     steps:
@@ -63,6 +64,39 @@ jobs:
 
       - name: Run regression
         run: npm run test:regression
+
+      - name: Send failure alerts
+        if: failure()
+        run: |
+          if [ -z "$REGRESSION_ALERT_TOKEN" ]; then
+            echo "REGRESSION_ALERT_TOKEN is not configured, skipping alert callback."
+            exit 0
+          fi
+
+          summary="Nightly regression workflow failed. Check uploaded app log artifact and workflow run details."
+          triggered_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          payload=$(cat <<JSON
+          {
+            "status": "FAILED",
+            "workflow": "${{ github.workflow }}",
+            "repository": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "sha": "${{ github.sha }}",
+            "actor": "${{ github.actor }}",
+            "runId": "${{ github.run_id }}",
+            "runNumber": "${{ github.run_number }}",
+            "runUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "failedJob": "regression",
+            "summary": "$summary",
+            "triggeredAt": "$triggered_at"
+          }
+          JSON
+          )
+
+          curl -fsS -X POST "http://127.0.0.1:3001/api/internal/regression-alerts" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $REGRESSION_ALERT_TOKEN" \
+            -d "$payload"
 
       - name: Upload app log on failure
         if: failure()
