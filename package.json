@@ -22,7 +22,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:regression": "node scripts/full-regression.js",
-    "test:regression-alert-webhooks": "npx tsx scripts/test-regression-alert-webhooks.ts"
+    "test:regression-alert-webhooks": "npx tsx scripts/test-regression-alert-webhooks.ts",
+    "test:regression-alert-providers": "npx tsx scripts/test-regression-alert-providers.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

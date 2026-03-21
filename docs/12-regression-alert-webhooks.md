@@ -1,35 +1,151 @@
-# 夜间回归失败告警 Webhook 说明
+# Regression Alert Delivery
 
-本平台在 GitHub Actions 夜间回归失败时，会通过内部接口 `/api/internal/regression-alerts` 触发三类告警：
+This platform can send nightly regression failure alerts through four routes:
 
-- 站内告警：写入管理员消息中心
-- 外部邮件：发送到 `NOTIFY_EMAIL_WEBHOOK_URL`
-- 外部 WhatsApp：发送到 `NOTIFY_WHATSAPP_WEBHOOK_URL`
-- 外部短信：发送到 `NOTIFY_SMS_WEBHOOK_URL`
+- In-app admin notifications
+- Email via `Resend` or webhook
+- SMS via `Twilio` or webhook
+- WhatsApp via `Meta WhatsApp Cloud API`, `Twilio`, or webhook
 
-## 本地联调
+The internal trigger entry stays the same:
 
-本地可以直接运行：
-
-```bash
-npm run test:regression-alert-webhooks
+```text
+POST /api/internal/regression-alerts
 ```
 
-该脚本会在本地启动一个临时 mock webhook 服务，并验证三类外部通道的 payload、鉴权 header、模板码和动作链接是否正确输出。
+## Required Core Variables
 
-## 必要环境变量
-
-GitHub Actions 与部署环境至少需要配置以下变量：
+Set these in your deployment environment and GitHub Actions secrets:
 
 - `DATABASE_URL`
 - `DIRECT_URL`
 - `JWT_SECRET`
 - `REGRESSION_ALERT_TOKEN`
 
-若需要外部触达，再补以下变量：
+## Alert Targets
 
 - `REGRESSION_ALERT_EMAILS`
 - `REGRESSION_ALERT_PHONES`
+
+These are comma-separated lists used for extra ops contacts outside the admin user table.
+
+## Provider Selection
+
+Each channel supports an explicit provider switch.
+
+### Email
+
+- `NOTIFY_EMAIL_PROVIDER=RESEND`
+- `NOTIFY_EMAIL_PROVIDER=WEBHOOK`
+- `NOTIFY_EMAIL_PROVIDER=NONE`
+
+If not set, the system auto-detects:
+
+1. `RESEND` when `RESEND_API_KEY` and sender address are present
+2. `WEBHOOK` when `NOTIFY_EMAIL_WEBHOOK_URL` is present
+3. otherwise `NONE`
+
+### SMS
+
+- `NOTIFY_SMS_PROVIDER=TWILIO`
+- `NOTIFY_SMS_PROVIDER=WEBHOOK`
+- `NOTIFY_SMS_PROVIDER=NONE`
+
+If not set, the system auto-detects:
+
+1. `TWILIO` when Twilio SMS credentials exist
+2. `WEBHOOK` when `NOTIFY_SMS_WEBHOOK_URL` exists
+3. otherwise `NONE`
+
+### WhatsApp
+
+- `NOTIFY_WHATSAPP_PROVIDER=META`
+- `NOTIFY_WHATSAPP_PROVIDER=TWILIO`
+- `NOTIFY_WHATSAPP_PROVIDER=WEBHOOK`
+- `NOTIFY_WHATSAPP_PROVIDER=NONE`
+
+If not set, the system auto-detects:
+
+1. `META` when Meta Cloud API credentials exist
+2. `TWILIO` when Twilio WhatsApp credentials exist
+3. `WEBHOOK` when `NOTIFY_WHATSAPP_WEBHOOK_URL` exists
+4. otherwise `NONE`
+
+## Resend
+
+Use these variables for direct email delivery:
+
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+
+Optional:
+
+- `RESEND_API_BASE_URL`
+- `NOTIFY_EMAIL_FROM`
+
+Request target:
+
+```text
+POST https://api.resend.com/emails
+```
+
+The system sends:
+
+- subject
+- plain text body
+- HTML body
+- tags for event, audience, and template code
+
+## Twilio
+
+Use these variables for direct SMS and optional WhatsApp delivery:
+
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_SMS_FROM`
+- `TWILIO_WHATSAPP_FROM`
+
+Optional:
+
+- `TWILIO_API_BASE_URL`
+
+Request target:
+
+```text
+POST https://api.twilio.com/2010-04-01/Accounts/<SID>/Messages.json
+```
+
+For WhatsApp, the service automatically formats numbers as:
+
+```text
+whatsapp:+<number>
+```
+
+## Meta WhatsApp Cloud API
+
+Use these variables for direct WhatsApp delivery:
+
+- `META_WHATSAPP_TOKEN`
+- `META_WHATSAPP_PHONE_NUMBER_ID`
+
+Optional:
+
+- `META_WHATSAPP_API_BASE_URL`
+
+Request target:
+
+```text
+POST https://graph.facebook.com/v22.0/<PHONE_NUMBER_ID>/messages
+```
+
+The platform currently sends plain text WhatsApp messages and appends action links into the body.
+
+## Webhook Fallback
+
+Each channel still supports webhook delivery and also uses it as a fallback if a direct provider call fails.
+
+### Webhook variables
+
 - `NOTIFY_EMAIL_WEBHOOK_URL`
 - `NOTIFY_EMAIL_WEBHOOK_TOKEN`
 - `NOTIFY_WHATSAPP_WEBHOOK_URL`
@@ -37,13 +153,11 @@ GitHub Actions 与部署环境至少需要配置以下变量：
 - `NOTIFY_SMS_WEBHOOK_URL`
 - `NOTIFY_SMS_WEBHOOK_TOKEN`
 
-如果三类 webhook 共用同一个鉴权 token，也可以只配置：
+Optional shared token:
 
 - `NOTIFY_WEBHOOK_SHARED_TOKEN`
 
-## Webhook Header
-
-平台会对每一个外部 webhook 请求附带以下 header：
+### Webhook headers
 
 ```http
 Content-Type: application/json
@@ -52,11 +166,9 @@ X-Notify-Channel: EMAIL | WHATSAPP | SMS
 X-Notify-Event: REGRESSION_FAILURE
 ```
 
-其中 `Authorization` 只有在配置了对应 token 时才会发送。
+### Webhook payload shape
 
-## 通用 Payload 结构
-
-三类通道都会包含以下公共字段：
+All channels share this base payload:
 
 ```json
 {
@@ -69,8 +181,8 @@ X-Notify-Event: REGRESSION_FAILURE
     "locale": "zh-CN",
     "variables": {
       "recipientName": "Finance Team",
-      "title": "夜间回归失败 main",
-      "content": "仓库：johngreece/JIEDAI\n工作流：Nightly Regression\n状态：FAILED"
+      "title": "Nightly regression failed main",
+      "content": "Repository: johngreece/JIEDAI"
     }
   },
   "recipient": {
@@ -80,81 +192,36 @@ X-Notify-Event: REGRESSION_FAILURE
     "email": "ops@example.com"
   },
   "notification": {
-    "title": "夜间回归失败 main",
-    "content": "仓库：johngreece/JIEDAI\n工作流：Nightly Regression\n状态：FAILED",
-    "preview": "仓库：johngreece/JIEDAI 工作流：Nightly Regression 状态：FAILED"
+    "title": "Nightly regression failed main",
+    "content": "Repository: johngreece/JIEDAI",
+    "preview": "Repository: johngreece/JIEDAI"
   },
   "actions": [
     {
-      "label": "查看回归运行",
+      "label": "View regression run",
       "url": "https://github.com/johngreece/JIEDAI/actions/runs/123456"
     }
   ],
   "metadata": {
     "type": "REGRESSION_FAILURE",
-    "repository": "johngreece/JIEDAI",
-    "workflow": "Nightly Regression",
-    "branch": "main",
-    "sha": "abcdef123456",
-    "runId": "123456",
-    "runNumber": "88",
-    "runUrl": "https://github.com/johngreece/JIEDAI/actions/runs/123456",
-    "failedJob": "regression",
-    "summary": "Nightly regression workflow failed. Check uploaded app log artifact and workflow run details.",
-    "triggeredAt": "2026-03-21T00:30:00Z",
-    "actionUrl": "https://github.com/johngreece/JIEDAI/actions/runs/123456",
-    "actionLabel": "查看回归运行",
     "templateCode": "REGRESSION_FAILURE_123456"
   },
   "sentAt": "2026-03-21T00:30:01.000Z"
 }
 ```
 
-## 邮件通道
+## Local Verification
 
-邮件 webhook 额外包含：
+Run the existing webhook flow check:
 
-```json
-{
-  "email": {
-    "to": "ops@example.com",
-    "subject": "夜间回归失败 main",
-    "text": "仓库：johngreece/JIEDAI\n工作流：Nightly Regression\n状态：FAILED",
-    "html": "<!doctype html>..."
-  }
-}
+```bash
+npm run test:regression-alert-webhooks
 ```
 
-建议你的邮件服务直接取 `email.to`、`email.subject`、`email.text`、`email.html` 发信。
+Run direct-provider mock verification:
 
-## WhatsApp 通道
-
-WhatsApp webhook 额外包含：
-
-```json
-{
-  "whatsapp": {
-    "to": "+40123456789",
-    "text": "仓库：johngreece/JIEDAI\n工作流：Nightly Regression\n状态：FAILED",
-    "previewUrl": true
-  }
-}
+```bash
+npm run test:regression-alert-providers
 ```
 
-建议下游适配 Meta WhatsApp Cloud API、Twilio 或你们现有的中转服务时，直接把 `whatsapp.text` 作为消息正文。
-
-## 短信通道
-
-短信 webhook 额外包含：
-
-```json
-{
-  "sms": {
-    "to": "+40123456789",
-    "text": "仓库：johngreece/JIEDAI 工作流：Nightly Regression 状态：FAILED ...",
-    "unicode": true
-  }
-}
-```
-
-短信正文会自动压缩为单行，并截断到 480 个字符以内，适合大多数短信网关。
+The provider test spins up local mock endpoints for Resend, Twilio, and Meta WhatsApp Cloud API, then verifies that the platform produces valid outbound requests for all three direct integrations.
