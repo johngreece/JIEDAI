@@ -57,6 +57,8 @@ async function createCustomerNotification(params: {
     content: params.content,
     type: params.type,
     templateCode: params.templateCode,
+    sourceType: "NOTIFICATION",
+    sourceId: notification.id,
   });
 
   return notification;

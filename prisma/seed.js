@@ -265,6 +265,7 @@ async function main() {
     "repayment:create",
     "repayment:allocate",
     "ledger:view",
+    "audit:view",
     "dashboard:view",
   ];
   const financePerms = await prisma.permission.findMany({

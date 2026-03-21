@@ -837,6 +837,68 @@ model Notification {
   @@map("notifications")
 }
 
+model MessageDelivery {
+  id                String    @id @default(uuid())
+  sourceType        String?   @map("source_type")
+  sourceId          String?   @map("source_id")
+  audience          String
+  targetId          String    @map("target_id")
+  targetName        String    @map("target_name")
+  channel           String
+  provider          String
+  event             String
+  templateCode      String?   @map("template_code")
+  title             String
+  content           String
+  recipientPhone    String?   @map("recipient_phone")
+  recipientEmail    String?   @map("recipient_email")
+  status            String    @default("PENDING")
+  attemptCount      Int       @default(0) @map("attempt_count")
+  maxAttempts       Int       @default(5) @map("max_attempts")
+  nextRetryAt       DateTime? @map("next_retry_at")
+  lastAttemptAt     DateTime? @map("last_attempt_at")
+  deliveredAt       DateTime? @map("delivered_at")
+  lastError         String?   @map("last_error")
+  providerMessageId String?   @map("provider_message_id")
+  durationMs        Int?      @map("duration_ms")
+  payloadJson       String?   @map("payload_json")
+  metadataJson      String?   @map("metadata_json")
+  responseJson      String?   @map("response_json")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  attempts MessageDeliveryAttempt[]
+
+  @@index([status, nextRetryAt])
+  @@index([channel, provider, createdAt])
+  @@index([sourceType, sourceId])
+  @@index([targetId, createdAt])
+  @@index([event])
+  @@map("message_deliveries")
+}
+
+model MessageDeliveryAttempt {
+  id            String   @id @default(uuid())
+  deliveryId    String   @map("delivery_id")
+  channel       String
+  provider      String
+  attemptNo     Int      @map("attempt_no")
+  status        String
+  startedAt     DateTime @map("started_at")
+  finishedAt    DateTime? @map("finished_at")
+  durationMs    Int?     @map("duration_ms")
+  requestJson   String?  @map("request_json")
+  responseJson  String?  @map("response_json")
+  errorMessage  String?  @map("error_message")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  delivery MessageDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([deliveryId, createdAt])
+  @@index([provider, status, createdAt])
+  @@map("message_delivery_attempts")
+}
+
 model SystemSetting {
   id        String   @id @default(uuid())
   key       String   @unique

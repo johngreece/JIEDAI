@@ -37,6 +37,9 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[]; user
       items: [
         { name: "工作台", href: "/admin/dashboard", icon: I.home },
         { name: "系统告警", href: "/admin/notifications", icon: I.warn },
+        ...(userRole?.some((role) => ["super_admin", "manager", "finance"].includes(role))
+          ? [{ name: "投递监控", href: "/admin/message-deliveries", icon: I.chart }]
+          : []),
       ],
     },
     {

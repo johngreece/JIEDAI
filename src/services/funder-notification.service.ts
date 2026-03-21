@@ -60,6 +60,8 @@ async function createFunderNotification(params: {
     title: params.title,
     content: params.content,
     type: params.type,
+    sourceType: "FUNDER_NOTIFICATION",
+    sourceId: notification.id,
   });
 
   return notification;

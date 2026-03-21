@@ -23,7 +23,8 @@
     "test:watch": "vitest",
     "test:regression": "node scripts/full-regression.js",
     "test:regression-alert-webhooks": "npx tsx scripts/test-regression-alert-webhooks.ts",
-    "test:regression-alert-providers": "npx tsx scripts/test-regression-alert-providers.ts"
+    "test:regression-alert-providers": "npx tsx scripts/test-regression-alert-providers.ts",
+    "test:message-delivery-queue": "npx tsx scripts/test-message-delivery-queue.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

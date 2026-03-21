@@ -1,0 +1,16 @@
+import { NextResponse } from "next/server";
+import { requirePermission } from "@/lib/rbac";
+import { MessageDeliveryService } from "@/services/message-delivery.service";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  const session = await requirePermission(["audit:view"]);
+  if (session instanceof Response) return session;
+
+  const result = await MessageDeliveryService.retryDelivery(params.id);
+  return NextResponse.json({ ok: true, result });
+}

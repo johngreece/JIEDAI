@@ -225,3 +225,11 @@ npm run test:regression-alert-providers
 ```
 
 The provider test spins up local mock endpoints for Resend, Twilio, and Meta WhatsApp Cloud API, then verifies that the platform produces valid outbound requests for all three direct integrations.
+
+Run retry queue verification:
+
+```bash
+npm run test:message-delivery-queue
+```
+
+This script simulates a first-pass SMS failure, confirms that the delivery enters the retry queue, and then verifies that the retry worker can recover it successfully.

@@ -16,26 +16,6 @@ export type RegressionFailurePayload = {
   triggeredAt?: string;
 };
 
-function buildAlertMeta(payload: RegressionFailurePayload, templateCode: string) {
-  return {
-    severity: "critical" as const,
-    repository: payload.repository,
-    workflow: payload.workflow,
-    branch: payload.branch,
-    sha: payload.sha,
-    actor: payload.actor,
-    runId: payload.runId,
-    runNumber: payload.runNumber,
-    runUrl: payload.runUrl,
-    failedJob: payload.failedJob,
-    summary: payload.summary,
-    triggeredAt: payload.triggeredAt,
-    actionUrl: payload.runUrl,
-    actionLabel: payload.runUrl ? "查看回归运行" : undefined,
-    templateCode,
-  };
-}
-
 function uniqueStrings(values: Array<string | null | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
 }
@@ -68,6 +48,26 @@ function buildContent(payload: RegressionFailurePayload) {
   return lines.join("\n");
 }
 
+function buildAlertMeta(payload: RegressionFailurePayload, templateCode: string) {
+  return {
+    severity: "critical" as const,
+    repository: payload.repository,
+    workflow: payload.workflow,
+    branch: payload.branch,
+    sha: payload.sha,
+    actor: payload.actor,
+    runId: payload.runId,
+    runNumber: payload.runNumber,
+    runUrl: payload.runUrl,
+    failedJob: payload.failedJob,
+    summary: payload.summary,
+    triggeredAt: payload.triggeredAt,
+    actionUrl: payload.runUrl,
+    actionLabel: payload.runUrl ? "查看回归运行" : undefined,
+    templateCode,
+  };
+}
+
 export class RegressionAlertService {
   static async notifyFailure(payload: RegressionFailurePayload) {
     const title = buildTitle(payload);
@@ -89,7 +89,7 @@ export class RegressionAlertService {
     });
 
     for (const recipient of recipients) {
-      const exists = await prisma.notification.findFirst({
+      let notification = await prisma.notification.findFirst({
         where: {
           userId: recipient.id,
           templateCode,
@@ -97,8 +97,8 @@ export class RegressionAlertService {
         select: { id: true },
       });
 
-      if (!exists) {
-        await prisma.notification.create({
+      if (!notification) {
+        notification = await prisma.notification.create({
           data: {
             userId: recipient.id,
             templateCode,
@@ -108,6 +108,7 @@ export class RegressionAlertService {
             status: "PENDING",
             sentAt: new Date(),
           },
+          select: { id: true },
         });
       }
 
@@ -118,6 +119,8 @@ export class RegressionAlertService {
         type: "REGRESSION_FAILURE",
         templateCode,
         meta: alertMeta,
+        sourceType: "ADMIN_NOTIFICATION",
+        sourceId: notification.id,
       });
     }
 
@@ -134,6 +137,8 @@ export class RegressionAlertService {
           type: "REGRESSION_FAILURE",
           templateCode,
           meta: alertMeta,
+          sourceType: "OPERATIONS_ALERT",
+          sourceId: templateCode,
         })
       ),
       ...alertPhones.map((phone) =>
@@ -145,6 +150,8 @@ export class RegressionAlertService {
           type: "REGRESSION_FAILURE",
           templateCode,
           meta: alertMeta,
+          sourceType: "OPERATIONS_ALERT",
+          sourceId: templateCode,
         })
       ),
     ]);
