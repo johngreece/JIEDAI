@@ -4,6 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+const TEST_ACCOUNTS = [
+  { label: "超级管理员", username: "admin", password: "Wanjin888@" },
+  { label: "审批经理", username: "manager", password: "manager123" },
+  { label: "财务", username: "finance", password: "finance123" },
+  { label: "操作员", username: "operator", password: "operator123" },
+];
+
 export default function AdminLoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -11,15 +18,16 @@ export default function AdminLoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function loginWithCredentials(nextUsername: string, nextPassword: string) {
+    setUsername(nextUsername);
+    setPassword(nextPassword);
     setError("");
     setSubmitting(true);
     try {
       const res = await fetch("/api/auth/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username: nextUsername, password: nextPassword }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -31,6 +39,11 @@ export default function AdminLoginPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    await loginWithCredentials(username, password);
   }
 
   return (
@@ -88,6 +101,36 @@ export default function AdminLoginPage() {
               </div>
               <h1 className="text-2xl font-semibold tracking-tight text-white">管理端登录</h1>
               <p className="mt-2 text-sm text-slate-200/85">请输入管理员账号与密码继续</p>
+            </div>
+
+            <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-white">测试账号快捷入口</h2>
+                  <p className="mt-1 text-xs text-slate-300/75">内部联调时可直接一键登录常用后台角色。</p>
+                </div>
+                <span className="rounded-full border border-cyan-300/30 bg-cyan-300/10 px-2.5 py-1 text-[11px] text-cyan-100">
+                  Test Mode
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-2.5">
+                {TEST_ACCOUNTS.map((account) => (
+                  <button
+                    key={account.username}
+                    type="button"
+                    disabled={submitting}
+                    onClick={() => void loginWithCredentials(account.username, account.password)}
+                    className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-900/40 px-3 py-3 text-left transition hover:border-cyan-300/40 hover:bg-slate-900/70 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span>
+                      <span className="block text-sm font-medium text-white">{account.label}</span>
+                      <span className="block text-xs text-slate-300/70">{account.username}</span>
+                    </span>
+                    <span className="text-xs font-medium text-cyan-100">一键登录</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
