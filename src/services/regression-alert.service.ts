@@ -16,6 +16,26 @@ export type RegressionFailurePayload = {
   triggeredAt?: string;
 };
 
+function buildAlertMeta(payload: RegressionFailurePayload, templateCode: string) {
+  return {
+    severity: "critical" as const,
+    repository: payload.repository,
+    workflow: payload.workflow,
+    branch: payload.branch,
+    sha: payload.sha,
+    actor: payload.actor,
+    runId: payload.runId,
+    runNumber: payload.runNumber,
+    runUrl: payload.runUrl,
+    failedJob: payload.failedJob,
+    summary: payload.summary,
+    triggeredAt: payload.triggeredAt,
+    actionUrl: payload.runUrl,
+    actionLabel: payload.runUrl ? "查看回归运行" : undefined,
+    templateCode,
+  };
+}
+
 function uniqueStrings(values: Array<string | null | undefined>) {
   return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
 }
@@ -53,6 +73,7 @@ export class RegressionAlertService {
     const title = buildTitle(payload);
     const content = buildContent(payload);
     const templateCode = `REGRESSION_FAILURE_${payload.runId || payload.runNumber || Date.now()}`;
+    const alertMeta = buildAlertMeta(payload, templateCode);
 
     const recipients = await prisma.user.findMany({
       where: {
@@ -95,6 +116,8 @@ export class RegressionAlertService {
         title,
         content,
         type: "REGRESSION_FAILURE",
+        templateCode,
+        meta: alertMeta,
       });
     }
 
@@ -108,11 +131,9 @@ export class RegressionAlertService {
           title,
           content,
           email,
-          meta: {
-            type: "REGRESSION_FAILURE",
-            repository: payload.repository,
-            runId: payload.runId,
-          },
+          type: "REGRESSION_FAILURE",
+          templateCode,
+          meta: alertMeta,
         })
       ),
       ...alertPhones.map((phone) =>
@@ -121,11 +142,9 @@ export class RegressionAlertService {
           title,
           content,
           phone,
-          meta: {
-            type: "REGRESSION_FAILURE",
-            repository: payload.repository,
-            runId: payload.runId,
-          },
+          type: "REGRESSION_FAILURE",
+          templateCode,
+          meta: alertMeta,
         })
       ),
     ]);
