@@ -20,7 +20,8 @@
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:regression": "node scripts/full-regression.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
