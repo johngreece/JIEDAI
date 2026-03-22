@@ -55,6 +55,10 @@ function diffDays(from: Date, to: Date) {
   return Math.max(0, Math.floor((to.getTime() - from.getTime()) / DAY_MS));
 }
 
+function toNumber(value: unknown) {
+  return Number(value || 0);
+}
+
 export class FunderInterestService {
   static async getEarnings(funderId: string): Promise<FunderEarnings> {
     const funder = await prisma.funder.findUniqueOrThrow({
@@ -65,11 +69,23 @@ export class FunderInterestService {
       },
     });
 
-    const totalDeposited = funder.accounts.reduce((sum, account) => sum + Number(account.totalInflow), 0);
-    const totalBalance = funder.accounts.reduce((sum, account) => sum + Number(account.balance), 0);
+    const totalDeposited = funder.accounts.reduce((sum, account) => sum + toNumber(account.totalInflow), 0);
+    const totalBalance = funder.accounts.reduce((sum, account) => sum + toNumber(account.balance), 0);
     const totalWithdrawn = funder.withdrawalRequests
       .filter((item) => item.status === "APPROVED")
-      .reduce((sum, item) => sum + Number(item.amount), 0);
+      .reduce((sum, item) => sum + toNumber(item.amount), 0);
+
+    const approvedInterestWithdrawn = funder.withdrawalRequests
+      .filter((item) => item.status === "APPROVED")
+      .reduce((sum, item) => sum + toNumber(item.interestAmount), 0);
+
+    const pendingWithdrawalAmount = funder.withdrawalRequests
+      .filter((item) => item.status === "PENDING")
+      .reduce((sum, item) => sum + toNumber(item.amount), 0);
+
+    const pendingInterestAmount = funder.withdrawalRequests
+      .filter((item) => item.status === "PENDING")
+      .reduce((sum, item) => sum + toNumber(item.interestAmount), 0);
 
     const accountIds = funder.accounts.map((account) => account.id);
     const activeDisbursements = accountIds.length
@@ -77,6 +93,9 @@ export class FunderInterestService {
           where: {
             fundAccountId: { in: accountIds },
             status: { in: ["PAID", "CONFIRMED"] },
+            application: {
+              status: { notIn: ["SETTLED", "COMPLETED", "REJECTED"] },
+            },
           },
           select: {
             id: true,
@@ -108,7 +127,7 @@ export class FunderInterestService {
           select: {
             applicationId: true,
             scheduleItems: {
-              where: { status: { in: ["PENDING", "PARTIAL"] } },
+              where: { status: { in: ["PENDING", "PARTIAL", "OVERDUE"] } },
               orderBy: { dueDate: "asc" },
               select: {
                 dueDate: true,
@@ -122,61 +141,45 @@ export class FunderInterestService {
       : [];
 
     const planMap = new Map(
-      activePlans.map((plan) => [plan.applicationId, plan.scheduleItems[0] || null])
+      activePlans.map((plan) => [plan.applicationId, plan.scheduleItems[0] || null]),
     );
 
-    const totalDeployed = activeDisbursements.reduce((sum, item) => sum + Number(item.netAmount), 0);
-    const idleFunds = totalBalance;
+    const totalDeployed = activeDisbursements.reduce((sum, item) => sum + toNumber(item.netAmount), 0);
+    const cashAvailable = Math.max(0, round2(totalBalance - pendingWithdrawalAmount));
     const now = new Date();
 
-    let accruedInterest = 0;
-    let withdrawableInterest = 0;
-    let withdrawablePrincipal = 0;
+    let rawAccruedInterest = 0;
     const earningSummary: EarningPeriod[] = [];
     const upcomingSettlements: UpcomingSettlement[] = [];
 
     if (funder.cooperationMode === "FIXED_MONTHLY") {
-      const monthlyRate = Number(funder.monthlyRate) / 100;
+      const monthlyRate = toNumber(funder.monthlyRate) / 100;
 
-      activeDisbursements.forEach((disbursement) => {
-        if (!disbursement.disbursedAt) return;
+      for (const disbursement of activeDisbursements) {
+        if (!disbursement.disbursedAt) continue;
 
         const startDate = new Date(disbursement.disbursedAt);
         const daysSince = diffDays(startDate, now);
         const fullCycles = Math.floor(daysSince / 30);
-        const principal = Number(disbursement.netAmount);
+        const principal = toNumber(disbursement.netAmount);
         const nextSettlementDate = addDays(startDate, (fullCycles + 1) * 30);
         const nextPlanItem = planMap.get(disbursement.applicationId) || null;
         const expectedCollection = nextPlanItem
-          ? Number(nextPlanItem.remaining || nextPlanItem.totalDue || 0)
+          ? toNumber(nextPlanItem.remaining || nextPlanItem.totalDue || 0)
           : 0;
         const perCycleInterest = round2(principal * monthlyRate);
+        const earnedInterest = fullCycles >= 1 ? round2(principal * monthlyRate * fullCycles) : 0;
 
-        if (fullCycles >= 1) {
-          const earnedInterest = round2(principal * monthlyRate * fullCycles);
-          accruedInterest += earnedInterest;
-          withdrawableInterest += earnedInterest;
-
-          earningSummary.push({
-            periodStart: startDate,
-            periodEnd: now,
-            principal,
-            deployed: principal,
-            rate: Number(funder.monthlyRate),
-            interest: earnedInterest,
-            withdrawable: true,
-          });
-        } else {
-          earningSummary.push({
-            periodStart: startDate,
-            periodEnd: now,
-            principal,
-            deployed: principal,
-            rate: Number(funder.monthlyRate),
-            interest: 0,
-            withdrawable: false,
-          });
-        }
+        rawAccruedInterest += earnedInterest;
+        earningSummary.push({
+          periodStart: startDate,
+          periodEnd: now,
+          principal,
+          deployed: principal,
+          rate: toNumber(funder.monthlyRate),
+          interest: earnedInterest,
+          withdrawable: earnedInterest > 0,
+        });
 
         upcomingSettlements.push({
           disbursementId: disbursement.id,
@@ -189,18 +192,19 @@ export class FunderInterestService {
           nextCustomerDueDate: nextPlanItem?.dueDate ?? null,
           expectedInterest: perCycleInterest,
           expectedCollection,
-          status: fullCycles >= 1 ? "withdrawable" : "accruing",
+          status: earnedInterest > 0 ? "withdrawable" : "accruing",
         });
-      });
-
-      withdrawablePrincipal = totalBalance;
+      }
     } else {
-      const weeklyRate = Number(funder.weeklyRate) / 100;
-      const profitShareRatio = Number(funder.profitShareRatio || 0);
+      const weeklyRate = toNumber(funder.weeklyRate) / 100;
+      const profitShareRatio = toNumber(funder.profitShareRatio || 0);
 
       const repaymentPlans = applicationIds.length
         ? await prisma.repaymentPlan.findMany({
-            where: { applicationId: { in: applicationIds }, status: { not: "SUPERSEDED" } },
+            where: {
+              applicationId: { in: applicationIds },
+              status: { not: "SUPERSEDED" },
+            },
             select: {
               applicationId: true,
               repayments: {
@@ -215,59 +219,47 @@ export class FunderInterestService {
           })
         : [];
 
-      const feeMap = new Map<
-        string,
-        { totalFee: number; lastReceivedAt: Date | null }
-      >();
-
-      repaymentPlans.forEach((plan) => {
+      const feeMap = new Map<string, { totalFee: number; lastReceivedAt: Date | null }>();
+      for (const plan of repaymentPlans) {
         const current = feeMap.get(plan.applicationId) || { totalFee: 0, lastReceivedAt: null as Date | null };
-        plan.repayments.forEach((repayment) => {
-          current.totalFee += Number(repayment.feePart) + Number(repayment.penaltyPart);
+        for (const repayment of plan.repayments) {
+          current.totalFee += toNumber(repayment.feePart) + toNumber(repayment.penaltyPart);
           if (repayment.receivedAt && (!current.lastReceivedAt || repayment.receivedAt > current.lastReceivedAt)) {
             current.lastReceivedAt = repayment.receivedAt;
           }
-        });
+        }
         feeMap.set(plan.applicationId, current);
-      });
+      }
 
-      activeDisbursements.forEach((disbursement) => {
-        if (!disbursement.disbursedAt) return;
+      for (const disbursement of activeDisbursements) {
+        if (!disbursement.disbursedAt) continue;
 
         const startDate = new Date(disbursement.disbursedAt);
         const daysSince = diffDays(startDate, now);
         const fullCycles = Math.floor(daysSince / 7);
-        const principal = Number(disbursement.netAmount);
+        const principal = toNumber(disbursement.netAmount);
         const nextSettlementDate = addDays(startDate, (fullCycles + 1) * 7);
         const nextPlanItem = planMap.get(disbursement.applicationId) || null;
         const expectedCollection = nextPlanItem
-          ? Number(nextPlanItem.remaining || nextPlanItem.totalDue || 0)
+          ? toNumber(nextPlanItem.remaining || nextPlanItem.totalDue || 0)
           : 0;
 
         const realizedFee = feeMap.get(disbursement.applicationId);
-        let earnedInterest = 0;
+        const earnedInterest =
+          profitShareRatio > 0 && realizedFee && realizedFee.totalFee > 0
+            ? round2(realizedFee.totalFee * profitShareRatio)
+            : fullCycles >= 1
+              ? round2(principal * weeklyRate * fullCycles)
+              : 0;
 
-        if (profitShareRatio > 0 && realizedFee && realizedFee.totalFee > 0) {
-          earnedInterest = round2(realizedFee.totalFee * profitShareRatio);
-          accruedInterest += earnedInterest;
-          withdrawableInterest += earnedInterest;
-        } else if (fullCycles >= 1) {
-          earnedInterest = round2(principal * weeklyRate * fullCycles);
-          accruedInterest += earnedInterest;
-          withdrawableInterest += earnedInterest;
-        }
-
-        const expectedPerCycleInterest =
-          profitShareRatio > 0
-            ? round2(principal * weeklyRate)
-            : round2(principal * weeklyRate);
+        rawAccruedInterest += earnedInterest;
 
         earningSummary.push({
           periodStart: startDate,
           periodEnd: realizedFee?.lastReceivedAt || now,
           principal,
           deployed: principal,
-          rate: Number(funder.weeklyRate),
+          rate: toNumber(funder.weeklyRate),
           interest: earnedInterest,
           withdrawable: earnedInterest > 0,
         });
@@ -281,22 +273,19 @@ export class FunderInterestService {
           startDate,
           nextSettlementDate,
           nextCustomerDueDate: nextPlanItem?.dueDate ?? null,
-          expectedInterest: expectedPerCycleInterest,
+          expectedInterest: round2(principal * weeklyRate),
           expectedCollection,
           status: earnedInterest > 0 ? "withdrawable" : "accruing",
         });
-      });
-
-      withdrawablePrincipal = totalBalance;
+      }
     }
 
-    const withdrawnInterest = funder.withdrawalRequests
-      .filter((item) => item.status === "APPROVED" && item.type === "INTEREST")
-      .reduce((sum, item) => sum + Number(item.interestAmount), 0);
+    let withdrawableInterest = Math.max(
+      0,
+      round2(rawAccruedInterest - approvedInterestWithdrawn - pendingInterestAmount),
+    );
 
-    withdrawableInterest = Math.max(0, round2(withdrawableInterest - withdrawnInterest));
-
-    if (funder.riskSharing && Number(funder.riskShareRatio) > 0 && accountIds.length) {
+    if (funder.riskSharing && toNumber(funder.riskShareRatio) > 0 && accountIds.length) {
       const overdueDisbursements = await prisma.disbursement.findMany({
         where: {
           fundAccountId: { in: accountIds },
@@ -305,10 +294,14 @@ export class FunderInterestService {
         select: { netAmount: true },
       });
 
-      const overdueTotal = overdueDisbursements.reduce((sum, item) => sum + Number(item.netAmount), 0);
-      const riskDeduction = overdueTotal * Number(funder.riskShareRatio);
+      const overdueTotal = overdueDisbursements.reduce((sum, item) => sum + toNumber(item.netAmount), 0);
+      const riskDeduction = overdueTotal * toNumber(funder.riskShareRatio);
       withdrawableInterest = Math.max(0, round2(withdrawableInterest - riskDeduction));
     }
+
+    withdrawableInterest = Math.min(withdrawableInterest, cashAvailable);
+    const withdrawablePrincipal = Math.max(0, round2(cashAvailable - withdrawableInterest));
+    const idleFunds = cashAvailable;
 
     upcomingSettlements.sort((a, b) => a.nextSettlementDate.getTime() - b.nextSettlementDate.getTime());
 
@@ -319,8 +312,8 @@ export class FunderInterestService {
       totalDeposited: round2(totalDeposited),
       totalDeployed: round2(totalDeployed),
       idleFunds: round2(idleFunds),
-      accruedInterest: round2(accruedInterest),
-      withdrawableInterest,
+      accruedInterest: round2(rawAccruedInterest),
+      withdrawableInterest: round2(withdrawableInterest),
       withdrawablePrincipal: round2(withdrawablePrincipal),
       totalWithdrawn: round2(totalWithdrawn),
       earningSummary,
@@ -396,7 +389,7 @@ export class FunderInterestService {
     });
 
     if (withdrawal.status !== "PENDING") {
-      throw new Error("该申请已被处理");
+      throw new Error("该申请已处理");
     }
 
     return prisma.$transaction(async (tx) => {
@@ -411,16 +404,13 @@ export class FunderInterestService {
 
       const account = withdrawal.funder.accounts[0];
       if (account) {
-        const principalPart = Number(withdrawal.amount) - Number(withdrawal.interestAmount);
-        if (principalPart > 0) {
-          await tx.fundAccount.update({
-            where: { id: account.id },
-            data: {
-              balance: { decrement: principalPart },
-              totalOutflow: { increment: principalPart },
-            },
-          });
-        }
+        await tx.fundAccount.update({
+          where: { id: account.id },
+          data: {
+            balance: { decrement: withdrawal.amount },
+            totalOutflow: { increment: withdrawal.amount },
+          },
+        });
       }
 
       return { ok: true };
