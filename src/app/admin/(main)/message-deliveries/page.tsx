@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type ProviderHealth = {
@@ -148,7 +149,7 @@ export default function MessageDeliveriesPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">告警投递中心</h1>
             <p className="mt-1 text-sm text-slate-600">
-              查看真实发送结果、失败队列和供应商状态，并支持人工重试。
+              查看真实发送结果、失败队列和供应商状态，并支持人工重试与明细钻取。
             </p>
           </div>
           <div className="flex gap-2">
@@ -197,13 +198,18 @@ export default function MessageDeliveriesPage() {
       {health ? (
         <div className="grid gap-4 xl:grid-cols-3">
           {health.providers.map((item) => (
-            <div key={`${item.channel}-${item.provider}`} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div
+              key={`${item.channel}-${item.provider}`}
+              className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="text-xs uppercase tracking-[0.16em] text-slate-400">{item.channel}</div>
                   <h2 className="mt-1 text-lg font-semibold text-slate-900">{item.provider}</h2>
                 </div>
-                <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(item.status)}`}>
+                <span
+                  className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(item.status)}`}
+                >
                   {item.status}
                 </span>
               </div>
@@ -341,7 +347,9 @@ export default function MessageDeliveriesPage() {
                       <div className="mt-2 text-xs text-rose-600">{item.lastError || ""}</div>
                     </td>
                     <td className="px-4 py-4">
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(item.status)}`}>
+                      <span
+                        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusTone(item.status)}`}
+                      >
                         {item.status}
                       </span>
                     </td>
@@ -362,14 +370,22 @@ export default function MessageDeliveriesPage() {
                       <div>送达：{formatDate(item.deliveredAt)}</div>
                     </td>
                     <td className="px-4 py-4">
-                      <button
-                        type="button"
-                        onClick={() => void retryDelivery(item.id)}
-                        disabled={busyId === item.id || item.status === "SENT"}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-                      >
-                        立即重试
-                      </button>
+                      <div className="flex flex-col gap-2">
+                        <Link
+                          href={`/admin/message-deliveries/${item.id}`}
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-center text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          查看明细
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => void retryDelivery(item.id)}
+                          disabled={busyId === item.id || item.status === "SENT"}
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          立即重试
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
