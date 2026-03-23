@@ -194,7 +194,7 @@ export default function AdminRepaymentsPage() {
   }
 
   const pendingRegister = useMemo(
-    () => repayments.filter((item) => item.status === "PENDING" || item.status === "MATCHED"),
+    () => repayments.filter((item) => ["PENDING", "MATCHED", "MANUAL_REVIEW"].includes(item.status)),
     [repayments]
   );
 

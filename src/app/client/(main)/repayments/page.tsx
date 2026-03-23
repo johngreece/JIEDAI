@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getClientSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
+import { RepaymentRequestForm } from "@/components/client/RepaymentRequestForm";
 
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
@@ -47,10 +48,10 @@ export default async function ClientRepaymentsPage() {
       <div className="space-y-6">
         <header className="panel-soft rounded-2xl px-5 py-4">
           <h1 className="text-2xl font-bold text-slate-900">我的还款</h1>
-          <p className="mt-1 text-sm text-slate-600">这里只展示当前借款，不展示历史还款。</p>
+          <p className="mt-1 text-sm text-slate-600">当前没有进行中的借款，所以暂时没有可申请的还款。</p>
         </header>
         <div className="panel-soft rounded-2xl p-6 text-sm text-slate-500">
-          当前没有需要处理的借款还款。
+          你可以先到“我的借款”申请借款，放款并生成还款计划后，就能在这里发起还款申请。
         </div>
       </div>
     );
@@ -58,7 +59,21 @@ export default async function ClientRepaymentsPage() {
 
   const plan = await prisma.repaymentPlan.findFirst({
     where: { applicationId: application.id, status: "ACTIVE" },
-    select: { id: true },
+    include: {
+      scheduleItems: {
+        where: {
+          status: { in: ["PENDING", "PARTIAL", "OVERDUE"] },
+        },
+        orderBy: { dueDate: "asc" },
+        select: {
+          id: true,
+          remaining: true,
+          dueDate: true,
+          periodNumber: true,
+          status: true,
+        },
+      },
+    },
   });
 
   const repayments = plan
@@ -70,53 +85,65 @@ export default async function ClientRepaymentsPage() {
           repaymentNo: true,
           amount: true,
           status: true,
+          paymentMethod: true,
           receivedAt: true,
           principalPart: true,
           interestPart: true,
           feePart: true,
           penaltyPart: true,
+          remark: true,
+          createdAt: true,
         },
       })
     : [];
 
   const waitingForCustomer = repayments.filter((item) => item.status === "PENDING_CONFIRM");
   const waitingForReceipt = repayments.filter((item) => item.status === "CUSTOMER_CONFIRMED");
+  const waitingForAdminReview = repayments.filter((item) => item.status === "MANUAL_REVIEW");
+  const outstandingAmount = plan
+    ? plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining), 0)
+    : 0;
+  const blocked = waitingForAdminReview.length > 0 || waitingForCustomer.length > 0 || waitingForReceipt.length > 0;
+  const blockedReason = waitingForAdminReview.length > 0
+    ? "你已有待后台处理的还款申请，请等待管理端先完成分配。"
+    : waitingForCustomer.length > 0
+      ? "你已有待确认付款的还款单，请先完成客户确认。"
+      : waitingForReceipt.length > 0
+        ? "你已有待后台确认到账的还款单，请等待处理结果。"
+        : null;
 
   return (
     <div className="space-y-6">
       <header className="panel-soft rounded-2xl px-5 py-4">
         <h1 className="text-2xl font-bold text-slate-900">我的还款</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          当前只展示借款 {application.applicationNo} 的还款处理，不显示历史借款记录。
-        </p>
+        <p className="mt-1 text-sm text-slate-600">当前页面支持你直接发起还款申请，并跟踪后台分配、确认到账的处理状态。</p>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-4">
         <StatCard title="当前借款" value={application.applicationNo} note={application.product.name} />
-        <StatCard title="待我确认付款" value={`${waitingForCustomer.length} 笔`} note="需要你签字确认的当前还款" />
-        <StatCard title="待后台收款确认" value={`${waitingForReceipt.length} 笔`} note="你已报备付款，等待后台确认到账" />
+        <StatCard title="当前待还" value={plan ? money(outstandingAmount) : "待生成"} note={plan ? `${plan.scheduleItems.length} 个待处理账期` : "暂无可用计划"} />
+        <StatCard title="待后台分配" value={`${waitingForAdminReview.length} 笔`} note="客户已提交申请，等待管理端处理" />
+        <StatCard title="待到账确认" value={`${waitingForReceipt.length} 笔`} note="客户已报备付款，等待管理端确认到账" />
       </section>
 
-      {waitingForReceipt.length > 0 ? (
-        <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-          <h2 className="text-lg font-semibold text-slate-900">已报备付款</h2>
-          <p className="mt-2 text-sm text-slate-600">
-            你今天确认付款后，系统会默认先停止当日计息，直到管理端确认到账。
-            如果后台标记未收款，本金会恢复按原规则继续计息。
-          </p>
-        </section>
-      ) : null}
-
-      <section className="table-shell overflow-hidden rounded-xl">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <h2 className="font-semibold text-slate-900">优先处理</h2>
+      {plan ? (
+        <RepaymentRequestForm
+          outstandingAmount={outstandingAmount}
+          blocked={blocked}
+          blockedReason={blockedReason}
+        />
+      ) : (
+        <div className="stat-tile rounded-2xl p-5 text-sm text-slate-500">
+          当前借款还没有生成还款计划，暂时不能提交还款申请。
         </div>
-        {waitingForCustomer.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-slate-500">当前没有待你确认付款的还款。</div>
-        ) : (
-          <div className="divide-y divide-slate-100">
+      )}
+
+      {waitingForCustomer.length > 0 ? (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+          <h2 className="text-lg font-semibold text-slate-900">待你确认付款</h2>
+          <div className="mt-3 space-y-3">
             {waitingForCustomer.map((item) => (
-              <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-white px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-slate-900">{item.repaymentNo}</p>
                   <p className="mt-1 text-xs text-slate-500">{money(Number(item.amount))}</p>
@@ -130,8 +157,33 @@ export default async function ClientRepaymentsPage() {
               </div>
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      ) : null}
+
+      {plan ? (
+        <section className="table-shell overflow-hidden rounded-xl">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h2 className="font-semibold text-slate-900">当前待还账期</h2>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {plan.scheduleItems.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-slate-500">当前没有待处理账期。</div>
+            ) : (
+              plan.scheduleItems.map((item) => (
+                <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">第 {item.periodNumber} 期</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      到期日 {new Date(item.dueDate).toLocaleDateString("zh-CN")} · {getStatusLabel(item.status)}
+                    </p>
+                  </div>
+                  <div className="text-sm font-semibold text-slate-900">{money(Number(item.remaining))}</div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      ) : null}
 
       <section className="table-shell overflow-hidden rounded-xl">
         <div className="overflow-x-auto">
@@ -140,17 +192,18 @@ export default async function ClientRepaymentsPage() {
               <tr>
                 <th className="px-4 py-3 text-left">还款单号</th>
                 <th className="px-4 py-3 text-left">金额</th>
+                <th className="px-4 py-3 text-left">支付方式</th>
                 <th className="px-4 py-3 text-left">分配结构</th>
                 <th className="px-4 py-3 text-left">状态</th>
-                <th className="px-4 py-3 text-left">收款时间</th>
+                <th className="px-4 py-3 text-left">时间</th>
                 <th className="px-4 py-3 text-left">操作</th>
               </tr>
             </thead>
             <tbody>
               {repayments.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={6}>
-                    当前借款还没有还款记录。
+                  <td className="px-4 py-6 text-slate-500" colSpan={7}>
+                    当前还没有还款记录。
                   </td>
                 </tr>
               ) : (
@@ -158,6 +211,7 @@ export default async function ClientRepaymentsPage() {
                   <tr key={item.id} className="border-t border-slate-100">
                     <td className="px-4 py-3 font-medium text-slate-900">{item.repaymentNo}</td>
                     <td className="px-4 py-3">{money(Number(item.amount))}</td>
+                    <td className="px-4 py-3 text-slate-500">{item.paymentMethod}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">
                       <div>本金 {money(Number(item.principalPart))}</div>
                       <div>利息 {money(Number(item.interestPart))}</div>
@@ -169,13 +223,15 @@ export default async function ClientRepaymentsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-500">
-                      {item.receivedAt ? new Date(item.receivedAt).toLocaleString("zh-CN") : "-"}
+                      {new Date(item.createdAt).toLocaleString("zh-CN")}
                     </td>
                     <td className="px-4 py-3">
                       {item.status === "PENDING_CONFIRM" ? (
                         <Link href={`/client/sign/repayment/${item.id}`} className="text-blue-600 hover:underline">
                           确认付款
                         </Link>
+                      ) : item.status === "MANUAL_REVIEW" ? (
+                        <span className="text-amber-600">等待后台分配</span>
                       ) : item.status === "CUSTOMER_CONFIRMED" ? (
                         <span className="text-blue-600">等待后台确认到账</span>
                       ) : (

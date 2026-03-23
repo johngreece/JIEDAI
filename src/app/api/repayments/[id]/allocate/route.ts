@@ -62,7 +62,7 @@ export async function POST(
     return NextResponse.json({ error: "该还款已分配，不能重复分配" }, { status: 400 });
   }
 
-  if (!["PENDING", "MATCHED"].includes(repayment.status)) {
+  if (!["PENDING", "MATCHED", "MANUAL_REVIEW"].includes(repayment.status)) {
     return NextResponse.json({ error: "当前状态不允许分配" }, { status: 400 });
   }
 

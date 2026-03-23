@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
+import { InAppNotificationService } from "@/services/in-app-notification.service";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,15 @@ const approveSchema = z.object({
   approvedAmount: z.number().positive().optional(),
   comment: z.string().optional(),
 });
+
+function money(value: number) {
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 
 export async function POST(
   req: Request,
@@ -29,7 +39,12 @@ export async function POST(
   const { id } = await params;
   const input = parsed.data;
 
-  const app = await prisma.loanApplication.findUnique({ where: { id } });
+  const app = await prisma.loanApplication.findUnique({
+    where: { id },
+    include: {
+      product: { select: { name: true } },
+    },
+  });
   if (!app || app.deletedAt) {
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
@@ -75,6 +90,17 @@ export async function POST(
       totalApprovedAmount: updated.totalApprovedAmount?.toString() ?? null,
     },
     changeSummary: input.action === "APPROVE" ? "审批通过" : "审批拒绝",
+  }).catch(() => undefined);
+
+  await InAppNotificationService.notifyCustomer({
+    customerId: app.customerId,
+    type: input.action === "APPROVE" ? "LOAN_APPLICATION_APPROVED" : "LOAN_APPLICATION_REJECTED",
+    templateCode: `${input.action === "APPROVE" ? "LOAN_APPLICATION_APPROVED" : "LOAN_APPLICATION_REJECTED"}_${id}_${updated.updatedAt.toISOString()}`,
+    title: input.action === "APPROVE" ? "借款申请已审批通过" : "借款申请被拒绝",
+    content:
+      input.action === "APPROVE"
+        ? `你的借款申请已审批通过，产品 ${app.product.name}，审批金额 ${money(approvedAmount)}。请留意后续合同与放款提醒。`
+        : `你的借款申请已被拒绝。${input.comment ? `原因：${input.comment}` : "如需再次申请，可调整后重新提交。"}`,
   }).catch(() => undefined);
 
   return NextResponse.json({ id: updated.id, status: updated.status });

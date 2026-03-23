@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
+import { InAppNotificationService } from "@/services/in-app-notification.service";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,17 @@ export async function POST(
     oldValue: { status: app.status },
     newValue: { status: updated.status, riskScore: updated.riskScore?.toString() ?? null },
     changeSummary: input.action === "PASS" ? "风控通过" : "风控拒绝",
+  }).catch(() => undefined);
+
+  await InAppNotificationService.notifyCustomer({
+    customerId: app.customerId,
+    type: input.action === "PASS" ? "LOAN_APPLICATION_UNDER_APPROVAL" : "LOAN_APPLICATION_REJECTED",
+    templateCode: `${input.action === "PASS" ? "LOAN_APPLICATION_UNDER_APPROVAL" : "LOAN_APPLICATION_REJECTED"}_${id}_${updated.updatedAt.toISOString()}`,
+    title: input.action === "PASS" ? "借款申请已通过风控" : "借款申请未通过风控",
+    content:
+      input.action === "PASS"
+        ? "你的借款申请已通过风控审核，当前进入待审批阶段，请留意后续审批结果。"
+        : `你的借款申请未通过风控审核。${input.comment ? `原因：${input.comment}` : "如需继续申请，可调整资料后重新提交。"}`,
   }).catch(() => undefined);
 
   return NextResponse.json({ id: updated.id, status: updated.status });

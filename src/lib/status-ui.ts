@@ -33,11 +33,11 @@ export function getStatusBadgeClass(status: string): string {
     return "bg-blue-50 text-blue-700 border-blue-200";
   }
 
-  if (["PENDING", "PENDING_RISK", "PENDING_APPROVAL", "PENDING_CONFIRM", "MATCHED"].includes(status)) {
+  if (["PENDING", "PENDING_RISK", "PENDING_APPROVAL", "PENDING_CONFIRM", "MATCHED", "MANUAL_REVIEW"].includes(status)) {
     return "bg-amber-50 text-amber-700 border-amber-200";
   }
 
-  if (["REJECTED", "OVERDUE", "CANCELLED", "MANUAL_REVIEW"].includes(status)) {
+  if (["REJECTED", "OVERDUE", "CANCELLED"].includes(status)) {
     return "bg-red-50 text-red-700 border-red-200";
   }
 

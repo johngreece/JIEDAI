@@ -18,11 +18,7 @@ function toClientAction(notification: {
     }
   }
 
-  if (
-    ["REPAYMENT_DUE_SOON", "REPAYMENT_DUE_TODAY", "REPAYMENT_OVERDUE"].includes(
-      notification.type
-    )
-  ) {
+  if (["REPAYMENT_DUE_SOON", "REPAYMENT_DUE_TODAY", "REPAYMENT_OVERDUE"].includes(notification.type)) {
     return {
       actionUrl: "/client/repayments?focus=current",
       actionLabel: "去处理还款",
@@ -40,6 +36,27 @@ function toClientAction(notification: {
     return {
       actionUrl: "/client/dashboard",
       actionLabel: "查看当前借款",
+    };
+  }
+
+  if (
+    [
+      "LOAN_APPLICATION_SUBMITTED",
+      "LOAN_APPLICATION_UNDER_APPROVAL",
+      "LOAN_APPLICATION_APPROVED",
+      "LOAN_APPLICATION_REJECTED",
+    ].includes(notification.type)
+  ) {
+    return {
+      actionUrl: "/client/dashboard",
+      actionLabel: "查看借款进度",
+    };
+  }
+
+  if (notification.type === "REPAYMENT_REQUEST_SUBMITTED") {
+    return {
+      actionUrl: "/client/repayments",
+      actionLabel: "查看还款进度",
     };
   }
 
@@ -85,7 +102,7 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
 
   if (body.all) {
     await ClientNotificationService.markAllRead(session.sub);

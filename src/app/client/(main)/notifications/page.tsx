@@ -20,6 +20,11 @@ const typeTone: Record<string, string> = {
   REPAYMENT_DUE_TODAY: "bg-orange-100 text-orange-700",
   REPAYMENT_OVERDUE: "bg-red-100 text-red-700",
   REPAYMENT_CONFIRM: "bg-emerald-100 text-emerald-700",
+  LOAN_APPLICATION_SUBMITTED: "bg-sky-100 text-sky-700",
+  LOAN_APPLICATION_UNDER_APPROVAL: "bg-indigo-100 text-indigo-700",
+  LOAN_APPLICATION_APPROVED: "bg-emerald-100 text-emerald-700",
+  LOAN_APPLICATION_REJECTED: "bg-rose-100 text-rose-700",
+  REPAYMENT_REQUEST_SUBMITTED: "bg-cyan-100 text-cyan-700",
 };
 
 export default function ClientNotificationsPage() {
