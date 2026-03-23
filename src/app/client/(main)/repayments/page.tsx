@@ -3,6 +3,17 @@ import { getClientSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 import { RepaymentRequestForm } from "@/components/client/RepaymentRequestForm";
+import {
+  DEFAULT_OVERDUE,
+  DEFAULT_TIERS,
+  DEFAULT_UPFRONT_FEE_RATE,
+  calculateRealtimeRepayment,
+  loadFeeConfig,
+  parseTiersFromPricingRules,
+  type ChannelType,
+  type OverdueConfig,
+  type RepaymentTier,
+} from "@/lib/interest-engine";
 
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
@@ -36,12 +47,27 @@ export default async function ClientRepaymentsPage() {
       },
     },
     orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      applicationNo: true,
-      product: { select: { name: true } },
-    },
-  });
+      select: {
+        id: true,
+        applicationNo: true,
+        amount: true,
+        product: {
+          select: {
+            name: true,
+            pricingRules: {
+              where: { isActive: true },
+              orderBy: { priority: "desc" },
+            },
+          },
+        },
+        disbursement: {
+          select: {
+            status: true,
+            disbursedAt: true,
+          },
+        },
+      },
+    });
 
   if (!application) {
     return (
@@ -59,7 +85,9 @@ export default async function ClientRepaymentsPage() {
 
   const plan = await prisma.repaymentPlan.findFirst({
     where: { applicationId: application.id, status: "ACTIVE" },
-    include: {
+    select: {
+      id: true,
+      rulesSnapshotJson: true,
       scheduleItems: {
         where: {
           status: { in: ["PENDING", "PARTIAL", "OVERDUE"] },
@@ -100,9 +128,75 @@ export default async function ClientRepaymentsPage() {
   const waitingForCustomer = repayments.filter((item) => item.status === "PENDING_CONFIRM");
   const waitingForReceipt = repayments.filter((item) => item.status === "CUSTOMER_CONFIRMED");
   const waitingForAdminReview = repayments.filter((item) => item.status === "MANUAL_REVIEW");
-  const outstandingAmount = plan
+  let outstandingAmount = plan
     ? plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining), 0)
     : 0;
+  if (plan && application.disbursement?.status === "PAID" && application.disbursement.disbursedAt) {
+    let tiers: RepaymentTier[] = DEFAULT_TIERS;
+    let overdueConfig: OverdueConfig = DEFAULT_OVERDUE;
+    let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
+    let channel: ChannelType = "FULL_AMOUNT";
+    let dueDate: Date | null = null;
+
+    if (plan.rulesSnapshotJson) {
+      try {
+        const snapshot = JSON.parse(plan.rulesSnapshotJson) as {
+          tiers?: RepaymentTier[];
+          overdueConfig?: OverdueConfig;
+          upfrontFeeRate?: number;
+          channel?: ChannelType;
+          dueDate?: string;
+        };
+        if (snapshot.tiers) tiers = snapshot.tiers;
+        if (snapshot.overdueConfig) overdueConfig = snapshot.overdueConfig;
+        if (snapshot.upfrontFeeRate != null) upfrontFeeRate = snapshot.upfrontFeeRate;
+        if (snapshot.channel) channel = snapshot.channel;
+        if (snapshot.dueDate) dueDate = new Date(snapshot.dueDate);
+      } catch {
+        // ignore invalid snapshot
+      }
+    } else if (application.product.pricingRules.length > 0) {
+      const parsed = parseTiersFromPricingRules(application.product.pricingRules);
+      tiers = parsed.tiers;
+      overdueConfig = parsed.overdueConfig;
+      upfrontFeeRate = parsed.upfrontFeeRate;
+      channel = parsed.channel;
+    } else {
+      const settingsRows = await prisma.systemSetting.findMany();
+      const sysMap: Record<string, string | number> = {};
+      for (const setting of settingsRows) sysMap[setting.key] = setting.value;
+      const parsed = loadFeeConfig(sysMap, null);
+      tiers = parsed.tiers;
+      overdueConfig = parsed.overdueConfig;
+      upfrontFeeRate = parsed.upfrontFeeRate;
+      channel = parsed.channel;
+    }
+
+    if (!dueDate) {
+      const sortedTiers = [...tiers].sort(
+        (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
+      );
+      const lastTier = sortedTiers[sortedTiers.length - 1];
+      dueDate = new Date(
+        new Date(application.disbursement.disbursedAt).getTime() +
+          (lastTier?.maxHours ?? (lastTier?.maxDays ?? 7) * 24) *
+            60 *
+            60 *
+            1000
+      );
+    }
+
+    outstandingAmount = calculateRealtimeRepayment({
+      principal: Number(application.amount),
+      channel,
+      upfrontFeeRate,
+      tiers,
+      overdueConfig,
+      startTime: new Date(application.disbursement.disbursedAt),
+      dueDate,
+      currentTime: new Date(),
+    }).totalRepayment;
+  }
   const blocked = waitingForAdminReview.length > 0 || waitingForCustomer.length > 0 || waitingForReceipt.length > 0;
   const blockedReason = waitingForAdminReview.length > 0
     ? "你已有待后台处理的还款申请，请等待管理端先完成分配。"

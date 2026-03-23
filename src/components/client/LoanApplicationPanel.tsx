@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { BUSINESS_LOAN_NOTICE, PRODUCT_RULE_DISPLAY, type PublicClientProductCode } from "@/lib/public-loan-products";
 
 type ProductOption = {
   id: string;
+  code: PublicClientProductCode;
   name: string;
   description: string | null;
   minAmount: number;
@@ -112,9 +114,9 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
           <div className="mt-2 text-xs text-slate-500">系统会按当前客户额度校验申请金额</div>
         </div>
         <div className="stat-tile rounded-2xl p-5">
-          <div className="text-sm text-slate-500">公开产品</div>
+          <div className="text-sm text-slate-500">借款方式</div>
           <div className="mt-3 text-2xl font-bold text-slate-900">{products.length}</div>
-          <div className="mt-2 text-xs text-slate-500">客户端目前仅公开 7 天砍头息，其他模式不对外开放</div>
+          <div className="mt-2 text-xs text-slate-500">客户端可自选 7 天砍头息或 7 天全额到账两种模式</div>
         </div>
         <div className="stat-tile rounded-2xl p-5">
           <div className="text-sm text-slate-500">默认期限</div>
@@ -133,7 +135,7 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">发起借款申请</h2>
-            <p className="mt-1 text-sm text-slate-600">当前只开放 7 天砍头息申请。提交后会直接进入管理端待风控，并同步生成站内提醒。</p>
+            <p className="mt-1 text-sm text-slate-600">提交后会直接进入管理端待风控，并同步生成站内提醒。请先确认借款方式和实际还款时间。</p>
           </div>
           {selectedProduct ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
@@ -141,7 +143,7 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
               <div className="mt-1">
                 金额范围 {money(selectedProduct.minAmount)} - {money(maxBorrowable > 0 ? maxBorrowable : 0)}
               </div>
-              <div className="mt-1">公开规则：5 小时内 2%，24 小时内 3%，7 天内 5%</div>
+              <div className="mt-1">{PRODUCT_RULE_DISPLAY[selectedProduct.code].summary}</div>
             </div>
           ) : null}
         </div>
@@ -248,14 +250,25 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
         <div className="stat-tile rounded-2xl p-5">
           <h2 className="text-lg font-semibold text-slate-900">借款利息规则</h2>
           <div className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              当前客户端只开放 7 天砍头息。放款时会先扣除服务费，实际到账金额会小于借款本金，请以合同和放款页面展示为准。
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              利息计算方式为：放款后 5 小时内还款按 2%，放款后 24 小时内还款按 3%，超过 24 小时至 7 天内还款按 5%。
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              其他借款模式可以内部申请，但不会在客户端私下开放或展示。
+            {products.map((product) => (
+              <div key={product.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="font-semibold text-slate-900">{PRODUCT_RULE_DISPLAY[product.code].title}</div>
+                <div className="mt-2">{PRODUCT_RULE_DISPLAY[product.code].summary}</div>
+                <div className="mt-2 space-y-1 text-xs text-slate-600">
+                  {PRODUCT_RULE_DISPLAY[product.code].bullets.map((bullet) => (
+                    <div key={bullet}>{bullet}</div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+              <div className="font-semibold text-slate-900">{BUSINESS_LOAN_NOTICE.title}</div>
+              <div className="mt-2">{BUSINESS_LOAN_NOTICE.summary}</div>
+              <div className="mt-2 space-y-1 text-xs text-slate-700">
+                {BUSINESS_LOAN_NOTICE.bullets.map((bullet) => (
+                  <div key={bullet}>{bullet}</div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -264,13 +277,13 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
           <h2 className="text-lg font-semibold text-slate-900">逾期与违约条款</h2>
           <div className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-              到期后有 24 小时宽限期，宽限期内系统不会计入逾期费用。
+              7 天到期后进入逾期计算，请务必提前确认实际还款时间；如果无法偿还，请谨慎借款。
             </div>
             <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-              超过宽限期后，前 14 天按本金每日 1% 计收逾期费用；第 15 天起按本金每日 2% 计收。
+              逾期第 1 到 7 天按 1%/天，逾期第 8 到 30 天按 2%/天，逾期第 31 天起按 3%/天。
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              逾期费用按单利累计，不滚复利。你提交还款申请后，仍需等待管理端确认到账，逾期状态是否解除以后台入账结果为准。
+              逾期利息按日复利滚动计算，如果当天未支付利息，当天利息会直接并入本金，下一天继续按新本金计息。你提交还款申请后，仍需等待管理端确认到账。
             </div>
           </div>
         </div>

@@ -65,6 +65,11 @@ export async function GET(
     where: { applicationId: id, status: "ACTIVE" },
     select: { rulesSnapshotJson: true },
   });
+  const overdueRecord = await prisma.overdueRecord.findFirst({
+    where: { applicationId: id, status: "OVERDUE" },
+    orderBy: { createdAt: "desc" },
+    select: { overdueFeeDetail: true },
+  });
 
   let tiers: RepaymentTier[] = DEFAULT_TIERS;
   let overdueConfig: OverdueConfig = DEFAULT_OVERDUE;
@@ -119,6 +124,15 @@ export async function GET(
 
   const principal = Number(application.amount);
   const now = new Date();
+  let paidDates: string[] = [];
+  if (overdueRecord?.overdueFeeDetail) {
+    try {
+      const detail = JSON.parse(overdueRecord.overdueFeeDetail) as { paidDates?: string[] };
+      paidDates = detail.paidDates ?? [];
+    } catch {
+      paidDates = [];
+    }
+  }
 
   const result = calculateRealtimeRepayment({
     principal,
@@ -129,6 +143,7 @@ export async function GET(
     startTime: new Date(disbursedAt),
     dueDate,
     currentTime: now,
+    paidDates,
   });
 
   return NextResponse.json({

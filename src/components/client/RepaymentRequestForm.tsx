@@ -62,7 +62,7 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">发起还款申请</h2>
-          <p className="mt-1 text-sm text-slate-600">客户提交后，管理端会收到提醒并进入待分配处理队列。</p>
+          <p className="mt-1 text-sm text-slate-600">当前待还金额按实时规则计算。客户提交后，管理端会收到提醒并进入待分配处理队列。</p>
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
           当前待还金额

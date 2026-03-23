@@ -68,13 +68,14 @@ export async function POST(
 
   const allocations = input.allocations as AllocationInput[];
   const itemIds = allocations.map((item) => item.itemId);
+  const uniqueItemIds = [...new Set(itemIds)];
 
   const scheduleItems = await prisma.repaymentScheduleItem.findMany({
-    where: { id: { in: itemIds }, planId: repayment.planId },
+    where: { id: { in: uniqueItemIds }, planId: repayment.planId },
   });
   const typedScheduleItems = scheduleItems as ScheduleItemLite[];
 
-  if (typedScheduleItems.length !== itemIds.length) {
+  if (typedScheduleItems.length !== uniqueItemIds.length) {
     return NextResponse.json(
       { error: "存在无效期次，或期次不属于当前还款计划" },
       { status: 400 }
@@ -88,7 +89,7 @@ export async function POST(
 
   const reservedAllocations = await prisma.repaymentAllocation.findMany({
     where: {
-      itemId: { in: itemIds },
+      itemId: { in: uniqueItemIds },
       repayment: {
         status: { in: ["PENDING_CONFIRM", "CUSTOMER_CONFIRMED"] },
       },
@@ -110,16 +111,23 @@ export async function POST(
   const itemMap = new Map<string, ScheduleItemLite>(
     typedScheduleItems.map((item) => [item.id, item])
   );
+  const requestedByItem = new Map<string, number>();
+  allocations.forEach((allocation) => {
+    requestedByItem.set(
+      allocation.itemId,
+      (requestedByItem.get(allocation.itemId) || 0) + allocation.amount
+    );
+  });
 
-  for (const allocation of allocations) {
-    const scheduleItem = itemMap.get(allocation.itemId);
+  for (const [itemId, requestedAmount] of requestedByItem.entries()) {
+    const scheduleItem = itemMap.get(itemId);
     if (!scheduleItem) continue;
 
     const remaining = Number(scheduleItem.remaining);
-    const reserved = reservedMap.get(allocation.itemId) || 0;
+    const reserved = reservedMap.get(itemId) || 0;
     const available = Math.max(0, remaining - reserved);
 
-    if (allocation.amount - available > 0.000001) {
+    if (requestedAmount - available > 0.000001) {
       return NextResponse.json(
         {
           error: `期次 ${scheduleItem.periodNumber} 可分配金额不足，当前可用 ${available.toFixed(2)}`,

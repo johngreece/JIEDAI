@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getClientSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
+import { isPublicClientProductCode } from "@/lib/public-loan-products";
 
 export const dynamic = "force-dynamic";
 
@@ -98,9 +99,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "借款产品不存在或已停用" }, { status: 404 });
   }
 
-  if (product.code !== "UPFRONT_7D") {
+  if (!isPublicClientProductCode(product.code)) {
     return NextResponse.json(
-      { error: "客户端目前仅开放 7 天砍头息模式，其他借款模式仅供内部申请" },
+      { error: "客户端目前仅开放 7 天砍头息和 7 天全额到账两种借款方式，其他模式仅供内部申请" },
       { status: 403 }
     );
   }

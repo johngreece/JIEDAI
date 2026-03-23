@@ -5,23 +5,27 @@ const prisma = new PrismaClient({
 });
 
 const defaultRates = {
-  sameDayRate: 2,
-  nextDayRate: 3,
-  day3Day7Rate: 5,
-  otherDayRate: 5,
-  overdueGraceHours: 24,
-  overdueRatePerDayBefore14: 1,
-  overdueRatePerDayAfter14: 2,
+  upfrontFlatRate: 5,
+  fee5hRate: 2,
+  fee24hRate: 3,
+  fee48hRate: 4,
+  fee7dRate: 6,
+  overdueGraceHours: 0,
+  overdueRatePerDayBefore7: 1,
+  overdueRatePerDayBefore30: 2,
+  overdueRatePerDayAfter30: 3,
 };
 
 const feeKeys = {
-  sameDayRate: "loan_fee_same_day_rate",
-  nextDayRate: "loan_fee_next_day_rate",
-  day3Day7Rate: "loan_fee_day3_day7_rate",
-  otherDayRate: "loan_fee_other_day_rate",
+  upfrontFlatRate: "loan_upfront_flat_rate",
+  fee5hRate: "loan_fee_5h_rate",
+  fee24hRate: "loan_fee_24h_rate",
+  fee48hRate: "loan_fee_48h_rate",
+  fee7dRate: "loan_fee_7d_rate",
   overdueGraceHours: "loan_overdue_grace_hours",
-  overdueRateBefore14: "loan_overdue_rate_per_day_before_14",
-  overdueRateAfter14: "loan_overdue_rate_per_day_after_14",
+  overdueRatePerDayBefore7: "loan_overdue_rate_per_day_before_7",
+  overdueRatePerDayBefore30: "loan_overdue_rate_per_day_before_30",
+  overdueRatePerDayAfter30: "loan_overdue_rate_per_day_after_30",
 };
 
 const defaultContractHtml = `
@@ -319,7 +323,7 @@ async function main() {
     create: {
       name: "砍头息短期贷（7天）",
       code: "UPFRONT_7D",
-      description: "砍头息模式：公开仅开放 7 天产品，5 小时内 2%，24 小时内 3%，7 天内 5%",
+      description: "砍头息模式：借10000到账9500，7天内任何时间还款均按固定5%执行",
       minAmount: 1000,
       maxAmount: 100000,
       minTermValue: 7,
@@ -330,14 +334,19 @@ async function main() {
       allowExtension: true,
       maxExtensionTimes: 2,
     },
-    update: {},
+    update: {
+      description: "砍头息模式：借10000到账9500，7天内任何时间还款均按固定5%执行",
+      minTermValue: 7,
+      maxTermValue: 7,
+      isActive: true,
+    },
   });
   const product2 = await prisma.loanProduct.upsert({
     where: { code: "FULL_AMOUNT_7D" },
     create: {
       name: "全额短期贷（7天）",
       code: "FULL_AMOUNT_7D",
-      description: "全额模式：仅内部使用，不在客户端公开展示",
+      description: "全额到账模式：5小时2%，24小时3%，48小时4%，7天内6%",
       minAmount: 1000,
       maxAmount: 100000,
       minTermValue: 7,
@@ -348,7 +357,12 @@ async function main() {
       allowExtension: true,
       maxExtensionTimes: 2,
     },
-    update: {},
+    update: {
+      description: "全额到账模式：5小时2%，24小时3%，48小时4%，7天内6%",
+      minTermValue: 7,
+      maxTermValue: 7,
+      isActive: true,
+    },
   });
   console.log("Loan products seeded:", product1.id, product2.id);
 
@@ -356,11 +370,10 @@ async function main() {
   const upfrontRules = [
     { name: "砍头息手续费", ruleType: "UPFRONT_FEE", rateValue: 5, conditionJson: null, priority: 100 },
     { name: "通道类型", ruleType: "CHANNEL", rateValue: 0, conditionJson: JSON.stringify({ type: "UPFRONT_DEDUCTION" }), priority: 99 },
-    { name: "5小时内还", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxHours: 5, maxDays: 0, label: "5小时内还" }), priority: 10 },
-    { name: "24小时内还", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxHours: 24, maxDays: 1, label: "24小时内还" }), priority: 9 },
-    { name: "7天内还", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "24小时后至7天内还" }), priority: 8 },
-    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ maxDays: 14 }), priority: 5 },
-    { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: null, priority: 4 },
+    { name: "7天内固定费率", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "7天内固定5%" }), priority: 10 },
+    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ startDay: 1, maxOverdueDay: 7, compound: true, label: "逾期第1-7天" }), priority: 5 },
+    { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: JSON.stringify({ startDay: 8, maxOverdueDay: 30, compound: true, label: "逾期第8-30天" }), priority: 4 },
+    { name: "逾期阶段3", ruleType: "OVERDUE_PHASE3", rateValue: 3, conditionJson: JSON.stringify({ startDay: 31, compound: true, label: "逾期第31天起" }), priority: 3 },
   ];
   for (const r of upfrontRules) {
     await prisma.pricingRule.upsert({
@@ -387,9 +400,11 @@ async function main() {
     { name: "通道类型", ruleType: "CHANNEL", rateValue: 0, conditionJson: JSON.stringify({ type: "FULL_AMOUNT" }), priority: 99 },
     { name: "5小时内还", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxHours: 5, maxDays: 0, label: "5小时内还" }), priority: 10 },
     { name: "24小时内还", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxHours: 24, maxDays: 1, label: "24小时内还" }), priority: 9 },
-    { name: "7天内还", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "24小时后至7天内还" }), priority: 8 },
-    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ maxDays: 14 }), priority: 5 },
-    { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: null, priority: 4 },
+    { name: "48小时内还", ruleType: "TIER_RATE", rateValue: 4, conditionJson: JSON.stringify({ maxHours: 48, maxDays: 2, label: "48小时内还" }), priority: 8 },
+    { name: "7天内还", ruleType: "TIER_RATE", rateValue: 6, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "48小时后至7天内还" }), priority: 7 },
+    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ startDay: 1, maxOverdueDay: 7, compound: true, label: "逾期第1-7天" }), priority: 5 },
+    { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: JSON.stringify({ startDay: 8, maxOverdueDay: 30, compound: true, label: "逾期第8-30天" }), priority: 4 },
+    { name: "逾期阶段3", ruleType: "OVERDUE_PHASE3", rateValue: 3, conditionJson: JSON.stringify({ startDay: 31, compound: true, label: "逾期第31天起" }), priority: 3 },
   ];
   for (const r of fullRules) {
     await prisma.pricingRule.upsert({
@@ -583,14 +598,19 @@ async function main() {
 
   // ── 修复逾期费率缺失值 ──
   await prisma.systemSetting.upsert({
-    where: { key: "loan_overdue_rate_per_day_before_14" },
-    create: { key: "loan_overdue_rate_per_day_before_14", value: JSON.stringify({ value: 1 }), group: "LOAN_FEE", remark: "overdueRatePerDayBefore14" },
+    where: { key: "loan_overdue_rate_per_day_before_7" },
+    create: { key: "loan_overdue_rate_per_day_before_7", value: JSON.stringify({ value: 1 }), group: "LOAN_FEE", remark: "overdueRatePerDayBefore7" },
     update: { value: JSON.stringify({ value: 1 }) },
   });
   await prisma.systemSetting.upsert({
-    where: { key: "loan_overdue_rate_per_day_after_14" },
-    create: { key: "loan_overdue_rate_per_day_after_14", value: JSON.stringify({ value: 2 }), group: "LOAN_FEE", remark: "overdueRatePerDayAfter14" },
+    where: { key: "loan_overdue_rate_per_day_before_30" },
+    create: { key: "loan_overdue_rate_per_day_before_30", value: JSON.stringify({ value: 2 }), group: "LOAN_FEE", remark: "overdueRatePerDayBefore30" },
     update: { value: JSON.stringify({ value: 2 }) },
+  });
+  await prisma.systemSetting.upsert({
+    where: { key: "loan_overdue_rate_per_day_after_30" },
+    create: { key: "loan_overdue_rate_per_day_after_30", value: JSON.stringify({ value: 3 }), group: "LOAN_FEE", remark: "overdueRatePerDayAfter30" },
+    update: { value: JSON.stringify({ value: 3 }) },
   });
   console.log("Overdue fee rates fixed.");
 }

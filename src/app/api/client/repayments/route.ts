@@ -3,6 +3,17 @@ import { z } from "zod";
 import { getClientSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
+import {
+  DEFAULT_OVERDUE,
+  DEFAULT_TIERS,
+  DEFAULT_UPFRONT_FEE_RATE,
+  calculateRealtimeRepayment,
+  loadFeeConfig,
+  parseTiersFromPricingRules,
+  type ChannelType,
+  type OverdueConfig,
+  type RepaymentTier,
+} from "@/lib/interest-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +67,24 @@ export async function POST(req: NextRequest) {
       select: {
         id: true,
         applicationNo: true,
+        amount: true,
+        disbursement: {
+          select: {
+            status: true,
+            disbursedAt: true,
+          },
+        },
+        product: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            pricingRules: {
+              where: { isActive: true },
+              orderBy: { priority: "desc" },
+            },
+          },
+        },
       },
     }),
     prisma.user.findFirst({
@@ -85,7 +114,9 @@ export async function POST(req: NextRequest) {
       applicationId: activeApplication.id,
       status: "ACTIVE",
     },
-    include: {
+    select: {
+      id: true,
+      rulesSnapshotJson: true,
       scheduleItems: {
         where: {
           status: { in: ["PENDING", "PARTIAL", "OVERDUE"] },
@@ -103,7 +134,74 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "当前借款尚未生成可还款计划" }, { status: 400 });
   }
 
-  const outstandingAmount = plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining), 0);
+  let outstandingAmount = plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining), 0);
+  if (activeApplication.disbursement?.status === "PAID" && activeApplication.disbursement.disbursedAt) {
+    let tiers: RepaymentTier[] = DEFAULT_TIERS;
+    let overdueConfig: OverdueConfig = DEFAULT_OVERDUE;
+    let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
+    let channel: ChannelType = "FULL_AMOUNT";
+    let dueDate: Date | null = null;
+
+    if (plan.rulesSnapshotJson) {
+      try {
+        const snapshot = JSON.parse(plan.rulesSnapshotJson) as {
+          tiers?: RepaymentTier[];
+          overdueConfig?: OverdueConfig;
+          upfrontFeeRate?: number;
+          channel?: ChannelType;
+          dueDate?: string;
+        };
+        if (snapshot.tiers) tiers = snapshot.tiers;
+        if (snapshot.overdueConfig) overdueConfig = snapshot.overdueConfig;
+        if (snapshot.upfrontFeeRate != null) upfrontFeeRate = snapshot.upfrontFeeRate;
+        if (snapshot.channel) channel = snapshot.channel;
+        if (snapshot.dueDate) dueDate = new Date(snapshot.dueDate);
+      } catch {
+        // ignore invalid snapshot
+      }
+    } else if (activeApplication.product.pricingRules.length > 0) {
+      const parsed = parseTiersFromPricingRules(activeApplication.product.pricingRules);
+      tiers = parsed.tiers;
+      overdueConfig = parsed.overdueConfig;
+      upfrontFeeRate = parsed.upfrontFeeRate;
+      channel = parsed.channel;
+    } else {
+      const settingsRows = await prisma.systemSetting.findMany();
+      const sysMap: Record<string, string | number> = {};
+      for (const setting of settingsRows) sysMap[setting.key] = setting.value;
+      const parsed = loadFeeConfig(sysMap, null);
+      tiers = parsed.tiers;
+      overdueConfig = parsed.overdueConfig;
+      upfrontFeeRate = parsed.upfrontFeeRate;
+      channel = parsed.channel;
+    }
+
+    if (!dueDate) {
+      const sortedTiers = [...tiers].sort(
+        (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
+      );
+      const lastTier = sortedTiers[sortedTiers.length - 1];
+      dueDate = new Date(
+        new Date(activeApplication.disbursement.disbursedAt).getTime() +
+          (lastTier?.maxHours ?? (lastTier?.maxDays ?? 7) * 24) *
+            60 *
+            60 *
+            1000
+      );
+    }
+
+    const realtime = calculateRealtimeRepayment({
+      principal: Number(activeApplication.amount),
+      channel,
+      upfrontFeeRate,
+      tiers,
+      overdueConfig,
+      startTime: new Date(activeApplication.disbursement.disbursedAt),
+      dueDate,
+      currentTime: new Date(),
+    });
+    outstandingAmount = realtime.totalRepayment;
+  }
   if (outstandingAmount <= 0) {
     return NextResponse.json({ error: "当前借款没有待还金额" }, { status: 400 });
   }

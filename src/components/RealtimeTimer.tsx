@@ -51,7 +51,7 @@ function formatElapsedClient(ms: number): string {
 function calcRepayment(principal: number, ratePercent: number, channel: string): number {
   const rate = ratePercent / 100;
   if (channel === "UPFRONT_DEDUCTION") {
-    return Math.round(principal * (1 - rate) * 100) / 100;
+    return Math.round(principal * 100) / 100;
   }
   return Math.round(principal * (1 + rate) * 100) / 100;
 }
@@ -194,7 +194,7 @@ export default function RealtimeTimer({
         </div>
         <div>
           <span className="text-gray-500">借款模式</span>
-          <p className="font-medium">{data.channel === "UPFRONT_DEDUCTION" ? "7天砍头息" : "全额到账"}</p>
+          <p className="font-medium">{data.channel === "UPFRONT_DEDUCTION" ? "7天砍头息（固定5%）" : "7天全额到账（分档计费）"}</p>
         </div>
         <div>
           <span className="text-gray-500">放款时间</span>
@@ -259,7 +259,7 @@ export default function RealtimeTimer({
             </div>
           </div>
           <p className="mt-2 text-xs text-red-500">
-            到期后有 24 小时宽限期；超过后前 14 天按本金 1%/天，15 天起按本金 2%/天，按单利累计。
+            逾期后按日复利滚动：第 1 到 7 天 1%/天，第 8 到 30 天 2%/天，第 31 天起 3%/天；未支付利息会并入本金继续计算。
           </p>
         </div>
       )}

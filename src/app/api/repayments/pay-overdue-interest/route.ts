@@ -1,10 +1,3 @@
-/**
- * POST /api/repayments/pay-overdue-interest
- * 支付逾期每日利息（防止利息变本金）
- *
- * body: { overdueRecordId: string, date: string (YYYY-MM-DD), amount: number }
- */
-
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
@@ -12,6 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { writeLedgerEntry } from "@/services/ledger.service";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
+import { calculateOverdueBreakdown, DEFAULT_OVERDUE, type OverdueConfig } from "@/lib/interest-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +15,14 @@ const payInterestSchema = z.object({
   amount: z.number().positive(),
 });
 
+type OverdueDetail = {
+  baseAmount?: number;
+  paidDates?: string[];
+  overdueConfig?: OverdueConfig;
+  overdueStartDate?: string;
+  dailyRecords?: Array<{ date: string; paid?: boolean }>;
+};
+
 export async function POST(req: Request) {
   const session = await requirePermission(["repayment:allocate"]);
   if (session instanceof Response) return session;
@@ -28,10 +30,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const parsed = payInterestSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: "参数错误", details: parsed.error.flatten() },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
   }
 
   const { overdueRecordId, date, amount } = parsed.data;
@@ -43,43 +42,50 @@ export async function POST(req: Request) {
   if (!record) {
     return NextResponse.json({ error: "逾期记录不存在" }, { status: 404 });
   }
+
   if (record.status !== "OVERDUE") {
     return NextResponse.json({ error: "该逾期记录已解除" }, { status: 400 });
   }
 
-  // 解析逾期明细
-  let detail: { dailyRecords?: Array<{ day: number; date: string; paid: boolean; [k: string]: unknown }>; paidDates?: string[]; [k: string]: unknown } = {};
+  let detail: OverdueDetail = {};
   if (record.overdueFeeDetail) {
     try {
-      detail = JSON.parse(record.overdueFeeDetail);
-    } catch { /* ignore */ }
+      detail = JSON.parse(record.overdueFeeDetail) as OverdueDetail;
+    } catch {
+      detail = {};
+    }
   }
 
-  // 标记该日已付
-  const dailyRecords = detail.dailyRecords ?? [];
-  const targetDay = dailyRecords.find((r) => r.date === date);
-  if (targetDay) {
-    targetDay.paid = true;
-    targetDay.capitalizedAmount = 0;
-    targetDay.principalAtEnd = targetDay.principalAtStart;
-  }
-
-  // 更新 paidDates 列表
-  const paidDates = new Set<string>(detail.paidDates ?? []);
+  const paidDates = new Set(detail.paidDates ?? []);
   paidDates.add(date);
-  detail.paidDates = Array.from(paidDates);
-  detail.dailyRecords = dailyRecords;
+  detail.paidDates = Array.from(paidDates).sort();
+
+  const overdueConfig = detail.overdueConfig ?? DEFAULT_OVERDUE;
+  const overdueStartDate = detail.overdueStartDate ? new Date(detail.overdueStartDate) : new Date(record.createdAt.getTime());
+  const baseAmount = Number(detail.baseAmount ?? Number(record.overdueAmount) - Number(record.penaltyAmount));
+  const breakdown = calculateOverdueBreakdown({
+    baseAmount,
+    overdueDays: record.overdueDays,
+    overdueConfig,
+    overdueStartDate,
+    paidDates: detail.paidDates,
+  });
+
+  detail.dailyRecords = breakdown.dailyRecords;
+  detail.baseAmount = baseAmount;
+  detail.overdueConfig = overdueConfig;
+  detail.overdueStartDate = overdueStartDate.toISOString();
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    // 更新逾期记录
     await tx.overdueRecord.update({
       where: { id: overdueRecordId },
       data: {
+        overdueAmount: breakdown.totalOutstanding,
+        penaltyAmount: breakdown.outstandingPenalty,
         overdueFeeDetail: JSON.stringify(detail),
       },
     });
 
-    // 台账记账: 逾期利息收入
     await writeLedgerEntry(tx, {
       type: "PENALTY",
       direction: "DEBIT",
@@ -99,12 +105,14 @@ export async function POST(req: Request) {
     entityId: overdueRecordId,
     oldValue: null,
     newValue: { date, amount },
-    changeSummary: `支付逾期日利息 ${amount} 元 (${date})`,
-  }).catch((e) => console.error("[AuditLog] pay-overdue-interest", e));
+    changeSummary: `支付逾期日利息 ${amount} 欧 (${date})`,
+  }).catch((error) => console.error("[AuditLog] pay-overdue-interest", error));
 
   return NextResponse.json({
     id: overdueRecordId,
     paidDate: date,
     amount,
+    overdueAmount: breakdown.totalOutstanding,
+    penaltyAmount: breakdown.outstandingPenalty,
   });
 }

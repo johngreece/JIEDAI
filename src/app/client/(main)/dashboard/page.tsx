@@ -5,6 +5,23 @@ import { ConfirmReceivedButton } from "@/components/client/ConfirmReceivedButton
 import { LoanApplicationPanel } from "@/components/client/LoanApplicationPanel";
 import RealtimeTimer from "@/components/RealtimeTimer";
 import { getStatusLabel } from "@/lib/status-ui";
+import {
+  BUSINESS_LOAN_NOTICE,
+  PRODUCT_RULE_DISPLAY,
+  PUBLIC_CLIENT_PRODUCT_CODES,
+  type PublicClientProductCode,
+} from "@/lib/public-loan-products";
+import {
+  DEFAULT_OVERDUE,
+  DEFAULT_TIERS,
+  DEFAULT_UPFRONT_FEE_RATE,
+  calculateRealtimeRepayment,
+  loadFeeConfig,
+  parseTiersFromPricingRules,
+  type ChannelType,
+  type OverdueConfig,
+  type RepaymentTier,
+} from "@/lib/interest-engine";
 
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
@@ -58,7 +75,7 @@ export default async function ClientDashboardPage() {
       where: {
         deletedAt: null,
         isActive: true,
-        code: "UPFRONT_7D",
+        code: { in: [...PUBLIC_CLIENT_PRODUCT_CODES] },
       },
       orderBy: { createdAt: "desc" },
       select: {
@@ -125,6 +142,7 @@ export default async function ClientDashboardPage() {
           availableLimit={availableLimit}
           products={products.map((product) => ({
             id: product.id,
+            code: product.code as PublicClientProductCode,
             name: product.name,
             description: product.description,
             minAmount: Number(product.minAmount),
@@ -148,6 +166,7 @@ export default async function ClientDashboardPage() {
         totalInterest: true,
         totalFee: true,
         totalPeriods: true,
+        rulesSnapshotJson: true,
         scheduleItems: {
           orderBy: { dueDate: "asc" },
           select: {
@@ -187,11 +206,79 @@ export default async function ClientDashboardPage() {
   const outstandingAmount = plan
     ? plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining || item.totalDue || 0), 0)
     : 0;
+  let displayOutstandingAmount = outstandingAmount;
   const nextDueAmount = nextItem ? Number(nextItem.remaining || nextItem.totalDue || 0) : 0;
   const nextDueInDays = nextItem ? diffDays(nextItem.dueDate) : null;
   const contractId = application.contracts[0]?.id ?? null;
   const netAmount = Number(application.disbursement?.netAmount || 0);
   const contractFee = Number(application.disbursement?.feeAmount || 0);
+
+  if (plan && application.disbursement?.status === "PAID" && application.disbursement.disbursedAt) {
+    let tiers: RepaymentTier[] = DEFAULT_TIERS;
+    let overdueConfig: OverdueConfig = DEFAULT_OVERDUE;
+    let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
+    let channel: ChannelType = "FULL_AMOUNT";
+    let dueDate: Date | null = null;
+
+    if (plan.rulesSnapshotJson) {
+      try {
+        const snapshot = JSON.parse(plan.rulesSnapshotJson) as {
+          tiers?: RepaymentTier[];
+          overdueConfig?: OverdueConfig;
+          upfrontFeeRate?: number;
+          channel?: ChannelType;
+          dueDate?: string;
+        };
+        if (snapshot.tiers) tiers = snapshot.tiers;
+        if (snapshot.overdueConfig) overdueConfig = snapshot.overdueConfig;
+        if (snapshot.upfrontFeeRate != null) upfrontFeeRate = snapshot.upfrontFeeRate;
+        if (snapshot.channel) channel = snapshot.channel;
+        if (snapshot.dueDate) dueDate = new Date(snapshot.dueDate);
+      } catch {
+        // ignore invalid snapshot
+      }
+    } else if (application.product.pricingRules.length > 0) {
+      const parsed = parseTiersFromPricingRules(application.product.pricingRules);
+      tiers = parsed.tiers;
+      overdueConfig = parsed.overdueConfig;
+      upfrontFeeRate = parsed.upfrontFeeRate;
+      channel = parsed.channel;
+    } else {
+      const settingsRows = await prisma.systemSetting.findMany();
+      const sysMap: Record<string, string | number> = {};
+      for (const setting of settingsRows) sysMap[setting.key] = setting.value;
+      const parsed = loadFeeConfig(sysMap, null);
+      tiers = parsed.tiers;
+      overdueConfig = parsed.overdueConfig;
+      upfrontFeeRate = parsed.upfrontFeeRate;
+      channel = parsed.channel;
+    }
+
+    if (!dueDate) {
+      const sortedTiers = [...tiers].sort(
+        (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
+      );
+      const lastTier = sortedTiers[sortedTiers.length - 1];
+      dueDate = new Date(
+        new Date(application.disbursement.disbursedAt).getTime() +
+          (lastTier?.maxHours ?? (lastTier?.maxDays ?? 7) * 24) *
+            60 *
+            60 *
+            1000
+      );
+    }
+
+    displayOutstandingAmount = calculateRealtimeRepayment({
+      principal: Number(application.amount),
+      channel,
+      upfrontFeeRate,
+      tiers,
+      overdueConfig,
+      startTime: new Date(application.disbursement.disbursedAt),
+      dueDate,
+      currentTime: new Date(),
+    }).totalRepayment;
+  }
 
   const reminders: string[] = [];
   if (application.status === "PENDING_RISK") reminders.push("你的借款申请已提交，当前等待风控审核。");
@@ -227,7 +314,7 @@ export default async function ClientDashboardPage() {
         <SummaryCard title="实际到账" value={money(netAmount)} note={`放款费用 ${money(contractFee)}`} />
         <SummaryCard
           title="当前待还"
-          value={plan ? money(outstandingAmount) : "待生成"}
+          value={plan ? money(displayOutstandingAmount) : "待生成"}
           note={nextItem ? `${formatDate(nextItem.dueDate)} · 第 ${nextItem.periodNumber} 期` : "暂无还款计划"}
         />
       </section>
@@ -327,13 +414,16 @@ export default async function ClientDashboardPage() {
             <h2 className="text-lg font-semibold text-slate-900">借款规则说明</h2>
             <div className="mt-4 space-y-3 text-sm text-slate-700">
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                当前客户端仅公开 7 天砍头息模式。放款后 5 小时内还款按 2%，放款后 24 小时内还款按 3%，超过 24 小时至 7 天内按 5% 计算。
+                {PRODUCT_RULE_DISPLAY.UPFRONT_7D.summary}
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                砍头息模式下，系统会在放款时先扣除服务费，实际到账金额会小于借款本金；其他借款模式仅内部可申请，暂不在客户端开放。
+                {PRODUCT_RULE_DISPLAY.FULL_AMOUNT_7D.summary}
               </div>
               <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                到期后有 24 小时宽限期；超过后前 14 天按本金每日 1% 计收逾期费用，第 15 天起按本金每日 2% 计收，按单利累计。
+                逾期后按日复利滚动：逾期第 1 到 7 天按 1%/天，逾期第 8 到 30 天按 2%/天，逾期第 31 天起按 3%/天；当天未付利息会并入本金继续计算。
+              </div>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                {BUSINESS_LOAN_NOTICE.summary} {BUSINESS_LOAN_NOTICE.bullets.join("；")}。
               </div>
             </div>
           </div>

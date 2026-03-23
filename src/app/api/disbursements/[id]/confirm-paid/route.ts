@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { recordDisbursementLedger } from "@/services/ledger.service";
 import {
-  parseTiersFromPricingRules,
   calcNetDisbursement,
+  calcRepaymentAmount,
   loadFeeConfig,
+  parseTiersFromPricingRules,
 } from "@/lib/interest-engine";
-import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,7 @@ export async function POST(
   if (!current) {
     return NextResponse.json({ error: "放款单不存在" }, { status: 404 });
   }
+
   if (current.status !== "PENDING") {
     return NextResponse.json({ error: "当前状态不允许确认打款" }, { status: 400 });
   }
@@ -39,12 +41,59 @@ export async function POST(
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const now = new Date();
 
+    const pendingDisbursement = await tx.disbursement.findUnique({
+      where: { id },
+      include: {
+        application: {
+          include: {
+            product: {
+              include: {
+                pricingRules: {
+                  where: { isActive: true },
+                  orderBy: { priority: "desc" },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!pendingDisbursement) {
+      throw new Error("放款单不存在");
+    }
+
+    let pricingConfig;
+    if (pendingDisbursement.application.product.pricingRules.length > 0) {
+      pricingConfig = parseTiersFromPricingRules(pendingDisbursement.application.product.pricingRules);
+    } else {
+      const settingsRows = await tx.systemSetting.findMany();
+      const sysMap: Record<string, string | number> = {};
+      for (const setting of settingsRows) sysMap[setting.key] = setting.value;
+      pricingConfig = loadFeeConfig(sysMap, null);
+    }
+
+    const { tiers, overdueConfig, upfrontFeeRate, channel } = pricingConfig;
+    const principal = Number(pendingDisbursement.amount);
+    const netAmount = calcNetDisbursement(principal, upfrontFeeRate, channel);
+    const upfrontFeeAmount = Number((principal - netAmount).toFixed(2));
+    const sortedTiers = [...tiers].sort(
+      (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
+    );
+    const dueTier = sortedTiers[sortedTiers.length - 1] ?? null;
+    const dueHours = dueTier ? (dueTier.maxHours ?? dueTier.maxDays * 24) : 7 * 24;
+    const dueDate = new Date(now.getTime() + dueHours * 60 * 60 * 1000);
+    const dueRepaymentAmount = calcRepaymentAmount(principal, dueTier?.ratePercent ?? 0, channel);
+    const deferredFeeAmount = Number((dueRepaymentAmount - principal).toFixed(2));
+
     const disbursement = await tx.disbursement.update({
       where: { id },
       data: {
         status: "PAID",
-        disbursedAt: now,          // 计时起点
+        disbursedAt: now,
         operatorId: session.sub,
+        feeAmount: upfrontFeeAmount,
+        netAmount,
       },
     });
 
@@ -59,50 +108,6 @@ export async function POST(
     });
 
     if (!existingPlan) {
-      // 查询产品定价规则（阶梯费率）
-      const application = await tx.loanApplication.findUnique({
-        where: { id: disbursement.applicationId },
-        include: {
-          product: {
-            include: {
-              pricingRules: {
-                where: { isActive: true },
-                orderBy: { priority: "desc" },
-              },
-            },
-          },
-        },
-      });
-
-      // 解析费率配置：优先 system_settings + loan override，兼容 PricingRules
-      const settingsRows = await tx.systemSetting.findMany();
-      const sysMap: Record<string, string | number> = {};
-      for (const s of settingsRows) sysMap[s.key] = s.value;
-
-      const loanOverride = null;
-
-      let pricingConfig;
-      const pricingRules = application?.product?.pricingRules ?? [];
-      if (pricingRules.length > 0) {
-        pricingConfig = parseTiersFromPricingRules(pricingRules);
-      } else {
-        pricingConfig = loadFeeConfig(sysMap, loanOverride);
-      }
-      const { tiers, overdueConfig, upfrontFeeRate, channel } = pricingConfig;
-
-      const principal = Number(disbursement.amount);
-      const netAmount = calcNetDisbursement(principal, upfrontFeeRate, channel);
-
-      // 到期日 = 确认时间 + 7天（标准借款周期）
-      const sortedTiers = [...tiers].sort(
-        (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
-      );
-      const maxTierHours = sortedTiers.length > 0
-        ? (sortedTiers[sortedTiers.length - 1].maxHours ?? sortedTiers[sortedTiers.length - 1].maxDays * 24)
-        : 7 * 24;
-      const dueDate = new Date(now.getTime() + maxTierHours * 60 * 60 * 1000);
-
-      // 快照规则用于后续实时计算
       const rulesSnapshot = {
         channel,
         upfrontFeeRate,
@@ -112,48 +117,42 @@ export async function POST(
         dueDate: dueDate.toISOString(),
       };
 
-      // 固定费用（砍头息）
-      const upfrontFee = principal - netAmount;
-
       const plan = await tx.repaymentPlan.create({
         data: {
           planNo: genPlanNo(),
           applicationId: disbursement.applicationId,
           totalPrincipal: principal,
-          totalInterest: 0,       // 利息在还款时动态计算
-          totalFee: upfrontFee,
+          totalInterest: 0,
+          totalFee: channel === "UPFRONT_DEDUCTION" ? upfrontFeeAmount : deferredFeeAmount,
           totalPeriods: 1,
           rulesSnapshotJson: JSON.stringify(rulesSnapshot),
           status: "ACTIVE",
         },
       });
 
-      // 创建单期还款计划条目（到期日 = 最大阶梯时间）
       await tx.repaymentScheduleItem.create({
         data: {
           planId: plan.id,
           periodNumber: 1,
           dueDate,
           principal,
-          interest: 0,            // 动态计算
-          fee: upfrontFee,
-          totalDue: principal,    // 至少还本金（实际金额实时算）
-          remaining: principal,
+          interest: 0,
+          fee: channel === "UPFRONT_DEDUCTION" ? upfrontFeeAmount : deferredFeeAmount,
+          totalDue: channel === "UPFRONT_DEDUCTION" ? principal : dueRepaymentAmount,
+          remaining: channel === "UPFRONT_DEDUCTION" ? principal : dueRepaymentAmount,
           status: "PENDING",
         },
       });
     }
 
-    // 台账记账：放款
     await recordDisbursementLedger(tx, {
       disbursementId: disbursement.id,
       amount: disbursement.amount,
       feeAmount: disbursement.feeAmount,
-      customerId: current.application.customerId,
+      customerId: pendingDisbursement.application.customerId,
       operatorId: session.sub,
     });
 
-    // 更新资金账户余额
     await tx.fundAccount.update({
       where: { id: disbursement.fundAccountId },
       data: {
@@ -172,8 +171,8 @@ export async function POST(
     entityId: id,
     oldValue: { status: current.status },
     newValue: { status: result.status, disbursedAt: result.disbursedAt?.toISOString() ?? null },
-    changeSummary: "确认已打款，计时开始",
-  }).catch((e) => console.error("[AuditLog] confirm-paid", e));
+    changeSummary: "确认已打款并同步生成还款规则快照",
+  }).catch((error) => console.error("[AuditLog] confirm-paid", error));
 
   return NextResponse.json({ id: result.id, status: result.status });
 }
