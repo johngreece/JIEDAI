@@ -93,8 +93,8 @@ async function main() {
   });
   const financeRole = await prisma.role.upsert({
     where: { code: "finance" },
-    create: { name: "璐㈠姟", code: "finance", description: "鏀炬銆佽繕娆俱€佸彴璐︿笌瀵硅处" },
-    update: {},
+    create: { name: "财务", code: "finance", description: "放款、还款、台账与对账" },
+    update: { name: "财务", description: "放款、还款、台账与对账" },
   });
   const operatorRole = await prisma.role.upsert({
     where: { code: "operator" },

@@ -414,16 +414,19 @@ export default async function ClientDashboardPage() {
             <h2 className="text-lg font-semibold text-slate-900">借款规则说明</h2>
             <div className="mt-4 space-y-3 text-sm text-slate-700">
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                {PRODUCT_RULE_DISPLAY.UPFRONT_7D.summary}
+                <div className="font-semibold text-slate-900">{PRODUCT_RULE_DISPLAY.UPFRONT_7D.title}</div>
+                <div className="mt-2">{PRODUCT_RULE_DISPLAY.UPFRONT_7D.summary}</div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                {PRODUCT_RULE_DISPLAY.FULL_AMOUNT_7D.summary}
+                <div className="font-semibold text-slate-900">{PRODUCT_RULE_DISPLAY.FULL_AMOUNT_7D.title}</div>
+                <div className="mt-2">{PRODUCT_RULE_DISPLAY.FULL_AMOUNT_7D.summary}</div>
               </div>
               <div className="rounded-xl border border-red-200 bg-red-50 p-4">
                 逾期后按日复利滚动：逾期第 1 到 7 天按 1%/天，逾期第 8 到 30 天按 2%/天，逾期第 31 天起按 3%/天；当天未付利息会并入本金继续计算。
               </div>
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                {BUSINESS_LOAN_NOTICE.summary} {BUSINESS_LOAN_NOTICE.bullets.join("；")}。
+                <div className="font-semibold text-slate-900">{BUSINESS_LOAN_NOTICE.title}</div>
+                <div className="mt-2">{BUSINESS_LOAN_NOTICE.summary} {BUSINESS_LOAN_NOTICE.bullets.join("；")}。</div>
               </div>
             </div>
           </div>

@@ -526,17 +526,17 @@ export function DashboardSummary() {
                 tone={smart.cashflow.predictedNetInflow7d >= 0 ? "success" : "danger"}
               />
               <DataRow
-                label="30澶╁噣娴佸叆"
+                label="30天净流入"
                 value={formatCurrency(smart.cashflow.predictedNetInflow30d)}
                 tone={smart.cashflow.predictedNetInflow30d >= 0 ? "success" : "danger"}
               />
               <DataRow
-                label="7澶╄祫閲戠己鍙?"
+                label="7天资金缺口"
                 value={formatCurrency(smart.cashflow.fundingGap7d)}
                 tone={smart.cashflow.fundingGap7d > 0 ? "danger" : "success"}
               />
               <DataRow
-                label="30澶╄祫閲戠己鍙?"
+                label="30天资金缺口"
                 value={formatCurrency(smart.cashflow.fundingGap30d)}
                 tone={smart.cashflow.fundingGap30d > 0 ? "warn" : "success"}
               />
