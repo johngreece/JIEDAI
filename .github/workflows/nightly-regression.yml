@@ -12,7 +12,7 @@ concurrency:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
@@ -50,27 +50,36 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          echo "install-dependencies" > /tmp/nightly-regression-stage
+          npm ci
 
       - name: Generate Prisma client
-        run: npm run db:generate
+        run: |
+          echo "generate-prisma-client" > /tmp/nightly-regression-stage
+          npm run db:generate
 
       - name: Verify required secrets
         run: |
+          echo "verify-required-secrets" > /tmp/nightly-regression-stage
           test -n "$DATABASE_URL"
           test -n "$DIRECT_URL"
           test -n "$JWT_SECRET"
 
       - name: Seed database
-        run: npm run db:seed
+        run: |
+          echo "seed-database" > /tmp/nightly-regression-stage
+          npm run db:seed
 
       - name: Start app
         run: |
+          echo "start-app" > /tmp/nightly-regression-stage
           npm run dev > /tmp/jiedai-dev.log 2>&1 &
           echo $! > /tmp/jiedai-dev.pid
 
       - name: Wait for app
         run: |
+          echo "wait-for-app" > /tmp/nightly-regression-stage
           for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3001/ > /dev/null; then
               exit 0
@@ -81,8 +90,25 @@ jobs:
           cat /tmp/jiedai-dev.log || true
           exit 1
 
-      - name: Run regression
-        run: npm run test:regression
+      - name: Run full regression
+        run: |
+          echo "full-regression" > /tmp/nightly-regression-stage
+          npm run test:regression
+
+      - name: Run launch readiness smoke
+        run: |
+          echo "launch-readiness" > /tmp/nightly-regression-stage
+          npm run test:launch-readiness
+
+      - name: Run external touchpoints smoke
+        run: |
+          echo "external-touchpoints" > /tmp/nightly-regression-stage
+          npm run test:external-touchpoints
+
+      - name: Run finance reconciliation smoke
+        run: |
+          echo "finance-reconciliation" > /tmp/nightly-regression-stage
+          npm run test:finance-reconciliation
 
       - name: Send failure alerts
         if: failure()
@@ -92,7 +118,8 @@ jobs:
             exit 0
           fi
 
-          summary="Nightly regression workflow failed. Check uploaded app log artifact and workflow run details."
+          failed_stage=$(cat /tmp/nightly-regression-stage 2>/dev/null || echo "unknown")
+          summary="Nightly regression workflow failed at stage: $failed_stage. Check uploaded app log artifact and workflow run details."
           triggered_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           payload=$(cat <<JSON
           {
@@ -105,7 +132,7 @@ jobs:
             "runId": "${{ github.run_id }}",
             "runNumber": "${{ github.run_number }}",
             "runUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-            "failedJob": "regression",
+            "failedJob": "$failed_stage",
             "summary": "$summary",
             "triggeredAt": "$triggered_at"
           }

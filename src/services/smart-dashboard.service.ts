@@ -1,4 +1,7 @@
 import { prisma } from "@/lib/prisma";
+import { AnomalyDetectionService } from "@/services/anomaly-detection.service";
+import { FunderInterestService } from "@/services/funder-interest.service";
+import { RiskIntelligenceService } from "@/services/risk-intelligence.service";
 
 type SmartTodoUrgency = "critical" | "high" | "medium" | "low";
 
@@ -719,6 +722,194 @@ export class SmartDashboardService {
       insights.push("当前风险、资金和流程都比较平稳，可以继续放大优质客户转化。");
     }
 
+    const [
+      operationsSettings,
+      recentApplications30d,
+      disbursements30d,
+      repayments30d,
+      activeFunders,
+      riskEngine,
+      anomalies,
+    ] = await Promise.all([
+      prisma.systemSetting.findMany({
+        where: {
+          key: {
+            in: ["ops.marketing_spend_7d", "ops.marketing_spend_30d"],
+          },
+        },
+      }),
+      prisma.loanApplication.findMany({
+        where: {
+          deletedAt: null,
+          createdAt: { gte: day30Ago },
+        },
+        select: {
+          status: true,
+        },
+      }),
+      prisma.disbursement.aggregate({
+        where: {
+          disbursedAt: { gte: day30Ago },
+          status: { in: ["PAID", "CONFIRMED"] },
+        },
+        _sum: {
+          amount: true,
+          netAmount: true,
+        },
+      }),
+      prisma.repayment.aggregate({
+        where: {
+          receivedAt: { gte: day30Ago },
+          status: "CONFIRMED",
+        },
+        _sum: {
+          interestPart: true,
+          feePart: true,
+          penaltyPart: true,
+        },
+      }),
+      prisma.funder.findMany({
+        where: { deletedAt: null, isActive: true },
+        select: {
+          id: true,
+          name: true,
+        },
+      }),
+      RiskIntelligenceService.getDashboardSummary(),
+      AnomalyDetectionService.getDashboardSummary(),
+    ]);
+
+    const funderForecasts = (
+      await Promise.all(
+        activeFunders.map(async (funder) => {
+          try {
+            const earnings = await FunderInterestService.getEarnings(funder.id);
+            return {
+              funderId: funder.id,
+              funderName: funder.name,
+              interest7d: earnings.forecast7dInterest,
+              interest30d: earnings.forecast30dInterest,
+              collection7d: earnings.forecast7dCollection,
+              collection30d: earnings.forecast30dCollection,
+            };
+          } catch {
+            return null;
+          }
+        })
+      )
+    ).filter(
+      (
+        item
+      ): item is {
+        funderId: string;
+        funderName: string;
+        interest7d: number;
+        interest30d: number;
+        collection7d: number;
+        collection30d: number;
+      } => Boolean(item)
+    );
+
+    const settingsMap = new Map(operationsSettings.map((item) => [item.key, item.value]));
+    const marketingSpend7d = toNumber(settingsMap.get("ops.marketing_spend_7d"));
+    const marketingSpend30d = toNumber(settingsMap.get("ops.marketing_spend_30d"));
+    const newCustomers7d = recentNewCustomers.filter((item) => item.createdAt >= addDays(today, -7)).length;
+    const newCustomers30d = recentNewCustomers.length;
+    const applications30dCount = recentApplications30d.length;
+    const approvedApplications30d = recentApplications30d.filter((item) =>
+      [
+        "APPROVED",
+        "PENDING_CONTRACT",
+        "CONTRACT_SIGNED",
+        "PENDING_DISBURSEMENT",
+        "DISBURSED",
+        "SETTLED",
+        "COMPLETED",
+      ].includes(item.status)
+    ).length;
+    const disbursedApplications30d = recentApplications30d.filter((item) =>
+      ["DISBURSED", "SETTLED", "COMPLETED"].includes(item.status)
+    ).length;
+    const approvalConversion30d =
+      applications30dCount > 0
+        ? Number(((approvedApplications30d / applications30dCount) * 100).toFixed(1))
+        : 0;
+    const disbursementConversion30d =
+      applications30dCount > 0
+        ? Number(((disbursedApplications30d / applications30dCount) * 100).toFixed(1))
+        : 0;
+    const severeOverdueAmount = severeOverdue.reduce((sum, item) => sum + toNumber(item.overdueAmount), 0);
+    const badDebtRate = Number(((severeOverdueAmount / Math.max(overdueTotal, 1)) * 100).toFixed(1));
+    const totalFunderInterest7d = funderForecasts.reduce((sum, item) => sum + item.interest7d, 0);
+    const totalFunderInterest30d = funderForecasts.reduce((sum, item) => sum + item.interest30d, 0);
+    const totalFunderCollection7d = funderForecasts.reduce((sum, item) => sum + item.collection7d, 0);
+    const totalFunderCollection30d = funderForecasts.reduce((sum, item) => sum + item.collection30d, 0);
+    const grossProfit30d =
+      toNumber(disbursements30d._sum.amount) -
+      toNumber(disbursements30d._sum.netAmount) +
+      toNumber(repayments30d._sum.interestPart) +
+      toNumber(repayments30d._sum.feePart) +
+      toNumber(repayments30d._sum.penaltyPart);
+    const realNetProfit30d = Number(
+      (grossProfit30d - marketingSpend30d - totalFunderInterest30d).toFixed(2)
+    );
+    const predictedNetInflow30d = upcomingDue30d - pendingDisbursementAmount;
+    const fundingGap7d = Math.max(
+      0,
+      Number((pendingDisbursementAmount - (fundBalance + expectedCollections7d)).toFixed(2))
+    );
+    const fundingGap30d = Math.max(
+      0,
+      Number((pendingDisbursementAmount - (fundBalance + upcomingDue30d)).toFixed(2))
+    );
+    const averageDailyDisbursement30d = toNumber(disbursements30d._sum.netAmount) / 30;
+    const capitalTurnoverDays =
+      averageDailyDisbursement30d > 0
+        ? Number((pendingDisbursementAmount / averageDailyDisbursement30d).toFixed(1))
+        : 0;
+    const collectionAutomation = {
+      stages: [
+        {
+          code: "pre_due",
+          label: "到期前",
+          count: due3DayItems.length,
+          amount: due3DayTotal,
+        },
+        {
+          code: "due_today",
+          label: "到期日",
+          count: dueTodayItems.length,
+          amount: dueTodayTotal,
+        },
+        {
+          code: "overdue_d1",
+          label: "逾期 1 天",
+          count: overdueRecords.filter((item) => item.overdueDays === 1).length,
+          amount: overdueRecords
+            .filter((item) => item.overdueDays === 1)
+            .reduce((sum, item) => sum + toNumber(item.overdueAmount), 0),
+        },
+        {
+          code: "overdue_d3",
+          label: "逾期 3 天",
+          count: overdueRecords.filter((item) => item.overdueDays === 3).length,
+          amount: overdueRecords
+            .filter((item) => item.overdueDays === 3)
+            .reduce((sum, item) => sum + toNumber(item.overdueAmount), 0),
+        },
+        {
+          code: "overdue_d7",
+          label: "逾期 7 天",
+          count: overdueRecords.filter((item) => item.overdueDays === 7).length,
+          amount: overdueRecords
+            .filter((item) => item.overdueDays === 7)
+            .reduce((sum, item) => sum + toNumber(item.overdueAmount), 0),
+        },
+      ],
+      activeCases: due3DayItems.length + dueTodayItems.length + overdueRecords.length,
+      externalTouchpointsEnabled: true,
+    };
+
     return {
       alerts: {
         dueToday: dueTodayItems.map(mapAlertItem),
@@ -811,8 +1002,42 @@ export class SmartDashboardService {
         expectedCollections30d: upcomingDue30d,
         pendingDisbursementAmount,
         predictedNetInflow7d,
+        predictedNetInflow30d,
+        fundingGap7d,
+        fundingGap30d,
         coverageRatio,
         pressureLevel: pressureLabel(coverageRatio),
+      },
+      collectionAutomation,
+      financialForecast: {
+        collections7d: expectedCollections7d,
+        collections30d: upcomingDue30d,
+        fundingGap7d,
+        fundingGap30d,
+        netInflow7d: predictedNetInflow7d,
+        netInflow30d: predictedNetInflow30d,
+        funderInterest7d: Number(totalFunderInterest7d.toFixed(2)),
+        funderInterest30d: Number(totalFunderInterest30d.toFixed(2)),
+        funderCollections7d: Number(totalFunderCollection7d.toFixed(2)),
+        funderCollections30d: Number(totalFunderCollection30d.toFixed(2)),
+        topFunderReturns: funderForecasts
+          .sort((a, b) => b.interest30d - a.interest30d)
+          .slice(0, 5),
+      },
+      riskEngine,
+      anomalies,
+      operations: {
+        marketingSpend7d,
+        marketingSpend30d,
+        newCustomers7d,
+        newCustomers30d,
+        cac7d: newCustomers7d > 0 ? Number((marketingSpend7d / newCustomers7d).toFixed(2)) : 0,
+        cac30d: newCustomers30d > 0 ? Number((marketingSpend30d / newCustomers30d).toFixed(2)) : 0,
+        approvalConversion30d,
+        disbursementConversion30d,
+        badDebtRate,
+        realNetProfit30d,
+        capitalTurnoverDays,
       },
       riskRadar,
       smartTodos,

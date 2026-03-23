@@ -16,6 +16,15 @@ type Detail = {
   remark: string | null;
   riskScore: number | null;
   riskComment: string | null;
+  recommendedRisk: null | {
+    customerId: string;
+    behaviorScore: number;
+    repeatBorrowScore: number;
+    overdueProbability: number;
+    recommendedRiskScore: number;
+    recommendedRiskLevel: string;
+    reasons: string[];
+  };
   totalApprovedAmount: number | null;
   rejectedReason: string | null;
   customer: { id: string; name: string; phone: string; idNumber: string };
@@ -330,6 +339,20 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
           <p className="text-sm text-slate-700">证件号：{data.customer.idNumber}</p>
           <p className="text-sm text-slate-700">产品：{data.product.name}</p>
           {data.riskScore != null ? <p className="text-sm text-slate-700">风控分：{data.riskScore}</p> : null}
+          {data.recommendedRisk ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="font-semibold text-slate-900">
+                智能建议：{data.recommendedRisk.recommendedRiskLevel} / {data.recommendedRisk.recommendedRiskScore}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                行为分 {data.recommendedRisk.behaviorScore} · 复借分 {data.recommendedRisk.repeatBorrowScore} ·
+                逾期概率 {data.recommendedRisk.overdueProbability}%
+              </div>
+              <div className="mt-2 text-xs text-slate-600">
+                {data.recommendedRisk.reasons.join(" / ") || "暂无额外风险说明"}
+              </div>
+            </div>
+          ) : null}
           {data.rejectedReason ? <p className="text-sm text-red-700">拒绝原因：{data.rejectedReason}</p> : null}
           {data.totalApprovedAmount != null ? (
             <p className="text-sm text-emerald-700">审批金额：{formatMoney(data.totalApprovedAmount)}</p>

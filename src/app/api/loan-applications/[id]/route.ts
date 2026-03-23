@@ -3,6 +3,7 @@ import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { RiskIntelligenceService } from "@/services/risk-intelligence.service";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,7 @@ export async function GET(
   }
 
   const mainContract = data.contracts[0] || null;
+  const recommendedRisk = await RiskIntelligenceService.getApplicationRecommendation(id);
   let contractGenerationOptions: Record<string, unknown> | null = null;
   if (mainContract?.variableData) {
     try {
@@ -97,6 +99,7 @@ export async function GET(
           netAmount: Number(data.disbursement.netAmount),
         }
       : null,
+    recommendedRisk,
     mainContract: mainContract
       ? {
           id: mainContract.id,

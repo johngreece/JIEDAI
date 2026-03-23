@@ -20,7 +20,51 @@ function diffDays(from: Date, to: Date) {
 }
 
 function money(value: number) {
-  return `€${value.toFixed(2)}`;
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function buildAppUrl(path: string) {
+  const base = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL;
+  if (!base) return path;
+
+  try {
+    return new URL(path, base).toString();
+  } catch {
+    return path;
+  }
+}
+
+function buildCustomerAction(type: string, actionOverride?: { actionUrl?: string; actionLabel?: string }) {
+  if (actionOverride?.actionUrl) {
+    return {
+      actionUrl: actionOverride.actionUrl,
+      actionLabel: actionOverride.actionLabel || "立即处理",
+    };
+  }
+
+  if (type === "REPAYMENT_PENDING_RECEIPT") {
+    return {
+      actionUrl: buildAppUrl("/client/repayments?focus=pending-receipt"),
+      actionLabel: "查看确认状态",
+    };
+  }
+
+  if (type === "DISBURSEMENT_RECEIVED") {
+    return {
+      actionUrl: buildAppUrl("/client/dashboard"),
+      actionLabel: "查看当前借款",
+    };
+  }
+
+  return {
+    actionUrl: buildAppUrl("/client/repayments?focus=current"),
+    actionLabel: "去处理还款",
+  };
 }
 
 async function createCustomerNotification(params: {
@@ -29,6 +73,8 @@ async function createCustomerNotification(params: {
   type: string;
   title: string;
   content: string;
+  meta?: Record<string, unknown>;
+  deliverExternal?: boolean;
 }) {
   const exists = await prisma.notification.findFirst({
     where: {
@@ -51,15 +97,26 @@ async function createCustomerNotification(params: {
     },
   });
 
-  await MessageDeliveryService.deliverCustomerAlert({
-    customerId: params.customerId,
-    title: params.title,
-    content: params.content,
-    type: params.type,
-    templateCode: params.templateCode,
-    sourceType: "NOTIFICATION",
-    sourceId: notification.id,
-  });
+  if (params.deliverExternal !== false) {
+    await MessageDeliveryService.deliverCustomerAlert({
+      customerId: params.customerId,
+      title: params.title,
+      content: params.content,
+      type: params.type,
+      templateCode: params.templateCode,
+      meta: {
+        ...buildCustomerAction(params.type, {
+          actionUrl:
+            typeof params.meta?.actionUrl === "string" ? params.meta.actionUrl : undefined,
+          actionLabel:
+            typeof params.meta?.actionLabel === "string" ? params.meta.actionLabel : undefined,
+        }),
+        ...params.meta,
+      },
+      sourceType: "NOTIFICATION",
+      sourceId: notification.id,
+    });
+  }
 
   return notification;
 }
@@ -81,7 +138,7 @@ export class ClientNotificationService {
     return { scanned: customers.length, created };
   }
 
-  static async syncForCustomer(customerId: string) {
+  static async syncForCustomer(customerId: string, options?: { deliverExternal?: boolean }) {
     const now = new Date();
     const today = startOfDay(now);
     const tomorrow = addDays(today, 1);
@@ -91,7 +148,7 @@ export class ClientNotificationService {
         customerId,
         deletedAt: null,
         status: {
-          notIn: ["SETTLED", "COMPLETED", "REJECTED"],
+          in: ["APPROVED", "PENDING_CONTRACT", "CONTRACT_SIGNED", "PENDING_DISBURSEMENT", "DISBURSED"],
         },
       },
       orderBy: { createdAt: "desc" },
@@ -121,6 +178,10 @@ export class ClientNotificationService {
         content: `你的借款 ${application.applicationNo} 已放款，预计到账 ${money(
           Number(application.disbursement.netAmount || 0)
         )}，请尽快进入借款页面确认收款。`,
+        meta: {
+          severity: "info",
+        },
+        deliverExternal: options?.deliverExternal,
       });
       if (result) created += 1;
     }
@@ -169,15 +230,24 @@ export class ClientNotificationService {
       const remaining = Number(nextItem.remaining || nextItem.totalDue || 0);
       const daysUntilDue = diffDays(now, nextItem.dueDate);
 
-      if (daysUntilDue >= 1 && daysUntilDue <= 3) {
+      if (daysUntilDue === 3 || daysUntilDue === 1) {
         const result = await createCustomerNotification({
           customerId,
-          templateCode: `CLIENT_DUE_SOON_${nextItem.id}_${nextItem.dueDate.toISOString().slice(0, 10)}`,
+          templateCode: `CLIENT_DUE_SOON_D${daysUntilDue}_${nextItem.id}_${nextItem.dueDate
+            .toISOString()
+            .slice(0, 10)}`,
           type: "REPAYMENT_DUE_SOON",
-          title: "还款即将到期",
+          title: daysUntilDue === 1 ? "明日需要还款" : "还款即将到期",
           content: `当前借款第 ${nextItem.periodNumber} 期将于 ${nextItem.dueDate.toLocaleDateString(
             "zh-CN"
           )} 到期，应还 ${money(remaining)}，请提前安排资金。`,
+          meta: {
+            severity: "warning",
+            stage: "pre_due",
+            daysUntilDue,
+            amountDue: remaining,
+          },
+          deliverExternal: options?.deliverExternal,
         });
         if (result) created += 1;
       }
@@ -190,7 +260,14 @@ export class ClientNotificationService {
           title: "今天需要还款",
           content: `当前借款第 ${nextItem.periodNumber} 期今天到期，应还 ${money(
             remaining
-          )}，点击后可直接进入当前还款处理页。`,
+          )}，点击后可直接进入当前还款确认页。`,
+          meta: {
+            severity: "warning",
+            stage: "due_today",
+            daysUntilDue: 0,
+            amountDue: remaining,
+          },
+          deliverExternal: options?.deliverExternal,
         });
         if (result) created += 1;
       }
@@ -213,15 +290,25 @@ export class ClientNotificationService {
           orderBy: { overdueDays: "desc" },
         });
 
-    for (const record of overdueRecords) {
+    for (const record of overdueRecords.filter((item) => [1, 3, 7].includes(item.overdueDays))) {
+      const severity =
+        record.overdueDays >= 7 ? "critical" : record.overdueDays >= 3 ? "warning" : "info";
       const result = await createCustomerNotification({
         customerId,
         templateCode: `CLIENT_OVERDUE_${record.id}_D${record.overdueDays}`,
         type: "REPAYMENT_OVERDUE",
-        title: "借款已逾期",
+        title: `借款已逾期 ${record.overdueDays} 天`,
         content: `当前借款已逾期 ${record.overdueDays} 天，累计逾期费用 ${money(
           Number(record.penaltyAmount)
         )}，当前应处理金额 ${money(Number(record.overdueAmount))}。`,
+        meta: {
+          severity,
+          stage: `overdue_d${record.overdueDays}`,
+          overdueDays: record.overdueDays,
+          overdueAmount: Number(record.overdueAmount),
+          penaltyAmount: Number(record.penaltyAmount),
+        },
+        deliverExternal: options?.deliverExternal,
       });
       if (result) created += 1;
     }
@@ -250,6 +337,12 @@ export class ClientNotificationService {
         content: `还款单 ${pendingRepayment.repaymentNo} 等待你确认，本次金额 ${money(
           Number(pendingRepayment.amount)
         )}。`,
+        meta: {
+          severity: "info",
+          actionUrl: buildAppUrl(`/client/sign/repayment/${pendingRepayment.id}`),
+          actionLabel: "去确认付款",
+        },
+        deliverExternal: options?.deliverExternal,
       });
       if (result) created += 1;
     }
@@ -263,6 +356,12 @@ export class ClientNotificationService {
         content: `你已报备付款 ${customerConfirmedRepayment.repaymentNo}，金额 ${money(
           Number(customerConfirmedRepayment.amount)
         )}。如果后台标记未收款，本金会恢复继续计息。`,
+        meta: {
+          severity: "info",
+          stage: "pending_receipt",
+          amount: Number(customerConfirmedRepayment.amount),
+        },
+        deliverExternal: options?.deliverExternal,
       });
       if (result) created += 1;
     }

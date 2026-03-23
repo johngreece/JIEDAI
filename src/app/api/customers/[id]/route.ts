@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +26,8 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["customer:view"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const customer = await prisma.customer.findFirst({
@@ -66,14 +67,17 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["customer:edit"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      { error: "参数错误", details: parsed.error.flatten() },
+      { status: 400 }
+    );
   }
 
   const existing = await prisma.customer.findFirst({ where: { id, deletedAt: null } });
@@ -81,7 +85,6 @@ export async function PUT(
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
   }
 
-  // 手机号唯一性检查
   if (parsed.data.phone && parsed.data.phone !== existing.phone) {
     const dup = await prisma.customer.findFirst({
       where: { phone: parsed.data.phone, deletedAt: null, id: { not: id } },
@@ -100,6 +103,43 @@ export async function PUT(
     data: dataToWrite,
   });
 
+  await writeAuditLog({
+    userId: session.sub,
+    action: "update",
+    entityType: "customer",
+    entityId: id,
+    oldValue: {
+      name: existing.name,
+      phone: existing.phone,
+      email: existing.email,
+      address: existing.address,
+      emergencyContact: existing.emergencyContact,
+      emergencyContactPhone: existing.emergencyContactPhone,
+      emergencyContactRelation: existing.emergencyContactRelation,
+      bankAccount: existing.bankAccount,
+      bankName: existing.bankName,
+      riskLevel: existing.riskLevel,
+      remark: existing.remark,
+    },
+    newValue: {
+      name: updated.name,
+      phone: updated.phone,
+      email: updated.email,
+      address: updated.address,
+      emergencyContact: updated.emergencyContact,
+      emergencyContactPhone: updated.emergencyContactPhone,
+      emergencyContactRelation: updated.emergencyContactRelation,
+      bankAccount: updated.bankAccount,
+      bankName: updated.bankName,
+      riskLevel: updated.riskLevel,
+      remark: updated.remark,
+      passwordUpdated: Boolean(newPassword),
+    },
+    changeSummary: "编辑客户资料",
+    ipAddress: req.headers.get("x-forwarded-for") || null,
+    userAgent: req.headers.get("user-agent") || null,
+  }).catch(() => undefined);
+
   const { passwordHash, ...rest } = updated;
   return NextResponse.json(rest);
 }
@@ -108,8 +148,8 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["customer:edit"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const existing = await prisma.customer.findFirst({ where: { id, deletedAt: null } });
@@ -117,7 +157,6 @@ export async function DELETE(
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
   }
 
-  // 检查是否有进行中的借款
   const activeLoan = await prisma.loanApplication.findFirst({
     where: {
       customerId: id,
@@ -126,7 +165,7 @@ export async function DELETE(
     },
   });
   if (activeLoan) {
-    return NextResponse.json({ error: "客户有进行中的借款，无法删除" }, { status: 409 });
+    return NextResponse.json({ error: "客户仍有进行中的借款，无法删除" }, { status: 409 });
   }
 
   await prisma.customer.update({

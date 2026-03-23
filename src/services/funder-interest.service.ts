@@ -37,6 +37,10 @@ interface FunderEarnings {
   withdrawableInterest: number;
   withdrawablePrincipal: number;
   totalWithdrawn: number;
+  forecast7dInterest: number;
+  forecast30dInterest: number;
+  forecast7dCollection: number;
+  forecast30dCollection: number;
   earningSummary: EarningPeriod[];
   upcomingSettlements: UpcomingSettlement[];
 }
@@ -302,8 +306,31 @@ export class FunderInterestService {
     withdrawableInterest = Math.min(withdrawableInterest, cashAvailable);
     const withdrawablePrincipal = Math.max(0, round2(cashAvailable - withdrawableInterest));
     const idleFunds = cashAvailable;
+    const in7Days = addDays(now, 7);
+    const in30Days = addDays(now, 30);
 
     upcomingSettlements.sort((a, b) => a.nextSettlementDate.getTime() - b.nextSettlementDate.getTime());
+
+    const forecast7dInterest = round2(
+      upcomingSettlements
+        .filter((item) => item.nextSettlementDate <= in7Days)
+        .reduce((sum, item) => sum + item.expectedInterest, 0)
+    );
+    const forecast30dInterest = round2(
+      upcomingSettlements
+        .filter((item) => item.nextSettlementDate <= in30Days)
+        .reduce((sum, item) => sum + item.expectedInterest, 0)
+    );
+    const forecast7dCollection = round2(
+      upcomingSettlements
+        .filter((item) => item.nextCustomerDueDate && item.nextCustomerDueDate <= in7Days)
+        .reduce((sum, item) => sum + item.expectedCollection, 0)
+    );
+    const forecast30dCollection = round2(
+      upcomingSettlements
+        .filter((item) => item.nextCustomerDueDate && item.nextCustomerDueDate <= in30Days)
+        .reduce((sum, item) => sum + item.expectedCollection, 0)
+    );
 
     return {
       funderId: funder.id,
@@ -316,6 +343,10 @@ export class FunderInterestService {
       withdrawableInterest: round2(withdrawableInterest),
       withdrawablePrincipal: round2(withdrawablePrincipal),
       totalWithdrawn: round2(totalWithdrawn),
+      forecast7dInterest,
+      forecast30dInterest,
+      forecast7dCollection,
+      forecast30dCollection,
       earningSummary,
       upcomingSettlements,
     };

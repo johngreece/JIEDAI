@@ -22,6 +22,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:regression": "node scripts/full-regression.js",
+    "test:launch-readiness": "node scripts/launch-readiness-smoke.js",
+    "test:external-touchpoints": "npx tsx scripts/test-external-touchpoints.ts",
+    "test:finance-reconciliation": "npx tsx scripts/test-finance-reconciliation.ts",
     "test:regression-alert-webhooks": "npx tsx scripts/test-regression-alert-webhooks.ts",
     "test:regression-alert-providers": "npx tsx scripts/test-regression-alert-providers.ts",
     "test:message-delivery-queue": "npx tsx scripts/test-message-delivery-queue.ts"

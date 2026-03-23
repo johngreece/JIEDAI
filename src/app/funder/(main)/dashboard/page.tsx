@@ -35,6 +35,10 @@ interface DashboardData {
     withdrawableInterest: number;
     withdrawablePrincipal: number;
     totalWithdrawn: number;
+    forecast7dInterest: number;
+    forecast30dInterest: number;
+    forecast7dCollection: number;
+    forecast30dCollection: number;
     earningSummary: Array<{
       periodStart: string;
       periodEnd: string;
@@ -166,7 +170,14 @@ export default function FunderDashboardPage() {
           label="当前可提"
           value={formatMoney(earnings.withdrawablePrincipal + earnings.withdrawableInterest)}
           note={`本金 ${formatMoney(earnings.withdrawablePrincipal)} · 利息 ${formatMoney(earnings.withdrawableInterest)}`}
-        />
+      />
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard label="7天预计收益" value={formatMoney(earnings.forecast7dInterest)} />
+        <KpiCard label="30天预计收益" value={formatMoney(earnings.forecast30dInterest)} />
+        <KpiCard label="7天预计回款" value={formatMoney(earnings.forecast7dCollection)} />
+        <KpiCard label="30天预计回款" value={formatMoney(earnings.forecast30dCollection)} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">

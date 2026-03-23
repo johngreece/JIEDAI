@@ -1,3 +1,4 @@
+const { spawn } = require("child_process");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient({
@@ -251,6 +252,50 @@ async function runParallelSmokeChecks(context) {
   };
 }
 
+async function waitForReady(child) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(new Error("dev server start timeout"));
+      }
+    }, 120000);
+
+    const handleOutput = (chunk) => {
+      const text = chunk.toString();
+      if (text.includes("Ready in") || text.includes("EADDRINUSE")) {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve();
+        }
+      }
+    };
+
+    child.stdout.on("data", handleOutput);
+    child.stderr.on("data", handleOutput);
+    child.on("exit", (code) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error(`dev server exited early: ${code}`));
+      }
+    });
+  });
+}
+
+async function stopTree(child) {
+  if (!child?.pid) return;
+  await new Promise((resolve) => {
+    const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      stdio: "ignore",
+    });
+    killer.on("exit", resolve);
+    killer.on("error", resolve);
+  });
+}
+
 async function main() {
   const tag = `REG-${Date.now()}`;
   const summary = { tag, baseUrl: BASE_URL };
@@ -495,12 +540,29 @@ async function main() {
   console.log(JSON.stringify(summary, null, 2));
 }
 
-main()
-  .catch((error) => {
-    console.error("[full-regression] FAILED");
-    console.error(error);
-    process.exitCode = 1;
-  })
-  .finally(async () => {
+async function run() {
+  const shouldStartLocalServer = !process.env.REGRESSION_BASE_URL;
+  const child = shouldStartLocalServer
+    ? spawn("cmd.exe", ["/c", "npm run dev"], {
+        cwd: process.cwd(),
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+    : null;
+
+  try {
+    if (child) {
+      await waitForReady(child);
+    }
+
+    await main();
+  } finally {
+    await stopTree(child);
     await prisma.$disconnect();
-  });
+  }
+}
+
+run().catch((error) => {
+  console.error("[full-regression] FAILED");
+  console.error(error);
+  process.exitCode = 1;
+});

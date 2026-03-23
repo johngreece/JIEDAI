@@ -110,8 +110,91 @@ type SmartData = {
     expectedCollections30d: number;
     pendingDisbursementAmount: number;
     predictedNetInflow7d: number;
+    predictedNetInflow30d: number;
+    fundingGap7d: number;
+    fundingGap30d: number;
     coverageRatio: number;
     pressureLevel: string;
+  };
+  collectionAutomation: {
+    stages: Array<{
+      code: string;
+      label: string;
+      count: number;
+      amount: number;
+    }>;
+    activeCases: number;
+    externalTouchpointsEnabled: boolean;
+  };
+  financialForecast: {
+    collections7d: number;
+    collections30d: number;
+    fundingGap7d: number;
+    fundingGap30d: number;
+    netInflow7d: number;
+    netInflow30d: number;
+    funderInterest7d: number;
+    funderInterest30d: number;
+    funderCollections7d: number;
+    funderCollections30d: number;
+    topFunderReturns: Array<{
+      funderId: string;
+      funderName: string;
+      interest7d: number;
+      interest30d: number;
+      collection7d: number;
+      collection30d: number;
+    }>;
+  };
+  riskEngine: {
+    averageRecommendedRiskScore: number;
+    overdueProbabilityAverage: number;
+    highRiskCustomers: number;
+    blacklistCandidates: number;
+    repeatBorrowCandidates: number;
+    topSignals: Array<{
+      customerId: string;
+      name: string;
+      phone: string;
+      recommendedRiskScore: number;
+      recommendedRiskLevel: string;
+      overdueProbability: number;
+      reasons: string[];
+    }>;
+  };
+  anomalies: {
+    total: number;
+    critical: number;
+    high: number;
+    byType: {
+      sharedDevice: number;
+      profileChurn: number;
+      applicationBurst: number;
+      withdrawalSpike: number;
+    };
+    incidents: Array<{
+      type: string;
+      severity: "low" | "medium" | "high" | "critical";
+      entityType: string;
+      entityId: string;
+      title: string;
+      summary: string;
+      detectedAt: string;
+      metrics: Record<string, number | string>;
+    }>;
+  };
+  operations: {
+    marketingSpend7d: number;
+    marketingSpend30d: number;
+    newCustomers7d: number;
+    newCustomers30d: number;
+    cac7d: number;
+    cac30d: number;
+    approvalConversion30d: number;
+    disbursementConversion30d: number;
+    badDebtRate: number;
+    realNetProfit30d: number;
+    capitalTurnoverDays: number;
   };
   riskRadar: Array<{
     key: string;
@@ -443,6 +526,21 @@ export function DashboardSummary() {
                 tone={smart.cashflow.predictedNetInflow7d >= 0 ? "success" : "danger"}
               />
               <DataRow
+                label="30澶╁噣娴佸叆"
+                value={formatCurrency(smart.cashflow.predictedNetInflow30d)}
+                tone={smart.cashflow.predictedNetInflow30d >= 0 ? "success" : "danger"}
+              />
+              <DataRow
+                label="7澶╄祫閲戠己鍙?"
+                value={formatCurrency(smart.cashflow.fundingGap7d)}
+                tone={smart.cashflow.fundingGap7d > 0 ? "danger" : "success"}
+              />
+              <DataRow
+                label="30澶╄祫閲戠己鍙?"
+                value={formatCurrency(smart.cashflow.fundingGap30d)}
+                tone={smart.cashflow.fundingGap30d > 0 ? "warn" : "success"}
+              />
+              <DataRow
                 label="资金覆盖率"
                 value={`${smart.cashflow.coverageRatio.toFixed(2)}x`}
                 tone={smart.cashflow.coverageRatio >= 1.2 ? "success" : smart.cashflow.coverageRatio >= 1 ? "warn" : "danger"}
@@ -504,6 +602,131 @@ export function DashboardSummary() {
                   {item}
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="stat-tile rounded-2xl p-5">
+            <SectionHeader title="智能催收分层" hint="把到期前、到期日和逾期节点拆开，方便上线自动触达。" />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {smart.collectionAutomation.stages.map((item) => (
+                <MiniStat
+                  key={item.code}
+                  label={item.label}
+                  value={`${formatNumber(item.count)} 笔`}
+                  sub={formatCurrency(item.amount)}
+                />
+              ))}
+            </div>
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              当前需自动跟进 {formatNumber(smart.collectionAutomation.activeCases)} 笔，
+              {smart.collectionAutomation.externalTouchpointsEnabled ? "已支持站内 + 外部渠道联动。" : "暂未打通外部渠道。"}
+            </div>
+          </div>
+
+          <div className="stat-tile rounded-2xl p-5">
+            <SectionHeader title="风险评分引擎" hint="客户行为分、复借分和逾期概率，已经形成可运营的推荐视图。" />
+            <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+              <MiniStat
+                label="平均风险分"
+                value={formatNumber(smart.riskEngine.averageRecommendedRiskScore)}
+                sub={`逾期概率 ${formatNumber(smart.riskEngine.overdueProbabilityAverage)}%`}
+              />
+              <MiniStat
+                label="高风险客户"
+                value={formatNumber(smart.riskEngine.highRiskCustomers)}
+                sub={`黑名单候选 ${formatNumber(smart.riskEngine.blacklistCandidates)}`}
+              />
+              <MiniStat
+                label="复借候选"
+                value={formatNumber(smart.riskEngine.repeatBorrowCandidates)}
+                sub="可做精细化二次营销"
+              />
+            </div>
+            <div className="mt-4 space-y-3">
+              {smart.riskEngine.topSignals.map((item) => (
+                <div key={item.customerId} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-slate-900">{item.name}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {item.recommendedRiskLevel} · 逾期概率 {item.overdueProbability}%
+                      </div>
+                    </div>
+                    <div className="text-lg font-bold text-slate-900">{item.recommendedRiskScore}</div>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-600">{item.reasons.join(" / ") || "暂无额外风险说明"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="stat-tile rounded-2xl p-5">
+            <SectionHeader title="异常检测" hint="同设备多账号、资料频繁改动、申请突增和异常提现统一收口。" />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <MiniStat
+                label="异常总数"
+                value={formatNumber(smart.anomalies.total)}
+                sub={`高危 ${formatNumber(smart.anomalies.critical)} · 高风险 ${formatNumber(smart.anomalies.high)}`}
+              />
+              <MiniStat
+                label="共享设备"
+                value={formatNumber(smart.anomalies.byType.sharedDevice)}
+                sub={`资料频改 ${formatNumber(smart.anomalies.byType.profileChurn)}`}
+              />
+              <MiniStat
+                label="申请突增"
+                value={formatNumber(smart.anomalies.byType.applicationBurst)}
+                sub={`异常提现 ${formatNumber(smart.anomalies.byType.withdrawalSpike)}`}
+              />
+              <MiniStat
+                label="资金方预测"
+                value={formatCurrency(smart.financialForecast.funderInterest30d)}
+                sub="未来 30 天预估收益"
+              />
+            </div>
+            <div className="mt-4 space-y-3">
+              {smart.anomalies.incidents.map((item) => (
+                <div key={`${item.type}-${item.entityId}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-semibold text-slate-900">{item.title}</div>
+                    <div className="text-xs uppercase text-slate-500">{item.severity}</div>
+                  </div>
+                  <div className="mt-2 text-sm text-slate-600">{item.summary}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="stat-tile rounded-2xl p-5">
+            <SectionHeader title="经营仪表盘" hint="先把上线运营最关键的获客、转化、坏账和净利润打通。" />
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <MiniStat
+                label="CAC 7天"
+                value={formatCurrency(smart.operations.cac7d)}
+                sub={`营销投入 ${formatCurrency(smart.operations.marketingSpend7d)}`}
+              />
+              <MiniStat
+                label="CAC 30天"
+                value={formatCurrency(smart.operations.cac30d)}
+                sub={`新增客户 ${formatNumber(smart.operations.newCustomers30d)}`}
+              />
+              <MiniStat
+                label="审批转化"
+                value={formatPercent(smart.operations.approvalConversion30d)}
+                sub={`放款转化 ${formatPercent(smart.operations.disbursementConversion30d)}`}
+              />
+              <MiniStat
+                label="坏账率"
+                value={formatPercent(smart.operations.badDebtRate)}
+                sub={`周转天数 ${smart.operations.capitalTurnoverDays.toFixed(1)} 天`}
+              />
+            </div>
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-sm text-slate-500">真实净利润（30 天）</div>
+              <div className="mt-2 text-2xl font-bold text-slate-900">
+                {formatCurrency(smart.operations.realNetProfit30d)}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">已扣除营销投入与资金方收益预测成本。</div>
             </div>
           </div>
         </div>
