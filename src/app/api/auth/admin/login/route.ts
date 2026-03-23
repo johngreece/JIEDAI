@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   // 记录登录时间和 IP
   await prisma.user.update({
     where: { id: user.id },
-    data: { lastLoginAt: new Date(), lastLoginIp: req.headers.get("x-forwarded-for") ?? req.ip ?? null },
+    data: { lastLoginAt: new Date(), lastLoginIp: req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? null },
   });
   const token = await createAdminToken({
     sub: user.id,

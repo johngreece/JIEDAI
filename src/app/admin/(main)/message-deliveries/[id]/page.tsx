@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type AttemptDetail = {
@@ -69,11 +70,8 @@ function statusTone(status: string) {
   return "bg-slate-50 text-slate-600 border-slate-200";
 }
 
-export default function MessageDeliveryDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function MessageDeliveryDetailPage() {
+  const params = useParams<{ id: string }>();
   const [item, setItem] = useState<DeliveryDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

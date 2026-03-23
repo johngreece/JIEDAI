@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const funderSession = await getFunderSession();
   const adminSession = await getAdminSession();
@@ -19,7 +19,8 @@ export async function GET(
     return NextResponse.json({ error: "未授权" }, { status: 401 });
   }
 
-  const contract = await FunderContractService.get(params.id);
+  const { id } = await params;
+  const contract = await FunderContractService.get(id);
   if (!contract) {
     return NextResponse.json({ error: "合同不存在" }, { status: 404 });
   }

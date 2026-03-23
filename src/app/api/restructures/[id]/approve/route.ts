@@ -12,12 +12,12 @@ const approveSchema = z.object({
 
 export async function POST(
   req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await requirePermission(["loan:approve"]);
   if (session instanceof Response) return session;
 
-  const { id } = params;
+  const { id } = await params;
   const body = await req.json().catch(() => ({}));
   const parsed = approveSchema.safeParse(body);
   if (!parsed.success) {

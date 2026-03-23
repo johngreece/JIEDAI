@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 type JsonRecord = Record<string, any>;
 
 const API = "/api/settlement";

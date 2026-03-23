@@ -84,7 +84,7 @@ export default function ContractsPage() {
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-500 border-t-transparent" />
         </div>
       ) : contracts.length === 0 ? (
-        <div className="py-12 text-center text-slate-400">暂无合同，点击"生成新合同"创建</div>
+        <div className="py-12 text-center text-slate-400">暂无合同，点击“生成新合同”创建</div>
       ) : (
         <div className="space-y-3">
           {contracts.map((c) => (

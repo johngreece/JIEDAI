@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
 type Detail = {
@@ -50,7 +51,8 @@ type Detail = {
   };
 };
 
-export default function DisbursementDetailPage({ params }: { params: { id: string } }) {
+export default function DisbursementDetailPage() {
+  const params = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);

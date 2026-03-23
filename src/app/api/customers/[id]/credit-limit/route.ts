@@ -7,15 +7,16 @@ export const dynamic = "force-dynamic";
 /* GET — 获取客户额度信息 */
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession();
   if (!session || !isAdmin(session)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { id } = await params;
   const customer = await prisma.customer.findUnique({
-    where: { id: params.id },
+    where: { id },
     select: {
       id: true,
       name: true,
@@ -57,13 +58,14 @@ export async function GET(
 /* PATCH — 管理员设置客户特定额度 */
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getSession();
   if (!session || !isAdmin(session)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { id } = await params;
   const body = await req.json();
   const { creditLimitOverride } = body;
 
@@ -76,7 +78,7 @@ export async function PATCH(
   }
 
   const customer = await prisma.customer.update({
-    where: { id: params.id },
+    where: { id },
     data: {
       creditLimitOverride: creditLimitOverride === null ? null : Number(creditLimitOverride),
     },

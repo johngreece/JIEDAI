@@ -16,13 +16,14 @@ function parseJson(value: string | null) {
 
 export async function GET(
   _req: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await requirePermission(["audit:view"]);
   if (session instanceof Response) return session;
 
+  const { id } = await params;
   const item = await prisma.messageDelivery.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       attempts: {
         orderBy: [{ attemptNo: "desc" }, { createdAt: "desc" }],

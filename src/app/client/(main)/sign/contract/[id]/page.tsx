@@ -203,6 +203,8 @@ export default function ClientContractSignPage() {
 
           {signSession ? (
             <div className="mt-4 flex flex-col items-start gap-4 md:flex-row md:items-center">
+              {/* QR code comes from an API-generated data URL / short-lived sign session URL, so a raw img is intentional here. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={signSession.qrImageUrl}
                 alt="合同签署二维码"

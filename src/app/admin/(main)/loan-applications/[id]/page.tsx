@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import RealtimeTimer from "@/components/RealtimeTimer";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
@@ -63,7 +64,8 @@ function formatMoney(value: number) {
   }).format(value);
 }
 
-export default function LoanApplicationDetailPage({ params }: { params: { id: string } }) {
+export default function LoanApplicationDetailPage() {
+  const params = useParams<{ id: string }>();
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -89,7 +91,7 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
     monthlyInterestAmount: "",
   });
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -124,11 +126,11 @@ export default function LoanApplicationDetailPage({ params }: { params: { id: st
     } finally {
       setLoading(false);
     }
-  }
+  }, [params.id]);
 
   useEffect(() => {
     void load();
-  }, [params.id]);
+  }, [load]);
 
   const editable = useMemo(
     () => (data ? ["DRAFT", "REJECTED"].includes(data.status) : false),

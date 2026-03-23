@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type ProviderHealth = {
   channel: string;
@@ -83,7 +83,7 @@ export default function MessageDeliveriesPage() {
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
 
@@ -112,11 +112,11 @@ export default function MessageDeliveriesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [status, channel, provider, query]);
 
   useEffect(() => {
     void load();
-  }, [status, channel, provider]);
+  }, [load]);
 
   async function retryDelivery(id: string) {
     setBusyId(id);
