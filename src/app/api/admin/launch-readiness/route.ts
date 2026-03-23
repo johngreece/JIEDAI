@@ -5,8 +5,6 @@ import { SmartDashboardService } from "@/services/smart-dashboard.service";
 
 export const dynamic = "force-dynamic";
 
-const TEST_CLIENT_PHONE = "13800000001";
-
 function toClientAction(type: string, templateCode: string | null) {
   if (type === "REPAYMENT_CONFIRM") {
     const repaymentId = templateCode?.replace("CLIENT_PENDING_CONFIRM_", "") ?? "";
@@ -49,52 +47,34 @@ export async function GET() {
   const session = await requirePermission(["dashboard:view"]);
   if (session instanceof Response) return session;
 
-  const [smart, customer] = await Promise.all([
-    SmartDashboardService.getSmartData(),
-    prisma.customer.findFirst({
-      where: { phone: TEST_CLIENT_PHONE, deletedAt: null },
-      select: {
-        id: true,
-        name: true,
-        phone: true,
+  const smart = await SmartDashboardService.getSmartData();
+
+  const activeApplication = await prisma.loanApplication.findFirst({
+    where: {
+      deletedAt: null,
+      status: {
+        in: ["DISBURSED", "PENDING_DISBURSEMENT", "PENDING_CONTRACT", "CONTRACT_SIGNED"],
       },
-    }),
-  ]);
-
-  if (!customer) {
-    return NextResponse.json({ error: `Missing test customer ${TEST_CLIENT_PHONE}` }, { status: 404 });
-  }
-
-  const [activeApplication, notifications] = await Promise.all([
-    prisma.loanApplication.findFirst({
-      where: {
-        customerId: customer.id,
+      customer: {
         deletedAt: null,
-        status: { in: ["DISBURSED", "PENDING_DISBURSEMENT", "PENDING_CONTRACT", "CONTRACT_SIGNED"] },
       },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        applicationNo: true,
-        status: true,
-        createdAt: true,
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      applicationNo: true,
+      status: true,
+      createdAt: true,
+      customerId: true,
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+        },
       },
-    }),
-    prisma.notification.findMany({
-      where: { customerId: customer.id },
-      orderBy: { createdAt: "desc" },
-      take: 12,
-      select: {
-        id: true,
-        type: true,
-        templateCode: true,
-        title: true,
-        content: true,
-        createdAt: true,
-        isRead: true,
-      },
-    }),
-  ]);
+    },
+  });
 
   const plan = activeApplication
     ? await prisma.repaymentPlan.findFirst({
@@ -117,14 +97,33 @@ export async function GET() {
       })
     : null;
 
-  const nextScheduleItem = plan?.scheduleItems[0] || null;
+  const notifications = activeApplication
+    ? await prisma.notification.findMany({
+        where: { customerId: activeApplication.customerId },
+        orderBy: { createdAt: "desc" },
+        take: 12,
+        select: {
+          id: true,
+          type: true,
+          templateCode: true,
+          title: true,
+          content: true,
+          createdAt: true,
+          isRead: true,
+        },
+      })
+    : [];
+
+  const nextScheduleItem = plan?.scheduleItems[0] ?? null;
 
   return NextResponse.json({
-    testClient: {
-      id: customer.id,
-      name: customer.name,
-      phone: customer.phone,
-    },
+    testClient: activeApplication
+      ? {
+          id: activeApplication.customer.id,
+          name: activeApplication.customer.name,
+          phone: activeApplication.customer.phone,
+        }
+      : null,
     activeApplication: activeApplication
       ? {
           id: activeApplication.id,

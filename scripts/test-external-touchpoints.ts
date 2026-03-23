@@ -1,4 +1,5 @@
 import http from "http";
+import bcrypt from "bcryptjs";
 import { loadEnvConfig } from "@next/env";
 import { prisma } from "@/lib/prisma";
 
@@ -25,6 +26,81 @@ function getActionUrls(body: unknown) {
   const actions = (body as { actions?: Array<{ url?: string }> }).actions;
   if (!Array.isArray(actions)) return [];
   return actions.map((item) => item?.url).filter((item): item is string => Boolean(item));
+}
+
+async function ensureTouchpointCustomer() {
+  const existing = await prisma.customer.findFirst({
+    where: { deletedAt: null, phone: { not: "" } },
+    select: { id: true, name: true, phone: true, email: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (existing) return existing;
+
+  return prisma.customer.create({
+    data: {
+      name: "Touchpoint Customer",
+      phone: `696${String(Date.now()).slice(-7)}`,
+      passwordHash: await bcrypt.hash("customer123", 10),
+      idNumber: `TP${Date.now()}`,
+      email: "touchpoint-customer@example.com",
+      address: "Touchpoint Fixture",
+    },
+    select: { id: true, name: true, phone: true, email: true },
+  });
+}
+
+async function ensureTouchpointFunder() {
+  const existing = await prisma.funder.findFirst({
+    where: { deletedAt: null, isActive: true, loginPhone: { not: "" } },
+    select: {
+      id: true,
+      name: true,
+      loginPhone: true,
+      contactPhone: true,
+      contactEmail: true,
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  if (existing) return existing;
+
+  const phone = `697${String(Date.now()).slice(-7)}`;
+  const created = await prisma.funder.create({
+    data: {
+      name: `Touchpoint Funder ${Date.now()}`,
+      type: "COMPANY",
+      loginPhone: phone,
+      passwordHash: await bcrypt.hash("funder123", 10),
+      contactPerson: "Touchpoint Fixture",
+      contactPhone: phone,
+      contactEmail: "touchpoint-funder@example.com",
+      cooperationMode: "FIXED_MONTHLY",
+      monthlyRate: 1,
+      priority: 1,
+      isActive: true,
+    },
+    select: {
+      id: true,
+      name: true,
+      loginPhone: true,
+      contactPhone: true,
+      contactEmail: true,
+    },
+  });
+
+  await prisma.fundAccount.create({
+    data: {
+      funderId: created.id,
+      accountName: `${created.name} Account`,
+      bankName: "Touchpoint Bank",
+      accountNo: `TP-${Date.now()}`,
+      balance: 100000,
+      totalInflow: 100000,
+    },
+  });
+
+  return created;
 }
 
 async function main() {
@@ -75,22 +151,8 @@ async function main() {
     ]);
 
     const [customer, funder, adminWithContact] = await Promise.all([
-      prisma.customer.findFirst({
-        where: { deletedAt: null, phone: { not: "" } },
-        select: { id: true, name: true, phone: true, email: true },
-        orderBy: { createdAt: "asc" },
-      }),
-      prisma.funder.findFirst({
-        where: { deletedAt: null, isActive: true, loginPhone: { not: "" } },
-        select: {
-          id: true,
-          name: true,
-          loginPhone: true,
-          contactPhone: true,
-          contactEmail: true,
-        },
-        orderBy: { createdAt: "asc" },
-      }),
+      ensureTouchpointCustomer(),
+      ensureTouchpointFunder(),
       prisma.user.findFirst({
         where: {
           deletedAt: null,
@@ -100,9 +162,6 @@ async function main() {
         orderBy: { createdAt: "asc" },
       }),
     ]);
-
-    if (!customer) throw new Error("Missing seeded customer for touchpoint inspection");
-    if (!funder) throw new Error("Missing seeded funder for touchpoint inspection");
 
     const tag = `TOUCHPOINT_${Date.now()}`;
 

@@ -1,4 +1,5 @@
 const { spawn } = require("child_process");
+const bcrypt = require("bcryptjs");
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient({
@@ -8,6 +9,68 @@ const prisma = new PrismaClient({
 const BASE_URL = process.env.REGRESSION_BASE_URL || "http://127.0.0.1:3001";
 const SIGNATURE_DATA =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sM9lV4AAAAASUVORK5CYII=";
+
+function buildPhone(prefix, seed) {
+  const numeric = String(seed).replace(/\D/g, "").slice(-7).padStart(7, "0");
+  return `${prefix}${numeric}`;
+}
+
+async function createRegressionCustomer(tag) {
+  const password = "customer123";
+  const phone = buildPhone("695", `${Date.now()}1`);
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  const customer = await prisma.customer.create({
+    data: {
+      name: `Regression Client ${tag}`,
+      phone,
+      passwordHash,
+      idNumber: `RG${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      address: "Regression Fixture",
+    },
+    select: { id: true, name: true, phone: true },
+  });
+
+  return { ...customer, password };
+}
+
+async function createRegressionFunder(tag, index, cooperationMode) {
+  const password = "funder123";
+  const phone = buildPhone(`69${index}`, `${Date.now()}${index}`);
+  const passwordHash = await bcrypt.hash(password, 10);
+
+  const funder = await prisma.funder.create({
+    data: {
+      name: `Regression Funder ${tag} ${index}`,
+      type: "COMPANY",
+      contactPerson: "Regression Fixture",
+      contactPhone: phone,
+      loginPhone: phone,
+      passwordHash,
+      cooperationMode,
+      monthlyRate: cooperationMode === "FIXED_MONTHLY" ? 1 : 0,
+      weeklyRate: cooperationMode === "VOLUME_BASED" ? 1.5 : 0,
+      priority: 10 - index,
+      profitShareRatio: cooperationMode === "VOLUME_BASED" ? 0.3 : 0,
+      isActive: true,
+      remark: "Created by regression script",
+    },
+    select: { id: true, name: true, loginPhone: true, cooperationMode: true },
+  });
+
+  await prisma.fundAccount.create({
+    data: {
+      funderId: funder.id,
+      accountName: `${funder.name} Account`,
+      bankName: "Regression Bank",
+      accountNo: `REG-${Date.now()}-${index}-${Math.floor(Math.random() * 1000)}`,
+      balance: 500000,
+      totalInflow: 500000,
+    },
+  });
+
+  return { ...funder, password };
+}
 
 class CookieJar {
   constructor(name) {
@@ -118,9 +181,9 @@ async function loginFunder(phone, password) {
 async function runParallelSmokeChecks(context) {
   const [operatorJar, funderPrimaryJar, funderMonthlyJar, funderVolumeJar] = await Promise.all([
     loginAdmin("operator", "operator123"),
-    loginFunder("13900000001", "funder123"),
-    loginFunder("13900000010", "funder123"),
-    loginFunder("6973000003", "funder123"),
+    loginFunder(context.funders.primary.loginPhone, context.funders.primary.password),
+    loginFunder(context.funders.monthly.loginPhone, context.funders.monthly.password),
+    loginFunder(context.funders.volume.loginPhone, context.funders.volume.password),
   ]);
 
   const checks = [
@@ -300,22 +363,23 @@ async function main() {
   const tag = `REG-${Date.now()}`;
   const summary = { tag, baseUrl: BASE_URL };
 
-  const customer = await prisma.customer.findFirst({
-    where: { phone: "13800000001", deletedAt: null },
-    select: { id: true, name: true, phone: true },
-  });
+  const customer = await createRegressionCustomer(tag);
+  const funders = {
+    primary: await createRegressionFunder(tag, 1, "FIXED_MONTHLY"),
+    monthly: await createRegressionFunder(tag, 2, "FIXED_MONTHLY"),
+    volume: await createRegressionFunder(tag, 3, "VOLUME_BASED"),
+  };
   const product = await prisma.loanProduct.findFirst({
     where: { code: "FULL_AMOUNT_7D", deletedAt: null },
     select: { id: true, code: true, name: true },
   });
 
-  if (!customer) throw new Error("Missing seeded customer 13800000001");
   if (!product) throw new Error("Missing seeded product FULL_AMOUNT_7D");
 
   const adminJar = await loginAdmin("admin", "Wanjin888@");
   const managerJar = await loginAdmin("manager", "manager123");
   const financeJar = await loginAdmin("finance", "finance123");
-  const clientJar = await loginClient(customer.phone, "customer123");
+  const clientJar = await loginClient(customer.phone, customer.password);
 
   const created = await expectOk(
     adminJar,
@@ -535,6 +599,7 @@ async function main() {
     financeJar,
     clientJar,
     applicationId: created.id,
+    funders,
   });
 
   console.log(JSON.stringify(summary, null, 2));

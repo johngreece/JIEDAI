@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
+import { getAdminSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -7,11 +7,19 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const session = await getAdminSession();
   if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!isSuperAdmin(session)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const list = await prisma.fundAccount.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      funder: {
+        deletedAt: null,
+      },
+    },
     orderBy: { createdAt: "desc" },
     include: {
       funder: { select: { id: true, name: true } },
@@ -20,13 +28,16 @@ export async function GET() {
   });
 
   return NextResponse.json({
-    items: list.map((x) => ({
-      id: x.id,
-      accountName: x.accountName,
-      bankName: x.bankName,
-      accountNo: x.accountNo,
-      balance: Number(x.balance),
-      funder: x.funder,
+    items: list.map((item) => ({
+      id: item.id,
+      accountName: item.accountName,
+      bankName: item.bankName,
+      accountNo: item.accountNo,
+      balance: Number(item.balance),
+      totalInflow: Number(item.totalInflow),
+      totalOutflow: Number(item.totalOutflow),
+      totalProfit: Number(item.totalProfit),
+      funder: item.funder,
     })),
   });
 }

@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
-import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import bcrypt from "bcryptjs";
+import { z } from "zod";
+import { getAdminSession, isSuperAdmin } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { paginatedResponse, parsePagination, toPrismaArgs } from "@/lib/pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +26,21 @@ const createSchema = z.object({
   withdrawalCooldownDays: z.number().int().min(0).default(0),
 });
 
+function requireSuperAdminSession() {
+  return getAdminSession().then((session) => {
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (!isSuperAdmin(session)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return session;
+  });
+}
+
 export async function GET(req: Request) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requireSuperAdminSession();
+  if (session instanceof Response) return session;
 
   const url = new URL(req.url);
   const pagination = parsePagination(url);
@@ -40,31 +52,34 @@ export async function GET(req: Request) {
   const [items, total] = await Promise.all([
     prisma.funder.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ priority: "desc" }, { createdAt: "desc" }],
       include: { _count: { select: { accounts: true } } },
       ...toPrismaArgs(pagination),
     }),
     prisma.funder.count({ where }),
   ]);
 
-  return NextResponse.json(paginatedResponse(
-    items.map((f) => ({
-      ...f,
-      profitShareRatio: f.profitShareRatio ? Number(f.profitShareRatio) : null,
-      monthlyRate: Number(f.monthlyRate),
-      weeklyRate: Number(f.weeklyRate),
-      accountCount: f._count.accounts,
-      _count: undefined,
-      passwordHash: undefined,
-    })),
-    total,
-    pagination,
-  ));
+  return NextResponse.json(
+    paginatedResponse(
+      items.map((funder) => ({
+        ...funder,
+        profitShareRatio: funder.profitShareRatio ? Number(funder.profitShareRatio) : null,
+        monthlyRate: Number(funder.monthlyRate),
+        weeklyRate: Number(funder.weeklyRate),
+        riskShareRatio: Number(funder.riskShareRatio),
+        accountCount: funder._count.accounts,
+        _count: undefined,
+        passwordHash: undefined,
+      })),
+      total,
+      pagination
+    )
+  );
 }
 
 export async function POST(req: Request) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requireSuperAdminSession();
+  if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -72,23 +87,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
   }
 
-  const dup = await prisma.funder.findFirst({
-    where: { name: parsed.data.name, deletedAt: null },
+  const duplicate = await prisma.funder.findFirst({
+    where: {
+      OR: [
+        { name: parsed.data.name, deletedAt: null },
+        parsed.data.loginPhone ? { loginPhone: parsed.data.loginPhone, deletedAt: null } : undefined,
+      ].filter(Boolean) as any,
+    },
   });
-  if (dup) return NextResponse.json({ error: "资金方名称已存在" }, { status: 409 });
+
+  if (duplicate) {
+    return NextResponse.json({ error: "资金方名称或登录手机号已存在" }, { status: 409 });
+  }
 
   const { loginPassword, ...rest } = parsed.data;
   const createData: Record<string, unknown> = { ...rest };
   if (loginPassword) {
     createData.passwordHash = await bcrypt.hash(loginPassword, 10);
   }
-  delete createData.loginPassword;
 
-  const funder = await prisma.funder.create({ data: createData as any });
-  return NextResponse.json({
-    ...funder,
-    profitShareRatio: funder.profitShareRatio ? Number(funder.profitShareRatio) : null,
-    monthlyRate: Number(funder.monthlyRate),
-    weeklyRate: Number(funder.weeklyRate),
-  }, { status: 201 });
+  const funder = await prisma.funder.create({
+    data: createData as never,
+  });
+
+  return NextResponse.json(
+    {
+      ...funder,
+      profitShareRatio: funder.profitShareRatio ? Number(funder.profitShareRatio) : null,
+      monthlyRate: Number(funder.monthlyRate),
+      weeklyRate: Number(funder.weeklyRate),
+      riskShareRatio: Number(funder.riskShareRatio),
+      passwordHash: undefined,
+    },
+    { status: 201 }
+  );
 }

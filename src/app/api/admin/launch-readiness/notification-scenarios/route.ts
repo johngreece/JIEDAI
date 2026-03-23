@@ -5,8 +5,6 @@ import { ClientNotificationService } from "@/services/client-notification.servic
 
 export const dynamic = "force-dynamic";
 
-const TEST_CLIENT_PHONE = "13800000001";
-
 function startOfDay(date = new Date()) {
   const next = new Date(date);
   next.setHours(0, 0, 0, 0);
@@ -23,58 +21,57 @@ export async function POST() {
   const session = await requirePermission(["dashboard:view"]);
   if (session instanceof Response) return session;
 
-  const customer = await prisma.customer.findFirst({
-    where: { phone: TEST_CLIENT_PHONE, deletedAt: null },
-    select: { id: true, name: true, phone: true },
-  });
-
-  if (!customer) {
-    return NextResponse.json({ error: `Missing test customer ${TEST_CLIENT_PHONE}` }, { status: 404 });
-  }
-
   const application = await prisma.loanApplication.findFirst({
     where: {
-      customerId: customer.id,
       deletedAt: null,
       status: "DISBURSED",
+      customer: {
+        deletedAt: null,
+      },
     },
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
       applicationNo: true,
+      customerId: true,
+      customer: {
+        select: { id: true, name: true, phone: true },
+      },
     },
   });
 
-  const plan = application
-    ? await prisma.repaymentPlan.findFirst({
-        where: { applicationId: application.id, status: "ACTIVE" },
+  if (!application) {
+    return NextResponse.json({ error: "No active disbursed application for notification scenario" }, { status: 404 });
+  }
+
+  const plan = await prisma.repaymentPlan.findFirst({
+    where: { applicationId: application.id, status: "ACTIVE" },
+    select: {
+      id: true,
+      scheduleItems: {
+        orderBy: { periodNumber: "asc" },
+        take: 1,
         select: {
           id: true,
-          scheduleItems: {
-            orderBy: { periodNumber: "asc" },
-            take: 1,
-            select: {
-              id: true,
-              periodNumber: true,
-              dueDate: true,
-              status: true,
-              totalDue: true,
-              remaining: true,
-              paidAt: true,
-            },
-          },
+          periodNumber: true,
+          dueDate: true,
+          status: true,
+          totalDue: true,
+          remaining: true,
+          paidAt: true,
         },
-      })
-    : null;
+      },
+    },
+  });
 
   const item = plan?.scheduleItems[0];
-  if (!application || !plan || !item) {
-    return NextResponse.json({ error: "No active disbursed application with schedule item" }, { status: 404 });
+  if (!plan || !item) {
+    return NextResponse.json({ error: "No active repayment schedule item" }, { status: 404 });
   }
 
   const originalOverdues = await prisma.overdueRecord.findMany({
     where: {
-      customerId: customer.id,
+      customerId: application.customerId,
       applicationId: application.id,
     },
     orderBy: { createdAt: "asc" },
@@ -106,7 +103,7 @@ export async function POST() {
   try {
     await prisma.notification.deleteMany({
       where: {
-        customerId: customer.id,
+        customerId: application.customerId,
         templateCode: {
           startsWith: "CLIENT_",
         },
@@ -115,7 +112,7 @@ export async function POST() {
 
     await prisma.overdueRecord.deleteMany({
       where: {
-        customerId: customer.id,
+        customerId: application.customerId,
         applicationId: application.id,
       },
     });
@@ -135,7 +132,7 @@ export async function POST() {
     });
     stageResults.push({
       stage: "pre_due_3",
-      created: (await ClientNotificationService.syncForCustomer(customer.id, { deliverExternal: false })).created,
+      created: (await ClientNotificationService.syncForCustomer(application.customerId, { deliverExternal: false })).created,
     });
 
     await prisma.repaymentScheduleItem.update({
@@ -148,7 +145,7 @@ export async function POST() {
     });
     stageResults.push({
       stage: "pre_due_1",
-      created: (await ClientNotificationService.syncForCustomer(customer.id, { deliverExternal: false })).created,
+      created: (await ClientNotificationService.syncForCustomer(application.customerId, { deliverExternal: false })).created,
     });
 
     await prisma.repaymentScheduleItem.update({
@@ -161,12 +158,12 @@ export async function POST() {
     });
     stageResults.push({
       stage: "due_today",
-      created: (await ClientNotificationService.syncForCustomer(customer.id, { deliverExternal: false })).created,
+      created: (await ClientNotificationService.syncForCustomer(application.customerId, { deliverExternal: false })).created,
     });
 
     const overdue = await prisma.overdueRecord.create({
       data: {
-        customerId: customer.id,
+        customerId: application.customerId,
         applicationId: application.id,
         scheduleItemId: item.id,
         overdueAmount: amountDue,
@@ -188,7 +185,7 @@ export async function POST() {
     });
     stageResults.push({
       stage: "overdue_1",
-      created: (await ClientNotificationService.syncForCustomer(customer.id, { deliverExternal: false })).created,
+      created: (await ClientNotificationService.syncForCustomer(application.customerId, { deliverExternal: false })).created,
     });
 
     await prisma.overdueRecord.update({
@@ -208,7 +205,7 @@ export async function POST() {
     });
     stageResults.push({
       stage: "overdue_3",
-      created: (await ClientNotificationService.syncForCustomer(customer.id, { deliverExternal: false })).created,
+      created: (await ClientNotificationService.syncForCustomer(application.customerId, { deliverExternal: false })).created,
     });
 
     await prisma.overdueRecord.update({
@@ -228,11 +225,11 @@ export async function POST() {
     });
     stageResults.push({
       stage: "overdue_7",
-      created: (await ClientNotificationService.syncForCustomer(customer.id, { deliverExternal: false })).created,
+      created: (await ClientNotificationService.syncForCustomer(application.customerId, { deliverExternal: false })).created,
     });
 
     const notifications = await prisma.notification.findMany({
-      where: { customerId: customer.id },
+      where: { customerId: application.customerId },
       orderBy: { createdAt: "desc" },
       take: 12,
       select: {
@@ -246,7 +243,7 @@ export async function POST() {
 
     return NextResponse.json({
       ok: true,
-      customer,
+      customer: application.customer,
       application: {
         id: application.id,
         applicationNo: application.applicationNo,
@@ -257,7 +254,7 @@ export async function POST() {
   } finally {
     await prisma.notification.deleteMany({
       where: {
-        customerId: customer.id,
+        customerId: application.customerId,
         templateCode: {
           startsWith: "CLIENT_",
         },
@@ -266,7 +263,7 @@ export async function POST() {
 
     await prisma.overdueRecord.deleteMany({
       where: {
-        customerId: customer.id,
+        customerId: application.customerId,
         applicationId: application.id,
       },
     });
@@ -274,7 +271,7 @@ export async function POST() {
     if (originalOverdues.length > 0) {
       await prisma.overdueRecord.createMany({
         data: originalOverdues.map((record) => ({
-          customerId: customer.id,
+          customerId: application.customerId,
           applicationId: application.id,
           scheduleItemId: record.scheduleItemId,
           overdueAmount: record.overdueAmount,
