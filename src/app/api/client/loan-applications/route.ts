@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
       },
       select: {
         id: true,
+        code: true,
         name: true,
         minAmount: true,
         maxAmount: true,
@@ -95,6 +96,13 @@ export async function POST(req: NextRequest) {
 
   if (!product) {
     return NextResponse.json({ error: "借款产品不存在或已停用" }, { status: 404 });
+  }
+
+  if (product.code !== "UPFRONT_7D") {
+    return NextResponse.json(
+      { error: "客户端目前仅开放 7 天砍头息模式，其他借款模式仅供内部申请" },
+      { status: 403 }
+    );
   }
 
   if (!fallbackCreator) {

@@ -319,7 +319,7 @@ async function main() {
     create: {
       name: "砍头息短期贷（7天）",
       code: "UPFRONT_7D",
-      description: "砍头息模式：借10000到手9500，阶梯费率还款",
+      description: "砍头息模式：公开仅开放 7 天产品，5 小时内 2%，24 小时内 3%，7 天内 5%",
       minAmount: 1000,
       maxAmount: 100000,
       minTermValue: 7,
@@ -337,7 +337,7 @@ async function main() {
     create: {
       name: "全额短期贷（7天）",
       code: "FULL_AMOUNT_7D",
-      description: "全额模式：借10000到手10000，阶梯费率还款（仅专属链接）",
+      description: "全额模式：仅内部使用，不在客户端公开展示",
       minAmount: 1000,
       maxAmount: 100000,
       minTermValue: 7,
@@ -356,9 +356,9 @@ async function main() {
   const upfrontRules = [
     { name: "砍头息手续费", ruleType: "UPFRONT_FEE", rateValue: 5, conditionJson: null, priority: 100 },
     { name: "通道类型", ruleType: "CHANNEL", rateValue: 0, conditionJson: JSON.stringify({ type: "UPFRONT_DEDUCTION" }), priority: 99 },
-    { name: "当天还", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxDays: 0, label: "当天还" }), priority: 10 },
-    { name: "隔天还", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxDays: 1, label: "隔天还" }), priority: 9 },
-    { name: "第3~7天还", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxDays: 7, label: "第3~7天还" }), priority: 8 },
+    { name: "5小时内还", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxHours: 5, maxDays: 0, label: "5小时内还" }), priority: 10 },
+    { name: "24小时内还", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxHours: 24, maxDays: 1, label: "24小时内还" }), priority: 9 },
+    { name: "7天内还", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "24小时后至7天内还" }), priority: 8 },
     { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ maxDays: 14 }), priority: 5 },
     { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: null, priority: 4 },
   ];
@@ -385,9 +385,9 @@ async function main() {
   // ── 定价规则 — 全额产品 ──
   const fullRules = [
     { name: "通道类型", ruleType: "CHANNEL", rateValue: 0, conditionJson: JSON.stringify({ type: "FULL_AMOUNT" }), priority: 99 },
-    { name: "当天还", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxDays: 0, label: "当天还" }), priority: 10 },
-    { name: "隔天还", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxDays: 1, label: "隔天还" }), priority: 9 },
-    { name: "第3~7天还", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxDays: 7, label: "第3~7天还" }), priority: 8 },
+    { name: "5小时内还", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxHours: 5, maxDays: 0, label: "5小时内还" }), priority: 10 },
+    { name: "24小时内还", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxHours: 24, maxDays: 1, label: "24小时内还" }), priority: 9 },
+    { name: "7天内还", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "24小时后至7天内还" }), priority: 8 },
     { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ maxDays: 14 }), priority: 5 },
     { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: null, priority: 4 },
   ];

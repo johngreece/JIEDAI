@@ -112,9 +112,9 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
           <div className="mt-2 text-xs text-slate-500">系统会按当前客户额度校验申请金额</div>
         </div>
         <div className="stat-tile rounded-2xl p-5">
-          <div className="text-sm text-slate-500">可选产品</div>
+          <div className="text-sm text-slate-500">公开产品</div>
           <div className="mt-3 text-2xl font-bold text-slate-900">{products.length}</div>
-          <div className="mt-2 text-xs text-slate-500">可在下方选择产品后直接发起申请</div>
+          <div className="mt-2 text-xs text-slate-500">客户端目前仅公开 7 天砍头息，其他模式不对外开放</div>
         </div>
         <div className="stat-tile rounded-2xl p-5">
           <div className="text-sm text-slate-500">默认期限</div>
@@ -133,7 +133,7 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">发起借款申请</h2>
-            <p className="mt-1 text-sm text-slate-600">提交后会直接进入管理端待风控，并同步生成站内提醒。</p>
+            <p className="mt-1 text-sm text-slate-600">当前只开放 7 天砍头息申请。提交后会直接进入管理端待风控，并同步生成站内提醒。</p>
           </div>
           {selectedProduct ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
@@ -141,6 +141,7 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
               <div className="mt-1">
                 金额范围 {money(selectedProduct.minAmount)} - {money(maxBorrowable > 0 ? maxBorrowable : 0)}
               </div>
+              <div className="mt-1">公开规则：5 小时内 2%，24 小时内 3%，7 天内 5%</div>
             </div>
           ) : null}
         </div>
@@ -248,13 +249,13 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
           <h2 className="text-lg font-semibold text-slate-900">借款利息规则</h2>
           <div className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              若产品为砍头息模式，实际到账金额会小于借款本金，系统会在放款时直接扣除服务费，请以合同和放款页展示为准。
+              当前客户端只开放 7 天砍头息。放款时会先扣除服务费，实际到账金额会小于借款本金，请以合同和放款页面展示为准。
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              正常还款费率按自然日差计算：当天还款 2%，次日还款 3%，第 3 到 7 天还款 5%。
+              利息计算方式为：放款后 5 小时内还款按 2%，放款后 24 小时内还款按 3%，超过 24 小时至 7 天内还款按 5%。
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              如果是全额到账模式，则到账金额等于借款本金，最终应还金额会按对应费率上浮计算。
+              其他借款模式可以内部申请，但不会在客户端私下开放或展示。
             </div>
           </div>
         </div>

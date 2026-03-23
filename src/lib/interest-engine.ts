@@ -1,15 +1,14 @@
 /**
- * 利息计算引擎 — 按自然日差费率 + 逾期简单利息
+ * 利息计算引擎 — 按小时窗口费率 + 逾期简单利息
  *
  * 两种通道：
  *   UPFRONT_DEDUCTION (砍头息) — 借10000收9500，还款 = 本金 × (1 - 费率)
  *   FULL_AMOUNT       (全额)   — 借10000收10000，还款 = 本金 × (1 + 费率)
  *
- * 正常还款费率（按自然日差计算，放款日→还款日）：
- *   当天借当天还 → 2%    (还 9800 / 10200)
- *   隔天还       → 3%    (还 9700 / 10300)
- *   第3~7天还    → 5%    (还 9500 / 10500)
- *   其他天数     → 5%    (可配置)
+ * 正常还款费率（按放款后小时窗口计算）：
+ *   5小时内还       → 2%
+ *   24小时内还      → 3%
+ *   24小时后至7天内 → 5%
  *
  * 逾期规则（到期后24小时宽限期后起算）：
  *   1～14天  → 每天 1%（按本金，简单利息）
@@ -24,9 +23,10 @@ import Decimal from "decimal.js";
 
 /* ═══════════════════════ 类型定义 ═══════════════════════ */
 
-/** 还款阶梯（按自然日差） */
+/** 还款阶梯（优先按小时窗口） */
 export interface RepaymentTier {
-  maxDays: number;       // 自然日差 (0 = 当天, 1 = 隔天, 7 = 第7天)
+  maxDays: number;       // 兼容旧配置使用
+  maxHours?: number;     // 若存在则优先按小时窗口判断
   ratePercent: number;
   label: string;
 }
@@ -45,9 +45,9 @@ export type ChannelType = "UPFRONT_DEDUCTION" | "FULL_AMOUNT";
 /* ═══════════════════════ 默认配置 ═══════════════════════ */
 
 export const DEFAULT_TIERS: RepaymentTier[] = [
-  { maxDays: 0, ratePercent: 2, label: "当天还" },
-  { maxDays: 1, ratePercent: 3, label: "隔天还" },
-  { maxDays: 7, ratePercent: 5, label: "第3~7天还" },
+  { maxDays: 0, maxHours: 5, ratePercent: 2, label: "5小时内还" },
+  { maxDays: 1, maxHours: 24, ratePercent: 3, label: "24小时内还" },
+  { maxDays: 7, maxHours: 7 * 24, ratePercent: 5, label: "24小时后至7天内还" },
 ];
 
 export const DEFAULT_OVERDUE: OverdueConfig = {
@@ -129,8 +129,7 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
- * 计算自然日差（放款日 → 当前日）
- * 0 = 当天, 1 = 隔天, 3 = 第3天
+ * 计算自然日差（仅用于展示逾期天数等辅助信息）
  */
 export function daysBetween(start: Date, end: Date): number {
   const s = new Date(start);
@@ -140,14 +139,19 @@ export function daysBetween(start: Date, end: Date): number {
   return Math.max(0, Math.round((e.getTime() - s.getTime()) / 86400000));
 }
 
-/** 根据自然日差找到当前阶梯 */
+/** 根据经过时间找到当前阶梯 */
 function findCurrentTier(
-  elapsedDays: number,
+  elapsedMs: number,
   tiers: RepaymentTier[]
 ): { tier: RepaymentTier | null; index: number } {
-  const sorted = [...tiers].sort((a, b) => a.maxDays - b.maxDays);
+  const sorted = [...tiers].sort((a, b) => {
+    const aBound = (a.maxHours ?? a.maxDays * 24) * 60 * 60 * 1000;
+    const bBound = (b.maxHours ?? b.maxDays * 24) * 60 * 60 * 1000;
+    return aBound - bBound;
+  });
   for (let i = 0; i < sorted.length; i++) {
-    if (elapsedDays <= sorted[i].maxDays) {
+    const upperBoundMs = (sorted[i].maxHours ?? sorted[i].maxDays * 24) * 60 * 60 * 1000;
+    if (elapsedMs <= upperBoundMs) {
       return { tier: sorted[i], index: i };
     }
   }
@@ -269,16 +273,14 @@ export function calculateRealtimeRepayment(
 
   const netDisbursement = calcNetDisbursement(principal, upfrontFeeRate, channel);
 
-  const sortedTiers = [...tiers].sort((a, b) => a.maxDays - b.maxDays);
-
-  const { tier: currentTier, index: tierIndex } = findCurrentTier(
-    elapsedDays,
-    sortedTiers
+  const sortedTiers = [...tiers].sort(
+    (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
   );
+
+  const { tier: currentTier, index: tierIndex } = findCurrentTier(elapsedMs, sortedTiers);
 
   // 判断是否逾期：到期日 + 宽限期后
   const dueEnd = new Date(dueDate);
-  dueEnd.setHours(23, 59, 59, 999);
   const graceMs = overdueConfig.graceHours * 60 * 60 * 1000;
   const isOverdue = currentTime.getTime() > dueEnd.getTime() + graceMs;
 
@@ -399,14 +401,14 @@ export function loadFeeConfig(
     channelStr === "FULL_AMOUNT" ? "FULL_AMOUNT" : "UPFRONT_DEDUCTION";
 
   const tiers: RepaymentTier[] = [
-    { maxDays: 0, ratePercent: sameDayRate, label: "当天还" },
-    { maxDays: 1, ratePercent: nextDayRate, label: "隔天还" },
-    { maxDays: 7, ratePercent: day3Day7Rate, label: "第3~7天还" },
+    { maxDays: 0, maxHours: 5, ratePercent: sameDayRate, label: "5小时内还" },
+    { maxDays: 1, maxHours: 24, ratePercent: nextDayRate, label: "24小时内还" },
+    { maxDays: 7, maxHours: 7 * 24, ratePercent: day3Day7Rate, label: "24小时后至7天内还" },
   ];
 
   // 如果 otherDayRate 不等于 day3Day7Rate，添加一个更高的阶梯
   if (otherDayRate !== day3Day7Rate) {
-    tiers.push({ maxDays: 999, ratePercent: otherDayRate, label: "其他" });
+    tiers.push({ maxDays: 999, maxHours: 999 * 24, ratePercent: otherDayRate, label: "其他" });
   }
 
   return {
@@ -450,13 +452,24 @@ export function parseTiersFromPricingRules(
 
     switch (rule.ruleType) {
       case "TIER_RATE": {
-        // 支持 maxDays（新）或 maxHours（旧）
-        const maxDays = (cond.maxDays as number)
-          ?? Math.round(((cond.maxHours as number) ?? 168) / 24);
+        // 优先使用小时窗口；兼容旧的按天配置，并把 0/1/7 天映射到 5h/24h/168h
+        const configuredMaxHours =
+          typeof cond.maxHours === "number" ? Number(cond.maxHours) : null;
+        const configuredMaxDays =
+          typeof cond.maxDays === "number" ? Number(cond.maxDays) : null;
+        const maxDays = configuredMaxDays ?? Math.round((configuredMaxHours ?? 168) / 24);
+        const maxHours =
+          configuredMaxHours
+          ?? (configuredMaxDays === 0
+            ? 5
+            : configuredMaxDays === 1
+            ? 24
+            : (configuredMaxDays ?? maxDays) * 24);
         tiers.push({
           maxDays,
+          maxHours,
           ratePercent: val,
-          label: (cond.label as string) ?? `第${maxDays}天`,
+          label: (cond.label as string) ?? `第 ${maxDays} 天内还`,
         });
         break;
       }

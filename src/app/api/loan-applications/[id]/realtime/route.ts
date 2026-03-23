@@ -1,6 +1,6 @@
 /**
  * GET /api/loan-applications/:id/realtime
- * 实时计算当前还款金额（基于自然日差费率 + 逾期简单利息）
+ * 实时计算当前还款金额（基于小时窗口费率 + 逾期简单利息）
  *
  * 返回：当前阶梯、应还金额、经过天数、逾期详情等
  */
@@ -108,11 +108,13 @@ export async function GET(
 
   // 计算到期日（如果快照中没有）
   if (!dueDate) {
-    const sortedTiers = [...tiers].sort((a, b) => a.maxDays - b.maxDays);
-    const maxDays = sortedTiers.length > 0
-      ? sortedTiers[sortedTiers.length - 1].maxDays
-      : 7;
-    dueDate = new Date(new Date(disbursedAt).getTime() + maxDays * 24 * 60 * 60 * 1000);
+    const sortedTiers = [...tiers].sort(
+      (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
+    );
+    const maxHours = sortedTiers.length > 0
+      ? (sortedTiers[sortedTiers.length - 1].maxHours ?? sortedTiers[sortedTiers.length - 1].maxDays * 24)
+      : 7 * 24;
+    dueDate = new Date(new Date(disbursedAt).getTime() + maxHours * 60 * 60 * 1000);
   }
 
   const principal = Number(application.amount);

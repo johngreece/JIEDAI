@@ -1,14 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-
-/**
- * 实时还款计时器组件
- * 每秒更新：显示经过时间、当前阶梯（按自然日差）、应还金额
- */
+import { useCallback, useEffect, useState } from "react";
 
 interface Tier {
   maxDays: number;
+  maxHours?: number;
   ratePercent: number;
   label: string;
 }
@@ -52,20 +48,7 @@ function formatElapsedClient(ms: number): string {
   return parts.join("");
 }
 
-/** 按自然日差找阶梯 */
-function findTierIndex(elapsedDays: number, tiers: Tier[]): number {
-  for (let i = 0; i < tiers.length; i++) {
-    if (elapsedDays <= tiers[i].maxDays) return i;
-  }
-  // 超过所有阶梯 → 使用最高阶梯
-  return tiers.length > 0 ? tiers.length - 1 : -1;
-}
-
-function calcRepayment(
-  principal: number,
-  ratePercent: number,
-  channel: string
-): number {
+function calcRepayment(principal: number, ratePercent: number, channel: string): number {
   const rate = ratePercent / 100;
   if (channel === "UPFRONT_DEDUCTION") {
     return Math.round(principal * (1 - rate) * 100) / 100;
@@ -73,13 +56,15 @@ function calcRepayment(
   return Math.round(principal * (1 + rate) * 100) / 100;
 }
 
-/** 计算自然日差 */
-function daysBetweenClient(start: Date, end: Date): number {
-  const s = new Date(start);
-  const e = new Date(end);
-  s.setHours(0, 0, 0, 0);
-  e.setHours(0, 0, 0, 0);
-  return Math.max(0, Math.round((e.getTime() - s.getTime()) / 86400000));
+function getTierHours(tier: Tier): number {
+  return tier.maxHours ?? tier.maxDays * 24;
+}
+
+function findTierIndex(elapsedMs: number, tiers: Tier[]): number {
+  for (let i = 0; i < tiers.length; i += 1) {
+    if (elapsedMs <= getTierHours(tiers[i]) * 60 * 60 * 1000) return i;
+  }
+  return tiers.length > 0 ? tiers.length - 1 : -1;
 }
 
 export default function RealtimeTimer({
@@ -94,15 +79,14 @@ export default function RealtimeTimer({
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(
-        `/api/loan-applications/${applicationId}/realtime`
-      );
+      const res = await fetch(`/api/loan-applications/${applicationId}/realtime`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setError(err.error ?? "获取数据失败");
         return;
       }
-      const json = await res.json();
+
+      const json = (await res.json()) as RealtimeData;
       setData(json);
       setLocalElapsedMs(json.elapsedMs);
       setServerFetchTime(Date.now());
@@ -121,8 +105,7 @@ export default function RealtimeTimer({
   useEffect(() => {
     if (!data) return;
     const timer = setInterval(() => {
-      const now = Date.now();
-      const drift = now - serverFetchTime;
+      const drift = Date.now() - serverFetchTime;
       setLocalElapsedMs(data.elapsedMs + drift);
     }, 1000);
     return () => clearInterval(timer);
@@ -138,74 +121,52 @@ export default function RealtimeTimer({
 
   if (!data) {
     return (
-      <div className="rounded-lg border bg-white p-6 animate-pulse">
-        <div className="h-6 bg-gray-200 rounded w-1/3 mb-4"></div>
-        <div className="h-10 bg-gray-200 rounded w-1/2"></div>
+      <div className="animate-pulse rounded-lg border bg-white p-6">
+        <div className="mb-4 h-6 w-1/3 rounded bg-gray-200" />
+        <div className="h-10 w-1/2 rounded bg-gray-200" />
       </div>
     );
   }
 
-  // 用本地时间算自然日差
-  const startDate = new Date(data.startTime);
-  const elapsedDays = daysBetweenClient(startDate, new Date());
-  const sortedTiers = [...data.tiers].sort(
-    (a, b) => a.maxDays - b.maxDays
-  );
-  const tierIdx = findTierIndex(elapsedDays, sortedTiers);
+  const sortedTiers = [...data.tiers].sort((a, b) => getTierHours(a) - getTierHours(b));
+  const tierIdx = findTierIndex(localElapsedMs, sortedTiers);
   const isOverdue = data.isOverdue;
 
-  // 客户端实时计算当前应还
   let currentRepayment = data.repaymentAmount;
   let currentTierLabel = "已逾期";
 
   if (!isOverdue && tierIdx >= 0) {
     const tier = sortedTiers[tierIdx];
-    currentRepayment = calcRepayment(
-      data.principal,
-      tier.ratePercent,
-      data.channel
-    );
+    currentRepayment = calcRepayment(data.principal, tier.ratePercent, data.channel);
     currentTierLabel = tier.label;
   }
 
-  // 逾期时总应还 = 基础还款 + 逾期罚息
   if (isOverdue) {
     currentRepayment = data.totalRepayment;
   }
 
   return (
-    <div className="rounded-lg border bg-white shadow-sm overflow-hidden">
-      {/* 头部 */}
-      <div
-        className={`px-6 py-4 ${
-          isOverdue
-            ? "bg-red-600 text-white"
-            : "bg-blue-600 text-white"
-        }`}
-      >
+    <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
+      <div className={`px-6 py-4 ${isOverdue ? "bg-red-600 text-white" : "bg-blue-600 text-white"}`}>
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold">
-              {isOverdue ? "⚠ 已逾期" : "还款计时中"}
-            </h3>
+            <h3 className="text-lg font-semibold">{isOverdue ? "借款已逾期" : "还款计时中"}</h3>
             <p className="text-sm opacity-90">
               {data.productName} · {data.customer.name}
             </p>
           </div>
           <div className="text-right">
-            <div className="text-3xl font-mono font-bold tabular-nums">
-              {formatElapsedClient(localElapsedMs)}
-            </div>
-            <div className="text-sm opacity-75">已借 {elapsedDays} 天</div>
+            <div className="text-3xl font-mono font-bold tabular-nums">{formatElapsedClient(localElapsedMs)}</div>
+            <div className="text-sm opacity-75">放款后已过 {formatElapsedClient(localElapsedMs)}</div>
           </div>
         </div>
       </div>
 
-      {/* 当前应还 */}
-      <div className="px-6 py-5 border-b">
-        <div className="text-sm text-gray-500 mb-1">当前应还金额</div>
+      <div className="border-b px-6 py-5">
+        <div className="mb-1 text-sm text-gray-500">当前应还金额</div>
         <div className="text-4xl font-bold text-gray-900 tabular-nums">
-          €{currentRepayment.toLocaleString("zh-CN", {
+          €
+          {currentRepayment.toLocaleString("zh-CN", {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           })}
@@ -213,9 +174,7 @@ export default function RealtimeTimer({
         <div className="mt-1 text-sm">
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-              isOverdue
-                ? "bg-red-100 text-red-800"
-                : "bg-green-100 text-green-800"
+              isOverdue ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"
             }`}
           >
             {currentTierLabel}
@@ -224,8 +183,7 @@ export default function RealtimeTimer({
         </div>
       </div>
 
-      {/* 借款详情 */}
-      <div className="px-6 py-4 grid grid-cols-2 gap-4 text-sm">
+      <div className="grid grid-cols-2 gap-4 px-6 py-4 text-sm">
         <div>
           <span className="text-gray-500">借款本金</span>
           <p className="font-medium">€{data.principal.toLocaleString()}</p>
@@ -235,37 +193,28 @@ export default function RealtimeTimer({
           <p className="font-medium">€{data.netDisbursement.toLocaleString()}</p>
         </div>
         <div>
-          <span className="text-gray-500">通道</span>
-          <p className="font-medium">
-            {data.channel === "UPFRONT_DEDUCTION" ? "砍头息" : "全额"}
-          </p>
+          <span className="text-gray-500">借款模式</span>
+          <p className="font-medium">{data.channel === "UPFRONT_DEDUCTION" ? "7天砍头息" : "全额到账"}</p>
         </div>
         <div>
           <span className="text-gray-500">放款时间</span>
-          <p className="font-medium">
-            {new Date(data.startTime).toLocaleString("zh-CN")}
-          </p>
+          <p className="font-medium">{new Date(data.startTime).toLocaleString("zh-CN")}</p>
         </div>
       </div>
 
-      {/* 阶梯费率表 */}
-      <div className="px-6 py-4 border-t">
-        <h4 className="text-sm font-medium text-gray-700 mb-3">阶梯费率</h4>
+      <div className="border-t px-6 py-4">
+        <h4 className="mb-3 text-sm font-medium text-gray-700">阶梯费率</h4>
         <div className="space-y-2">
           {sortedTiers.map((tier, i) => {
             const isActive = !isOverdue && i === tierIdx;
             const isPast = !isOverdue && i < tierIdx;
-            const repay = calcRepayment(
-              data.principal,
-              tier.ratePercent,
-              data.channel
-            );
+            const repay = calcRepayment(data.principal, tier.ratePercent, data.channel);
             return (
               <div
-                key={tier.maxDays}
+                key={`${tier.maxDays}-${tier.maxHours ?? "na"}-${tier.ratePercent}`}
                 className={`flex items-center justify-between rounded-md px-3 py-2 text-sm ${
                   isActive
-                    ? "bg-blue-50 border border-blue-200 font-medium"
+                    ? "border border-blue-200 bg-blue-50 font-medium"
                     : isPast
                     ? "bg-gray-50 text-gray-400 line-through"
                     : "bg-gray-50"
@@ -276,8 +225,10 @@ export default function RealtimeTimer({
                   {tier.label} ({tier.ratePercent}%)
                 </span>
                 <span className="tabular-nums">
-                  €{repay.toLocaleString("zh-CN", {
+                  €
+                  {repay.toLocaleString("zh-CN", {
                     minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
                   })}
                 </span>
               </div>
@@ -286,40 +237,29 @@ export default function RealtimeTimer({
         </div>
       </div>
 
-      {/* 逾期详情 */}
       {isOverdue && (
-        <div className="px-6 py-4 border-t bg-red-50">
-          <h4 className="text-sm font-medium text-red-700 mb-2">
-            逾期详情
-          </h4>
+        <div className="border-t bg-red-50 px-6 py-4">
+          <h4 className="mb-2 text-sm font-medium text-red-700">逾期详情</h4>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <span className="text-red-500">逾期天数</span>
-              <p className="font-medium text-red-700">
-                {data.overdueDays} 天
-              </p>
+              <p className="font-medium text-red-700">{data.overdueDays} 天</p>
             </div>
             <div>
-              <span className="text-red-500">今日预估利息</span>
-              <p className="font-medium text-red-700">
-                €{data.todayInterest.toLocaleString()}
-              </p>
+              <span className="text-red-500">今日预估费用</span>
+              <p className="font-medium text-red-700">€{data.todayInterest.toLocaleString()}</p>
             </div>
             <div>
-              <span className="text-red-500">累计逾期罚息</span>
-              <p className="font-medium text-red-700">
-                €{data.overduePenalty.toLocaleString()}
-              </p>
+              <span className="text-red-500">累计逾期费用</span>
+              <p className="font-medium text-red-700">€{data.overduePenalty.toLocaleString()}</p>
             </div>
             <div>
               <span className="text-red-500">总应还金额</span>
-              <p className="font-medium text-red-700">
-                €{data.totalRepayment.toLocaleString()}
-              </p>
+              <p className="font-medium text-red-700">€{data.totalRepayment.toLocaleString()}</p>
             </div>
           </div>
-          <p className="text-xs text-red-400 mt-2">
-            逾期费 = 本金 × 每日费率（1~14天: {data.overdueDays <= 14 ? "1" : "1"}%/天, 15天+: 2%/天），简单利息不复利
+          <p className="mt-2 text-xs text-red-500">
+            到期后有 24 小时宽限期；超过后前 14 天按本金 1%/天，15 天起按本金 2%/天，按单利累计。
           </p>
         </div>
       )}

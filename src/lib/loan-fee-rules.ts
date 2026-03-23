@@ -1,15 +1,15 @@
 /**
  * 借款还款费率规则（固定规则 + 管理员可调）
- * - 当天借当天还 2%；隔天还 3%；第3天或第7天还 5%（其他天数可配置默认）
- * - 逾期：24小时内算当天；超过24h 按天 1%/天；超过14天 2%/天
+ * - 放款后5小时内还 2%；放款后24小时内还 3%；超过24小时到7天内还 5%
+ * - 逾期：到期后24小时宽限；超过后按天 1%/天；超过14天 2%/天
  */
 
 export type FeeRates = {
-  /** 当天还款费率（如 2 表示 2%） */
+  /** 放款后 5 小时内还款费率（如 2 表示 2%） */
   sameDayRate: number;
-  /** 隔天还款费率（如 3 表示 3%） */
+  /** 放款后 24 小时内还款费率（如 3 表示 3%） */
   nextDayRate: number;
-  /** 第3天或第7天还款费率（如 5 表示 5%） */
+  /** 超过 24 小时至 7 天内还款费率（如 5 表示 5%） */
   day3Day7Rate: number;
   /** 其他天数默认费率（如 5） */
   otherDayRate: number;
@@ -69,18 +69,14 @@ export function mergeRates(
 }
 
 /**
- * 计算还款日与放款日之间的“自然日差”（0 = 当天，1 = 隔天，3 = 第3天，7 = 第7天）
+ * 计算还款时间与放款时间的间隔小时数
  */
-export function daysBetween(disbursedAt: Date, repaidAt: Date): number {
-  const d = new Date(disbursedAt);
-  const r = new Date(repaidAt);
-  d.setHours(0, 0, 0, 0);
-  r.setHours(0, 0, 0, 0);
-  return Math.round((r.getTime() - d.getTime()) / 86400000);
+export function elapsedHoursBetween(disbursedAt: Date, repaidAt: Date): number {
+  return Math.max(0, (repaidAt.getTime() - disbursedAt.getTime()) / 3600000);
 }
 
 /**
- * 是否在“当天”还款：放款后 24 小时内（按 overdueGraceHours）
+ * 是否在宽限小时内
  */
 export function isSameDayByHours(disbursedAt: Date, repaidAt: Date, graceHours: number): boolean {
   const ms = repaidAt.getTime() - disbursedAt.getTime();
@@ -89,7 +85,7 @@ export function isSameDayByHours(disbursedAt: Date, repaidAt: Date, graceHours: 
 
 /**
  * 根据放款时间、还款时间、到期日，判断是正常还款还是逾期，并返回应使用的费率（%）
- * - 若 repaidAt 在 dueDate 的 graceHours 内：按“当天/隔天/第3·7天”规则
+ * - 若 repaidAt 在 dueDate 的 graceHours 内：按“5小时/24小时/7天内”规则
  * - 若超过 dueDate + graceHours：按逾期规则（1%/天 或 14 天后 2%/天）
  */
 export function getRepaymentFeeRate(
@@ -99,17 +95,15 @@ export function getRepaymentFeeRate(
   rates: FeeRates
 ): { ratePercent: number; isOverdue: boolean; overdueDays: number } {
   const repaid = new Date(repaidAt);
-  const due = new Date(dueDate);
-  due.setHours(23, 59, 59, 999);
-  const dueEndMs = due.getTime();
+  const dueEndMs = new Date(dueDate).getTime();
   const graceMs = rates.overdueGraceHours * 60 * 60 * 1000;
 
   if (repaid.getTime() <= dueEndMs + graceMs) {
-    const dayDiff = daysBetween(disbursedAt, repaidAt);
+    const elapsedHours = elapsedHoursBetween(disbursedAt, repaidAt);
     let rate = rates.otherDayRate;
-    if (dayDiff === 0) rate = rates.sameDayRate;
-    else if (dayDiff === 1) rate = rates.nextDayRate;
-    else if (dayDiff === 3 || dayDiff === 7) rate = rates.day3Day7Rate;
+    if (elapsedHours <= 5) rate = rates.sameDayRate;
+    else if (elapsedHours <= 24) rate = rates.nextDayRate;
+    else if (elapsedHours <= 7 * 24) rate = rates.day3Day7Rate;
     return { ratePercent: rate, isOverdue: false, overdueDays: 0 };
   }
 

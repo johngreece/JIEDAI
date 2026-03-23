@@ -58,10 +58,12 @@ export default async function ClientDashboardPage() {
       where: {
         deletedAt: null,
         isActive: true,
+        code: "UPFRONT_7D",
       },
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
+        code: true,
         name: true,
         description: true,
         minAmount: true,
@@ -325,10 +327,10 @@ export default async function ClientDashboardPage() {
             <h2 className="text-lg font-semibold text-slate-900">借款规则说明</h2>
             <div className="mt-4 space-y-3 text-sm text-slate-700">
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                正常还款费率按自然日差计算：当天还款 2%，次日还款 3%，第 3 到 7 天还款 5%。
+                当前客户端仅公开 7 天砍头息模式。放款后 5 小时内还款按 2%，放款后 24 小时内还款按 3%，超过 24 小时至 7 天内按 5% 计算。
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                如为砍头息模式，到账金额会小于借款本金；如为全额到账模式，到账金额等于借款本金。具体以合同和放款展示为准。
+                砍头息模式下，系统会在放款时先扣除服务费，实际到账金额会小于借款本金；其他借款模式仅内部可申请，暂不在客户端开放。
               </div>
               <div className="rounded-xl border border-red-200 bg-red-50 p-4">
                 到期后有 24 小时宽限期；超过后前 14 天按本金每日 1% 计收逾期费用，第 15 天起按本金每日 2% 计收，按单利累计。

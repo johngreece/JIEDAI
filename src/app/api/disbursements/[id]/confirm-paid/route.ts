@@ -94,11 +94,13 @@ export async function POST(
       const netAmount = calcNetDisbursement(principal, upfrontFeeRate, channel);
 
       // 到期日 = 确认时间 + 7天（标准借款周期）
-      const sortedTiers = [...tiers].sort((a, b) => a.maxDays - b.maxDays);
-      const maxTierDays = sortedTiers.length > 0
-        ? sortedTiers[sortedTiers.length - 1].maxDays
-        : 7;
-      const dueDate = new Date(now.getTime() + maxTierDays * 24 * 60 * 60 * 1000);
+      const sortedTiers = [...tiers].sort(
+        (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
+      );
+      const maxTierHours = sortedTiers.length > 0
+        ? (sortedTiers[sortedTiers.length - 1].maxHours ?? sortedTiers[sortedTiers.length - 1].maxDays * 24)
+        : 7 * 24;
+      const dueDate = new Date(now.getTime() + maxTierHours * 60 * 60 * 1000);
 
       // 快照规则用于后续实时计算
       const rulesSnapshot = {

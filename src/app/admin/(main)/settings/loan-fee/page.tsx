@@ -60,25 +60,25 @@ export default function AdminLoanFeeSettingsPage() {
       <header className="panel-soft mb-6 rounded-2xl px-5 py-4">
         <h1 className="text-xl font-semibold">借款费率配置</h1>
         <p className="text-sm text-slate-500 mt-1">
-          默认：当天还 2%、隔天还 3%、第3天或第7天还 5%。逾期 24h 内算当天；超过 24h 按 1%/天；超过 14 天按 2%/天。
+          默认：放款后 5 小时内还 2%，放款后 24 小时内还 3%，超过 24 小时至 7 天内还 5%。到期后宽限 24 小时，超过后前 14 天按 1%/天，第 15 天起按 2%/天。
         </p>
       </header>
       {error && <div className="mb-4 text-red-600 text-sm">{error}</div>}
       <form onSubmit={handleSubmit} className="panel-soft max-w-md space-y-4 rounded-xl p-4">
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">当天还款费率（%）</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">5 小时内还款费率（%）</label>
           <input type="number" step="0.01" min="0" value={form?.sameDayRate ?? ""} onChange={(e) => setForm((f) => f ? { ...f, sameDayRate: Number(e.target.value) } : null)} className="input-base" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">隔天还款费率（%）</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">24 小时内还款费率（%）</label>
           <input type="number" step="0.01" min="0" value={form?.nextDayRate ?? ""} onChange={(e) => setForm((f) => f ? { ...f, nextDayRate: Number(e.target.value) } : null)} className="input-base" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">第3天/第7天还款费率（%）</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">24 小时后至 7 天内还款费率（%）</label>
           <input type="number" step="0.01" min="0" value={form?.day3Day7Rate ?? ""} onChange={(e) => setForm((f) => f ? { ...f, day3Day7Rate: Number(e.target.value) } : null)} className="input-base" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">其他天数默认费率（%）</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">其他补充费率（%）</label>
           <input type="number" step="0.01" min="0" value={form?.otherDayRate ?? ""} onChange={(e) => setForm((f) => f ? { ...f, otherDayRate: Number(e.target.value) } : null)} className="input-base" />
         </div>
         <div>
