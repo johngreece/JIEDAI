@@ -463,7 +463,7 @@ export function DashboardSummary() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-12">
-        <Panel className="xl:col-span-4">
+        <Panel className="xl:col-span-3">
           <SectionHeader
             title="风险雷达"
             hint="每个维度一行横向读数，避免碎片化。"
@@ -481,17 +481,17 @@ export function DashboardSummary() {
           </div>
         </Panel>
 
-        <Panel className="xl:col-span-4">
+        <Panel className="xl:col-span-5">
           <SectionHeader
             title="预警结构"
             hint="把到期、逾期、健康洞察压成一块。"
           />
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <StripMetric label="今日到期" value={formatCurrency(smart.alerts?.dueTodayTotal)} sub="今天应收" />
-            <StripMetric label="3天到期" value={formatCurrency(smart.alerts?.due3DayTotal)} sub="适合提前提醒" />
-            <StripMetric label="7天到期" value={formatCurrency(smart.alerts?.due7DayTotal)} sub="便于安排节奏" />
+          <div className="mt-5 grid gap-3 lg:grid-cols-3">
+            <StripMetric label="今日到期" value={formatCurrency(smart.alerts?.dueTodayTotal)} sub="今天应收" compact />
+            <StripMetric label="3天到期" value={formatCurrency(smart.alerts?.due3DayTotal)} sub="适合提前提醒" compact />
+            <StripMetric label="7天到期" value={formatCurrency(smart.alerts?.due7DayTotal)} sub="便于安排节奏" compact />
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
             <LevelBox label="轻度逾期" value={smart.overdue?.mild} tone="blue" />
             <LevelBox label="中度逾期" value={smart.overdue?.moderate} tone="amber" />
             <LevelBox label="严重逾期" value={smart.overdue?.severe} tone="red" />
@@ -619,21 +619,39 @@ function MetricCard({
   return (
     <div className="stat-tile rounded-[26px] p-5">
       <div className="text-sm text-slate-500">{title}</div>
-      <div className={`mt-3 text-3xl font-bold tracking-tight ${getToneClass(tone)}`}>{value}</div>
+      <div
+        className={`mt-3 min-w-0 text-[clamp(1.35rem,2vw,1.85rem)] font-bold tracking-tight ${getToneClass(tone)}`}
+        title={value}
+      >
+        {value}
+      </div>
       <div className="mt-2 text-sm text-slate-500">{note}</div>
     </div>
   );
 }
 
-function StripMetric({ label, value, sub }: { label: string; value: string; sub: string }) {
+function StripMetric({
+  label,
+  value,
+  sub,
+  compact = false,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  compact?: boolean;
+}) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <div className="flex items-center justify-between gap-4">
+    <div className={`rounded-2xl border border-slate-200 bg-slate-50 ${compact ? "px-4 py-3" : "px-4 py-3"}`}>
+      <div className={`flex gap-4 ${compact ? "items-center justify-between" : "items-center justify-between"}`}>
         <div className="min-w-0">
           <div className="text-sm text-slate-500">{label}</div>
           <div className="mt-1 text-xs text-slate-500">{sub}</div>
         </div>
-        <div className="whitespace-nowrap text-xl font-semibold tracking-tight text-slate-900">
+        <div
+          className={`min-w-0 text-right font-semibold tracking-tight text-slate-900 ${compact ? "text-[clamp(1rem,1.5vw,1.35rem)]" : "text-[clamp(1rem,1.6vw,1.45rem)]"}`}
+          title={value}
+        >
           {value}
         </div>
       </div>
@@ -738,9 +756,12 @@ function DataRow({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <div className="flex items-center justify-between gap-4">
-        <div className="text-sm text-slate-500">{label}</div>
-        <div className={`whitespace-nowrap text-lg font-semibold tracking-tight ${getToneClass(tone)}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0 text-sm text-slate-500">{label}</div>
+        <div
+          className={`min-w-0 text-right text-[clamp(1rem,1.45vw,1.25rem)] font-semibold tracking-tight ${getToneClass(tone)}`}
+          title={value}
+        >
           {value}
         </div>
       </div>
@@ -797,7 +818,7 @@ function LevelBox({
   return (
     <div className={`rounded-2xl border p-4 ${cls}`}>
       <div className="text-sm">{label}</div>
-      <div className="mt-2 text-3xl font-bold tracking-tight">{formatNumber(value)}</div>
+      <div className="mt-2 text-[clamp(1.5rem,2vw,2rem)] font-bold tracking-tight">{formatNumber(value)}</div>
     </div>
   );
 }
