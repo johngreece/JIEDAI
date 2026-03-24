@@ -24,6 +24,11 @@ export interface SettlementSummary {
   totalIncome: string;
   totalOutflow: string;
   netProfit: string;
+  platformGrossProfit: string;
+  platformNetProfit: string;
+  capitalInjected: string;
+  funderWithdrawalAmount: string;
+  funderSettlementCost: string;
   capitalRecovery: string;
   grossROI: string;
   netROI: string;
@@ -35,6 +40,8 @@ export interface SettlementSummary {
   funderProfit: string;
   ledgerDebitTotal: string;
   ledgerCreditTotal: string;
+  fundJournalCreditTotal: string;
+  fundJournalDebitTotal: string;
 }
 
 export interface DailyBreakdown {
@@ -66,6 +73,221 @@ function toMoney(value: number) {
   return new Decimal(value || 0).toFixed(2);
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const EPSILON = 0.0001;
+
+function overlapDays(startA: Date, endA: Date, startB: Date, endB: Date) {
+  const start = Math.max(startA.getTime(), startB.getTime());
+  const end = Math.min(endA.getTime(), endB.getTime());
+  return Math.max(0, (end - start) / DAY_MS);
+}
+
+async function calculateFunderShareRows(period: SettlementPeriod) {
+  const { start, end } = period;
+  const funders = await prisma.funder.findMany({
+    where: { isActive: true },
+    include: {
+      accounts: { where: { isActive: true } },
+      profitShares: {
+        where: { periodStart: start, periodEnd: end },
+        take: 1,
+      },
+    },
+  });
+
+  if (!funders.length) {
+    return [];
+  }
+
+  const accountIdToFunder = new Map<string, typeof funders[number]>();
+  const accountIds: string[] = [];
+  for (const funder of funders) {
+    for (const account of funder.accounts) {
+      accountIds.push(account.id);
+      accountIdToFunder.set(account.id, funder);
+    }
+  }
+
+  if (!accountIds.length) {
+    return funders.map((funder) => ({
+      funderId: funder.id,
+      funderName: funder.name,
+      contactPerson: funder.contactPerson,
+      totalBalance: 0,
+      totalInflow: 0,
+      shareRatioNumber: toNumber(funder.profitShareRatio || 0),
+      shareRatioLabel: `${(toNumber(funder.profitShareRatio || 0) * 100).toFixed(1)}%`,
+      shareAmountNumber: 0,
+      periodIncomeNumber: 0,
+      existingSettlement: funder.profitShares[0]
+        ? {
+            id: funder.profitShares[0].id,
+            status: funder.profitShares[0].status,
+            settledAt: funder.profitShares[0].settledAt,
+          }
+        : null,
+    }));
+  }
+
+  const disbursements = await prisma.disbursement.findMany({
+    where: {
+      fundAccountId: { in: accountIds },
+      status: { in: ["PAID", "CONFIRMED"] },
+      disbursedAt: { lt: end },
+    },
+    select: {
+      fundAccountId: true,
+      applicationId: true,
+      netAmount: true,
+      disbursedAt: true,
+    },
+  });
+
+  const applicationIds = Array.from(new Set(disbursements.map((item) => item.applicationId)));
+  const plans = applicationIds.length
+    ? await prisma.repaymentPlan.findMany({
+        where: {
+          applicationId: { in: applicationIds },
+          status: { not: "SUPERSEDED" },
+        },
+        select: {
+          applicationId: true,
+          repayments: {
+            where: {
+              status: "CONFIRMED",
+              receivedAt: { lt: end },
+            },
+            select: {
+              principalPart: true,
+              interestPart: true,
+              feePart: true,
+              penaltyPart: true,
+              receivedAt: true,
+            },
+            orderBy: { receivedAt: "asc" },
+          },
+        },
+      })
+    : [];
+
+  const planMap = new Map(plans.map((plan) => [plan.applicationId, plan]));
+  const rows = new Map<
+    string,
+    {
+      funderId: string;
+      funderName: string;
+      contactPerson: string | null;
+      totalBalance: number;
+      totalInflow: number;
+      shareRatioNumber: number;
+      shareRatioLabel: string;
+      shareAmountNumber: number;
+      periodIncomeNumber: number;
+      existingSettlement: { id: string; status: string; settledAt: Date | null } | null;
+    }
+  >();
+
+  for (const funder of funders) {
+    const ratioNumber =
+      funder.cooperationMode === "FIXED_MONTHLY"
+        ? toNumber(funder.monthlyRate) / 100
+        : toNumber(funder.profitShareRatio || 0) > 0
+          ? toNumber(funder.profitShareRatio || 0)
+          : toNumber(funder.weeklyRate) / 100;
+
+    const ratioLabel =
+      funder.cooperationMode === "FIXED_MONTHLY"
+        ? `${toNumber(funder.monthlyRate).toFixed(2)}%/30d`
+        : toNumber(funder.profitShareRatio || 0) > 0
+          ? `${(toNumber(funder.profitShareRatio || 0) * 100).toFixed(1)}%`
+          : `${toNumber(funder.weeklyRate).toFixed(2)}%/7d`;
+
+    rows.set(funder.id, {
+      funderId: funder.id,
+      funderName: funder.name,
+      contactPerson: funder.contactPerson,
+      totalBalance: funder.accounts.reduce((sum, account) => sum + toNumber(account.balance), 0),
+      totalInflow: funder.accounts.reduce((sum, account) => sum + toNumber(account.totalInflow), 0),
+      shareRatioNumber: ratioNumber,
+      shareRatioLabel: ratioLabel,
+      shareAmountNumber: 0,
+      periodIncomeNumber: 0,
+      existingSettlement: funder.profitShares[0]
+        ? {
+            id: funder.profitShares[0].id,
+            status: funder.profitShares[0].status,
+            settledAt: funder.profitShares[0].settledAt,
+          }
+        : null,
+    });
+  }
+
+  for (const disbursement of disbursements) {
+    if (!disbursement.disbursedAt) continue;
+
+    const funder = accountIdToFunder.get(disbursement.fundAccountId);
+    if (!funder) continue;
+
+    const row = rows.get(funder.id);
+    if (!row) continue;
+
+    const plan = planMap.get(disbursement.applicationId);
+    const repayments = plan?.repayments ?? [];
+    const repaymentsInPeriod = repayments.filter(
+      (item) => item.receivedAt && item.receivedAt >= start && item.receivedAt < end,
+    );
+
+    const periodIncome = repaymentsInPeriod.reduce(
+      (sum, item) =>
+        sum +
+        toNumber(item.interestPart) +
+        toNumber(item.feePart) +
+        toNumber(item.penaltyPart),
+      0,
+    );
+
+    if (funder.cooperationMode !== "FIXED_MONTHLY" && toNumber(funder.profitShareRatio || 0) > 0) {
+      row.periodIncomeNumber += periodIncome;
+      row.shareAmountNumber += periodIncome * toNumber(funder.profitShareRatio || 0);
+      continue;
+    }
+
+    const recoveredPrincipalBeforeEnd = repayments.reduce(
+      (sum, item) => sum + toNumber(item.principalPart),
+      0,
+    );
+    const lastReceivedAt = repayments[repayments.length - 1]?.receivedAt ?? null;
+    const principal = toNumber(disbursement.netAmount);
+    const isRecovered = recoveredPrincipalBeforeEnd >= principal - EPSILON;
+    const effectiveEnd = isRecovered && lastReceivedAt ? new Date(lastReceivedAt) : end;
+    const days = overlapDays(new Date(disbursement.disbursedAt), effectiveEnd, start, end);
+
+    if (days <= 0) continue;
+
+    if (funder.cooperationMode === "FIXED_MONTHLY") {
+      const shareAmount = principal * (toNumber(funder.monthlyRate) / 100) * (days / 30);
+      row.periodIncomeNumber += shareAmount;
+      row.shareAmountNumber += shareAmount;
+    } else {
+      const shareAmount = principal * (toNumber(funder.weeklyRate) / 100) * (days / 7);
+      row.periodIncomeNumber += shareAmount;
+      row.shareAmountNumber += shareAmount;
+    }
+  }
+
+  return Array.from(rows.values()).map((row) => ({
+    ...row,
+    totalBalance: roundNumber(row.totalBalance),
+    totalInflow: roundNumber(row.totalInflow),
+    shareAmountNumber: roundNumber(row.shareAmountNumber),
+    periodIncomeNumber: roundNumber(row.periodIncomeNumber),
+  }));
+}
+
+function roundNumber(value: number) {
+  return Number(new Decimal(value || 0).toDecimalPlaces(2).toString());
+}
+
 export class SettlementService {
   static async generateReport(period: SettlementPeriod): Promise<SettlementSummary> {
     const { start, end } = period;
@@ -78,6 +300,11 @@ export class SettlementService {
       ledgerCreditAgg,
       funderAgg,
       outstandingAgg,
+      capitalInflowAgg,
+      funderWithdrawalAgg,
+      fundJournalCreditAgg,
+      fundJournalDebitAgg,
+      funderShareRows,
     ] = await Promise.all([
       prisma.disbursement.aggregate({
         where: {
@@ -143,6 +370,40 @@ export class SettlementService {
         },
         _sum: { remaining: true },
       }).catch(() => ({ _sum: { remaining: 0 } })),
+
+      prisma.capitalInflow.aggregate({
+        where: {
+          status: "CONFIRMED",
+          inflowDate: { gte: start, lt: end },
+        },
+        _sum: { amount: true },
+      }).catch(() => ({ _sum: { amount: 0 } })),
+
+      prisma.funderWithdrawal.aggregate({
+        where: {
+          status: "APPROVED",
+          approvedAt: { gte: start, lt: end },
+        },
+        _sum: { amount: true, interestAmount: true },
+      }).catch(() => ({ _sum: { amount: 0, interestAmount: 0 } })),
+
+      prisma.fundAccountJournal.aggregate({
+        where: {
+          createdAt: { gte: start, lt: end },
+          direction: "CREDIT",
+        },
+        _sum: { amount: true },
+      }).catch(() => ({ _sum: { amount: 0 } })),
+
+      prisma.fundAccountJournal.aggregate({
+        where: {
+          createdAt: { gte: start, lt: end },
+          direction: "DEBIT",
+        },
+        _sum: { amount: true },
+      }).catch(() => ({ _sum: { amount: 0 } })),
+
+      calculateFunderShareRows(period),
     ]);
 
     const disbursedAmount = toNumber(disbursementAgg._sum.amount);
@@ -155,14 +416,25 @@ export class SettlementService {
     const repaidFee = toNumber(repaymentAgg._sum.feePart);
     const repaidPenalty = toNumber(repaymentAgg._sum.penaltyPart);
 
+    const capitalInjected = toNumber(capitalInflowAgg._sum.amount);
+    const funderWithdrawalAmount = toNumber(funderWithdrawalAgg._sum.amount);
+    const funderSettlementCost = funderShareRows.reduce(
+      (sum, item) => sum + item.shareAmountNumber,
+      0,
+    );
     const totalIncome = disbursedFee + repaidInterest + repaidFee + repaidPenalty;
-    const netProfit = totalIncome;
-    const periodNetCashflow = repaidAmount - disbursedNet;
+    const platformGrossProfit = totalIncome;
+    const platformNetProfit = totalIncome - funderSettlementCost;
+    const netProfit = platformNetProfit;
+    const periodNetCashflow = capitalInjected + repaidAmount - disbursedNet - funderWithdrawalAmount;
     const capitalOccupancy = Math.max(0, disbursedNet - repaidPrincipal);
     const capitalReleased = Math.max(0, repaidPrincipal - disbursedNet);
 
-    const incomeRoi = disbursedNet > 0
-      ? new Decimal(totalIncome).div(disbursedNet).mul(100).toDecimalPlaces(2).toNumber()
+    const grossRoi = disbursedNet > 0
+      ? new Decimal(platformGrossProfit).div(disbursedNet).mul(100).toDecimalPlaces(2).toNumber()
+      : 0;
+    const netRoi = disbursedNet > 0
+      ? new Decimal(platformNetProfit).div(disbursedNet).mul(100).toDecimalPlaces(2).toNumber()
       : 0;
 
     return {
@@ -186,9 +458,14 @@ export class SettlementService {
       totalIncome: toMoney(totalIncome),
       totalOutflow: toMoney(disbursedNet),
       netProfit: toMoney(netProfit),
+      platformGrossProfit: toMoney(platformGrossProfit),
+      platformNetProfit: toMoney(platformNetProfit),
+      capitalInjected: toMoney(capitalInjected),
+      funderWithdrawalAmount: toMoney(funderWithdrawalAmount),
+      funderSettlementCost: toMoney(funderSettlementCost),
       capitalRecovery: toMoney(repaidPrincipal),
-      grossROI: `${incomeRoi}%`,
-      netROI: `${incomeRoi}%`,
+      grossROI: `${grossRoi}%`,
+      netROI: `${netRoi}%`,
       periodNetCashflow: toMoney(periodNetCashflow),
       capitalOccupancy: toMoney(capitalOccupancy),
       capitalReleased: toMoney(capitalReleased),
@@ -197,6 +474,8 @@ export class SettlementService {
       funderProfit: toMoney(toNumber(funderAgg._sum.totalProfit)),
       ledgerDebitTotal: toMoney(toNumber(ledgerDebitAgg._sum.amount)),
       ledgerCreditTotal: toMoney(toNumber(ledgerCreditAgg._sum.amount)),
+      fundJournalCreditTotal: toMoney(toNumber(fundJournalCreditAgg._sum.amount)),
+      fundJournalDebitTotal: toMoney(toNumber(fundJournalDebitAgg._sum.amount)),
     };
   }
 
@@ -371,61 +650,19 @@ export class SettlementService {
   }
 
   static async calculateFunderProfitShare(period: SettlementPeriod) {
-    const { start, end } = period;
+    const rows = await calculateFunderShareRows(period);
 
-    const funders = await prisma.funder.findMany({
-      where: { isActive: true },
-      include: {
-        accounts: { where: { isActive: true } },
-        profitShares: {
-          where: { periodStart: start, periodEnd: end },
-          take: 1,
-        },
-      },
-    });
-
-    const interestAgg = await prisma.repayment.aggregate({
-      where: {
-        receivedAt: { gte: start, lt: end },
-        status: "CONFIRMED",
-      },
-      _sum: {
-        interestPart: true,
-        feePart: true,
-        penaltyPart: true,
-      },
-    });
-
-    const periodIncome =
-      toNumber(interestAgg._sum.interestPart) +
-      toNumber(interestAgg._sum.feePart) +
-      toNumber(interestAgg._sum.penaltyPart);
-
-    return funders.map((funder) => {
-      const totalBalance = funder.accounts.reduce((sum, account) => sum + toNumber(account.balance), 0);
-      const totalInflow = funder.accounts.reduce((sum, account) => sum + toNumber(account.totalInflow), 0);
-      const shareRatio = toNumber(funder.profitShareRatio || 0);
-      const shareAmount = new Decimal(periodIncome).mul(shareRatio).toDecimalPlaces(2).toNumber();
-      const existingShare = funder.profitShares[0];
-
-      return {
-        funderId: funder.id,
-        funderName: funder.name,
-        contactPerson: funder.contactPerson,
-        totalBalance,
-        totalInflow,
-        shareRatio: `${(shareRatio * 100).toFixed(1)}%`,
-        shareAmount: shareAmount.toFixed(2),
-        periodTotalInterest: periodIncome.toFixed(2),
-        existingSettlement: existingShare
-          ? {
-              id: existingShare.id,
-              status: existingShare.status,
-              settledAt: existingShare.settledAt,
-            }
-          : null,
-      };
-    });
+    return rows.map((row) => ({
+      funderId: row.funderId,
+      funderName: row.funderName,
+      contactPerson: row.contactPerson,
+      totalBalance: row.totalBalance,
+      totalInflow: row.totalInflow,
+      shareRatio: row.shareRatioLabel,
+      shareAmount: row.shareAmountNumber.toFixed(2),
+      periodTotalInterest: row.periodIncomeNumber.toFixed(2),
+      existingSettlement: row.existingSettlement,
+    }));
   }
 
   static async profitMaximizationAnalysis() {

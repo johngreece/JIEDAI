@@ -1,10 +1,5 @@
 import { prisma } from "@/lib/prisma";
 
-/**
- * 资金方对账单服务
- * 生成月度/季度对账明细，支持 CSV 格式导出
- */
-
 interface StatementRow {
   date: string;
   type: string;
@@ -29,10 +24,11 @@ interface StatementSummary {
   rows: StatementRow[];
 }
 
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
 export class FunderStatementService {
-  /**
-   * 生成指定期间的对账单
-   */
   static async generate(
     funderId: string,
     startDate: Date,
@@ -44,110 +40,119 @@ export class FunderStatementService {
         id: true,
         name: true,
         cooperationMode: true,
-        monthlyRate: true,
-        weeklyRate: true,
-        accounts: { where: { isActive: true } },
+        accounts: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            balance: true,
+          },
+        },
       },
     });
 
-    const accountIds = funder.accounts.map((a) => a.id);
-    const rows: StatementRow[] = [];
-    let totalInflow = 0;
-    let totalOutflow = 0;
-    let totalInterest = 0;
-    let totalWithdrawn = 0;
-
-    // 1. 资金注入
-    if (accountIds.length) {
-      const inflows = await prisma.capitalInflow.findMany({
-        where: {
-          fundAccountId: { in: accountIds },
-          status: "CONFIRMED",
-          inflowDate: { gte: startDate, lte: endDate },
-        },
-        orderBy: { inflowDate: "asc" },
-      });
-      for (const inf of inflows) {
-        const amt = Number(inf.amount);
-        totalInflow += amt;
-        rows.push({
-          date: inf.inflowDate.toISOString().split("T")[0],
-          type: "资金注入",
-          description: `${inf.channel} 入账`,
-          debit: 0,
-          credit: amt,
-          balance: 0,
-        });
-      }
+    const accountIds = funder.accounts.map((account) => account.id);
+    if (!accountIds.length) {
+      return {
+        funderId: funder.id,
+        funderName: funder.name,
+        cooperationMode: funder.cooperationMode,
+        periodStart: startDate.toISOString().split("T")[0],
+        periodEnd: endDate.toISOString().split("T")[0],
+        openingBalance: 0,
+        closingBalance: 0,
+        totalInflow: 0,
+        totalOutflow: 0,
+        totalInterest: 0,
+        totalWithdrawn: 0,
+        rows: [],
+      };
     }
 
-    // 2. 放款记录
-    if (accountIds.length) {
-      const disbursements = await prisma.disbursement.findMany({
+    const [journalRows, withdrawals] = await Promise.all([
+      prisma.fundAccountJournal.findMany({
         where: {
           fundAccountId: { in: accountIds },
-          disbursedAt: { gte: startDate, lte: endDate },
-          status: { in: ["PAID", "CONFIRMED"] },
+          createdAt: { gte: startDate, lte: endDate },
         },
-        orderBy: { disbursedAt: "asc" },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      }),
+      prisma.funderWithdrawal.findMany({
+        where: {
+          funderId,
+          status: "APPROVED",
+          approvedAt: { gte: startDate, lte: endDate },
+        },
         select: {
-          disbursementNo: true,
-          netAmount: true,
-          feeAmount: true,
-          disbursedAt: true,
-          application: { select: { customer: { select: { name: true } } } },
+          id: true,
+          interestAmount: true,
         },
-      });
-      for (const d of disbursements) {
-        const amt = Number(d.netAmount);
-        totalOutflow += amt;
-        rows.push({
-          date: d.disbursedAt?.toISOString().split("T")[0] ?? "",
-          type: "放款出账",
-          description: `${d.disbursementNo} / ${d.application?.customer?.name ?? "-"}`,
-          debit: amt,
-          credit: 0,
-          balance: 0,
-        });
+      }),
+    ]);
+
+    const interestByWithdrawalId = new Map(
+      withdrawals.map((item) => [item.id, Number(item.interestAmount)]),
+    );
+
+    const rows: StatementRow[] = journalRows.map((entry) => {
+      const amount = Number(entry.amount);
+      const balance = Number(entry.balanceAfter);
+
+      let type = entry.type;
+      let description = entry.description || entry.referenceType;
+
+      if (entry.type === "CAPITAL_INFLOW") {
+        type = "资金注入";
+      } else if (entry.type === "DISBURSEMENT") {
+        type = "放款出账";
+      } else if (entry.type === "REPAYMENT") {
+        type = "回款入账";
+      } else if (entry.type === "WITHDRAWAL") {
+        type = "资金方提现";
+        const interestAmount = interestByWithdrawalId.get(entry.referenceId) || 0;
+        if (interestAmount > 0) {
+          description = `${description} (利息 ${interestAmount.toFixed(2)})`;
+        }
       }
-    }
 
-    // 3. 提现记录
-    const withdrawals = await prisma.funderWithdrawal.findMany({
-      where: {
-        funderId,
-        status: "APPROVED",
-        approvedAt: { gte: startDate, lte: endDate },
-      },
-      orderBy: { approvedAt: "asc" },
+      return {
+        date: entry.createdAt.toISOString().split("T")[0],
+        type,
+        description,
+        debit: entry.direction === "DEBIT" ? amount : 0,
+        credit: entry.direction === "CREDIT" ? amount : 0,
+        balance,
+      };
     });
-    for (const w of withdrawals) {
-      const amt = Number(w.amount);
-      const interest = Number(w.interestAmount);
-      totalWithdrawn += amt;
-      if (interest > 0) totalInterest += interest;
-      const typeLabel =
-        w.type === "INTEREST" ? "利息提现" : w.type === "PRINCIPAL" ? "本金提现" : "本息提现";
-      rows.push({
-        date: w.approvedAt?.toISOString().split("T")[0] ?? "",
-        type: typeLabel,
-        description: `${w.remark || typeLabel}`,
-        debit: amt,
-        credit: 0,
-        balance: 0,
+
+    const totalInflow = rows.reduce((sum, row) => sum + row.credit, 0);
+    const totalOutflow = rows.reduce((sum, row) => sum + row.debit, 0);
+    const totalWithdrawn = rows
+      .filter((row) => row.type === "资金方提现")
+      .reduce((sum, row) => sum + row.debit, 0);
+    const totalInterest = withdrawals.reduce((sum, item) => sum + Number(item.interestAmount), 0);
+
+    const openingBalanceByAccount = new Map<string, number>();
+    for (const accountId of accountIds) {
+      const firstEntry = journalRows.find((entry) => entry.fundAccountId === accountId);
+      if (firstEntry) {
+        openingBalanceByAccount.set(accountId, Number(firstEntry.balanceBefore));
+        continue;
+      }
+
+      const latestBefore = await prisma.fundAccountJournal.findFirst({
+        where: {
+          fundAccountId: accountId,
+          createdAt: { lt: startDate },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: { balanceAfter: true },
       });
+
+      openingBalanceByAccount.set(accountId, Number(latestBefore?.balanceAfter || 0));
     }
 
-    // 按日期排序 & 计算余额
-    rows.sort((a, b) => a.date.localeCompare(b.date));
-    let runningBalance = funder.accounts.reduce((s, a) => s + Number(a.balance), 0)
-      + totalOutflow + totalWithdrawn - totalInflow; // reverse to find opening
-    const openingBalance = runningBalance;
-    for (const row of rows) {
-      runningBalance = runningBalance + row.credit - row.debit;
-      row.balance = Math.round(runningBalance * 100) / 100;
-    }
-    const closingBalance = runningBalance;
+    const openingBalance = Array.from(openingBalanceByAccount.values()).reduce((sum, value) => sum + value, 0);
+    const closingBalance = funder.accounts.reduce((sum, account) => sum + Number(account.balance), 0);
 
     return {
       funderId: funder.id,
@@ -155,34 +160,38 @@ export class FunderStatementService {
       cooperationMode: funder.cooperationMode,
       periodStart: startDate.toISOString().split("T")[0],
       periodEnd: endDate.toISOString().split("T")[0],
-      openingBalance: Math.round(openingBalance * 100) / 100,
-      closingBalance: Math.round(closingBalance * 100) / 100,
-      totalInflow,
-      totalOutflow,
-      totalInterest,
-      totalWithdrawn,
+      openingBalance: round2(openingBalance),
+      closingBalance: round2(closingBalance),
+      totalInflow: round2(totalInflow),
+      totalOutflow: round2(totalOutflow),
+      totalInterest: round2(totalInterest),
+      totalWithdrawn: round2(totalWithdrawn),
       rows,
     };
   }
 
-  /**
-   * 将对账单转为 CSV 字符串
-   */
   static toCSV(statement: StatementSummary): string {
     const BOM = "\uFEFF";
     const header = [
-      `资金方对账单 — ${statement.funderName}`,
-      `期间：${statement.periodStart} 至 ${statement.periodEnd}`,
-      `合作模式：${statement.cooperationMode === "FIXED_MONTHLY" ? "固定月息" : "业务量结算"}`,
-      `期初余额：€${statement.openingBalance.toFixed(2)}`,
-      `期末余额：€${statement.closingBalance.toFixed(2)}`,
-      `总入账：€${statement.totalInflow.toFixed(2)}  总出账：€${statement.totalOutflow.toFixed(2)}  总提现：€${statement.totalWithdrawn.toFixed(2)}`,
+      `资金方对账单 - ${statement.funderName}`,
+      `期间: ${statement.periodStart} 至 ${statement.periodEnd}`,
+      `合作模式: ${statement.cooperationMode}`,
+      `期初余额: €${statement.openingBalance.toFixed(2)}`,
+      `期末余额: €${statement.closingBalance.toFixed(2)}`,
+      `总入账: €${statement.totalInflow.toFixed(2)}  总出账: €${statement.totalOutflow.toFixed(2)}  总提现: €${statement.totalWithdrawn.toFixed(2)}`,
       "",
       "日期,类型,描述,出账(€),入账(€),余额(€)",
     ].join("\n");
 
-    const dataRows = statement.rows.map((r) =>
-      [r.date, r.type, `"${r.description}"`, r.debit.toFixed(2), r.credit.toFixed(2), r.balance.toFixed(2)].join(",")
+    const dataRows = statement.rows.map((row) =>
+      [
+        row.date,
+        row.type,
+        `"${row.description}"`,
+        row.debit.toFixed(2),
+        row.credit.toFixed(2),
+        row.balance.toFixed(2),
+      ].join(","),
     );
 
     return BOM + header + "\n" + dataRows.join("\n");

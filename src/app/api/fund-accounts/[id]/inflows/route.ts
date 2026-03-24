@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAdminSession, isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +70,22 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         inflowDate,
         status: "CONFIRMED",
         remark: parsed.data.remark,
+      },
+    });
+
+    await writeFundAccountLedgerEntry(tx, {
+      fundAccountId: id,
+      type: "CAPITAL_INFLOW",
+      direction: "CREDIT",
+      amount: parsed.data.amount,
+      referenceType: "capital_inflow",
+      referenceId: inflow.id,
+      operatorId: session.sub,
+      description: `Capital injected via ${parsed.data.channel}`,
+      metadata: {
+        channel: parsed.data.channel,
+        inflowDate: inflowDate.toISOString(),
+        remark: parsed.data.remark ?? null,
       },
     });
 

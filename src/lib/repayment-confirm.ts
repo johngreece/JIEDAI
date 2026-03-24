@@ -10,6 +10,7 @@ import { Prisma } from "@prisma/client";
 import { writeAuditLog } from "./audit";
 import { prisma } from "./prisma";
 import { recordRepaymentLedger } from "@/services/ledger.service";
+import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
 import { resolveOverdue } from "@/services/overdue.service";
 import {
   DEFAULT_OVERDUE,
@@ -349,6 +350,24 @@ export async function settleRepaymentReceipt(params: {
     }
 
     if (application.disbursement?.fundAccountId) {
+      await writeFundAccountLedgerEntry(tx, {
+        fundAccountId: application.disbursement.fundAccountId,
+        type: "REPAYMENT",
+        direction: "CREDIT",
+        amount: Number(repayment.amount),
+        referenceType: "repayment",
+        referenceId: repayment.id,
+        operatorId: params.operatorId,
+        description: "Customer repayment received",
+        metadata: {
+          applicationId: application.id,
+          principalPart: Number(repayment.principalPart),
+          interestPart: Number(repayment.interestPart),
+          feePart: Number(repayment.feePart),
+          penaltyPart: Number(repayment.penaltyPart),
+        },
+      });
+
       await tx.fundAccount.update({
         where: { id: application.disbursement.fundAccountId },
         data: {

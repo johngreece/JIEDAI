@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { recordDisbursementLedger } from "@/services/ledger.service";
+import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
 import {
   calcNetDisbursement,
   calcRepaymentAmount,
@@ -151,6 +152,23 @@ export async function POST(
       feeAmount: disbursement.feeAmount,
       customerId: pendingDisbursement.application.customerId,
       operatorId: session.sub,
+    });
+
+    await writeFundAccountLedgerEntry(tx, {
+      fundAccountId: disbursement.fundAccountId,
+      type: "DISBURSEMENT",
+      direction: "DEBIT",
+      amount: disbursement.netAmount,
+      referenceType: "disbursement",
+      referenceId: disbursement.id,
+      operatorId: session.sub,
+      description: "Loan disbursement paid to customer",
+      metadata: {
+        applicationId: disbursement.applicationId,
+        grossAmount: Number(disbursement.amount),
+        feeAmount: Number(disbursement.feeAmount),
+        netAmount: Number(disbursement.netAmount),
+      },
     });
 
     await tx.fundAccount.update({
