@@ -19,13 +19,13 @@ export default async function AdminLayout({
         <div className="absolute -right-24 bottom-0 h-96 w-96 rounded-full bg-indigo-400/15 blur-3xl" />
       </div>
 
-      <aside className="fixed inset-y-0 z-50 hidden w-80 lg:flex lg:flex-col">
+      <aside className="fixed inset-y-0 z-50 hidden w-[22.5rem] px-3 py-3 lg:flex lg:flex-col">
         <AdminSidebar userRole={userRole} username={username} />
       </aside>
 
-      <main className="relative flex min-h-screen w-full min-w-0 flex-col overflow-auto lg:pl-80">
+      <main className="relative flex min-h-screen w-full min-w-0 flex-col overflow-auto lg:pl-[22.5rem]">
         <div className="w-full max-w-none px-3 py-3 md:px-5 md:py-5 xl:px-6 xl:py-6 2xl:px-8">
-          <div className="glass-login-card mb-4 rounded-[24px] px-4 py-3 md:px-5">
+          <div className="glass-login-card mb-4 rounded-[28px] px-4 py-3 md:px-5">
             <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.18em] text-cyan-100/85">Admin Workspace</p>
@@ -39,7 +39,7 @@ export default async function AdminLayout({
               </div>
             </div>
           </div>
-          <div className="fade-in-up rounded-[32px] border border-white/40 bg-white/90 p-4 text-slate-900 shadow-xl backdrop-blur-sm md:p-6 xl:p-7 2xl:p-8">
+          <div className="fade-in-up rounded-[36px] border border-white/45 bg-white/92 p-4 text-slate-900 shadow-[0_22px_60px_rgba(15,23,42,0.12)] backdrop-blur-sm md:p-6 xl:p-7 2xl:p-8">
             {children}
           </div>
         </div>

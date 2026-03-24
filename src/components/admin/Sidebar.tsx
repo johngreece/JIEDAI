@@ -116,52 +116,59 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[]; user
   };
 
   return (
-    <div className="flex grow flex-col gap-y-3 overflow-y-auto border-r border-white/10 bg-slate-950/80 px-4 pb-4 backdrop-blur-xl scrollbar-thin">
-      {/* ━━━ Logo ━━━ */}
-      <div className="mt-3 flex h-14 shrink-0 items-center justify-center border-b border-white/10">
-        <Link href="/" className="flex items-center gap-2 font-semibold text-white text-lg tracking-wide hover:opacity-90 transition-opacity">
-          <CompanyLogo size={30} />
-          <span>财大气粗</span>
+    <div className="flex min-h-0 grow flex-col overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.94),rgba(9,16,29,0.92))] shadow-[0_20px_55px_rgba(2,6,23,0.38)] backdrop-blur-2xl">
+      <div className="border-b border-white/10 px-5 pb-4 pt-5">
+        <Link href="/" className="flex items-center gap-3 rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 font-semibold text-white transition hover:bg-white/8 hover:no-underline">
+          <div className="flex h-11 w-11 items-center justify-center rounded-[16px] bg-gradient-to-br from-cyan-400/30 via-sky-400/20 to-blue-500/25 ring-1 ring-white/10">
+            <CompanyLogo size={28} />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-base tracking-[0.08em] text-white">财大气粗</div>
+            <div className="mt-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-400">Admin Console</div>
+          </div>
         </Link>
       </div>
 
-      {/* ━━━ 导航 ━━━ */}
-      <nav className="mt-1 flex flex-1 flex-col">
-        <div className="flex flex-1 flex-col gap-y-1">
+      <nav className="flex min-h-0 flex-1 flex-col px-4 py-4">
+        <div className="flex flex-1 flex-col gap-y-2 overflow-y-auto pr-1">
           {groups.map((group) => {
             const isOpen = !collapsed[group.label];
             const hasActive = group.items.some((i) => pathname === i.href || pathname?.startsWith(i.href + "/"));
             return (
-              <div key={group.label}>
-                {/* 分组标题 */}
+              <div key={group.label} className="rounded-[22px] border border-white/6 bg-white/[0.03] px-2 py-2">
                 <button
                   onClick={() => toggle(group.label)}
-                  className={`w-full flex items-center gap-2 px-2 py-2 text-[11px] font-bold uppercase tracking-[0.12em] rounded-md transition-colors
-                    ${hasActive ? "text-cyan-300" : "text-slate-500 hover:text-slate-300"}`}
+                  className={`flex w-full items-center gap-2.5 rounded-[16px] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] transition-colors
+                    ${hasActive ? "bg-white/[0.04] text-cyan-200" : "text-slate-500 hover:bg-white/[0.03] hover:text-slate-300"}`}
                 >
-                  <span className="w-4 h-4 shrink-0 opacity-60">{group.icon("w-4 h-4")}</span>
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[12px] border border-white/8 bg-white/[0.04] text-slate-300">
+                    {group.icon("h-4 w-4")}
+                  </span>
                   <span className="flex-1 text-left">{group.label}</span>
-                  <span className={`w-4 h-4 transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}>
-                    {I.chevDown("w-3.5 h-3.5")}
+                  <span className={`transition-transform duration-200 ${isOpen ? "" : "-rotate-90"}`}>
+                    {I.chevDown("h-3.5 w-3.5")}
                   </span>
                 </button>
 
-                {/* 菜单项 */}
                 <div className={`overflow-hidden transition-all duration-200 ${isOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"}`}>
-                  <ul className="ml-2 space-y-0.5 border-l border-white/5 pl-2 pb-1">
+                  <ul className="mt-2 space-y-1 px-1 pb-1">
                     {group.items.map((item) => {
                       const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
                       return (
                         <li key={item.name}>
                           <Link
                             href={item.href}
-                            className={`flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium transition-all duration-150
+                            className={`flex items-center gap-3 rounded-[16px] px-3 py-2.5 text-[13px] font-medium transition-all duration-150
                               ${isActive
-                                ? "bg-white/15 text-white shadow-sm shadow-cyan-500/10"
-                                : "text-slate-400 hover:bg-white/8 hover:text-slate-200"}`}
+                                ? "border border-cyan-400/15 bg-cyan-300/12 text-white shadow-[0_10px_24px_rgba(34,211,238,0.08)]"
+                                : "border border-transparent text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"}`}
                           >
-                            <span className="w-4 h-4 shrink-0 opacity-70">{item.icon("w-4 h-4")}</span>
-                            {item.name}
+                            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[12px] ${
+                              isActive ? "bg-white/12 text-cyan-100" : "bg-white/[0.04] text-slate-300"
+                            }`}>
+                              {item.icon("h-4 w-4")}
+                            </span>
+                            <span className="truncate">{item.name}</span>
                           </Link>
                         </li>
                       );
@@ -173,19 +180,18 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[]; user
           })}
         </div>
 
-        {/* ━━━ 用户栏 ━━━ */}
-        <div className="mt-auto pt-3 border-t border-white/10">
-          <div className="flex items-center gap-x-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-white backdrop-blur-sm">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-xs font-bold text-white ring-2 ring-cyan-400/30">
+        <div className="mt-4 border-t border-white/10 pt-4">
+          <div className="flex items-center gap-x-3 rounded-[22px] border border-white/10 bg-white/[0.05] px-4 py-3 text-sm font-medium text-white backdrop-blur-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-[14px] bg-gradient-to-br from-cyan-500 to-blue-600 text-xs font-bold text-white ring-2 ring-cyan-400/20">
               {username ? username.charAt(0).toUpperCase() : "A"}
             </div>
             <div className="flex-1 min-w-0">
               <div className="truncate text-sm">{username}</div>
-              <div className="text-[10px] text-slate-500">{userRole?.includes("super_admin") ? "超级管理员" : "操作员"}</div>
+              <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{userRole?.includes("super_admin") ? "SUPER ADMIN" : "OPERATOR"}</div>
             </div>
             <button
               onClick={handleLogout}
-              className="rounded-full p-1.5 text-slate-400 transition-colors hover:bg-red-500/20 hover:text-red-400"
+              className="rounded-[12px] p-2 text-slate-400 transition-colors hover:bg-red-500/15 hover:text-red-300"
               title="退出登录"
             >
               {I.logout("h-4 w-4")}
