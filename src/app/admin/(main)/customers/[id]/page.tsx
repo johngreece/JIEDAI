@@ -239,20 +239,21 @@ export default function CustomerDetailPage() {
   return (
     <div className="space-y-6">
       {/* 顶部头部 */}
-      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">客户详情</h1>
-          <p className="mt-1 text-sm text-slate-600">{data.name} · {data.phone}</p>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Customer Profile</span>
+          <h1 className="admin-page-header__title">客户详情</h1>
+          <p className="admin-page-header__description">{data.name} · {data.phone}</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => router.back()} className="btn-soft rounded-lg px-3 py-2 text-sm">返回</button>
-          {!editing && <button onClick={startEdit} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800">编辑</button>}
+        <div className="admin-toolbar-group">
+          <button onClick={() => router.back()} className="admin-btn admin-btn-secondary">返回</button>
+          {!editing && <button onClick={startEdit} className="admin-btn admin-btn-primary">编辑</button>}
         </div>
       </header>
 
       {editing ? (
-        <section className="panel-soft rounded-xl p-5 space-y-4">
-          <h2 className="text-lg font-semibold">编辑客户信息</h2>
+        <section className="admin-form-shell space-y-4">
+          <div className="admin-section-card__title">编辑客户信息</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {([
               ["name", "姓名"], ["phone", "手机号"], ["email", "邮箱"], ["address", "地址"],
@@ -260,26 +261,32 @@ export default function CustomerDetailPage() {
               ["bankAccount", "银行账号"], ["bankName", "开户行"],
             ] as const).map(([key, label]) => (
               <label key={key} className="block"><span className="text-sm text-slate-600">{label}</span>
-                <input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
+                <input className="admin-field mt-1 text-sm" value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
               </label>
             ))}
             <label className="block"><span className="text-sm text-slate-600">风险等级</span>
-              <select className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" value={form.riskLevel} onChange={(e) => setForm({ ...form, riskLevel: e.target.value })}>
+              <select className="admin-field mt-1 text-sm" value={form.riskLevel} onChange={(e) => setForm({ ...form, riskLevel: e.target.value })}>
                 {RISK_OPTIONS.map((r) => <option key={r} value={r}>{RISK_LABELS[r]}</option>)}
               </select></label>
             <label className="block"><span className="text-sm text-slate-600">备注</span>
-              <textarea className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" rows={2} value={form.remark ?? ""} onChange={(e) => setForm({ ...form, remark: e.target.value })} /></label>
+              <textarea className="admin-field mt-1 min-h-[88px] text-sm" rows={2} value={form.remark ?? ""} onChange={(e) => setForm({ ...form, remark: e.target.value })} /></label>
           </div>
-          <div className="flex gap-3 pt-2">
-            <button onClick={saveEdit} disabled={saving} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50">{saving ? "保存中..." : "保存"}</button>
-            <button onClick={() => setEditing(false)} className="btn-soft rounded-lg px-4 py-2 text-sm">取消</button>
+          <div className="admin-btn-group pt-2">
+            <button onClick={saveEdit} disabled={saving} className="admin-btn admin-btn-primary">{saving ? "保存中..." : "保存"}</button>
+            <button onClick={() => setEditing(false)} className="admin-btn admin-btn-secondary">取消</button>
           </div>
         </section>
       ) : (
         <>
           {/* 基本信息 */}
-          <section className="panel-soft rounded-xl p-5">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4">基本信息</h2>
+          <section className="admin-section-card">
+            <div className="admin-section-card__header">
+              <div>
+                <div className="admin-section-card__title">基本信息</div>
+                <p className="admin-section-card__description">统一查看客户实名、联系信息、风险等级与注册来源。</p>
+              </div>
+            </div>
+            <div className="admin-section-card__body">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-y-3 gap-x-6 text-sm">
               {([
                 ["姓名", data.name], ["手机号", data.phone], ["证件类型", data.idType === "ID_CARD" ? "身份证" : data.idType],
@@ -293,19 +300,23 @@ export default function CustomerDetailPage() {
               ))}
             </div>
             {data.remark && <p className="mt-3 text-sm text-slate-500">备注：{data.remark}</p>}
+            </div>
           </section>
 
           {/* ═══════ 证件管理（上传/下载/预览） ═══════ */}
-          <section className="panel-soft rounded-xl p-5">
+          <section className="admin-section-card">
+            <div className="admin-section-card__header">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">证件管理</h2>
+                <div className="admin-section-card__title">证件管理</div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   已上传 {uploadedCount}/{DOC_TYPES.length} 种证件
                   {uploadedCount === DOC_TYPES.length && <span className="ml-2 text-emerald-600 font-medium">✓ 全部齐全</span>}
                 </p>
               </div>
             </div>
+            </div>
+            <div className="admin-section-card__body">
             {uploadMsg && (
               <p className={`text-xs mb-3 rounded-lg px-3 py-2 ${uploadMsg.includes("成功") ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"}`}>{uploadMsg}</p>
             )}
@@ -317,7 +328,7 @@ export default function CustomerDetailPage() {
                 const isPdf = doc?.documentUrl?.startsWith("data:application/pdf");
 
                 return (
-                  <div key={type} className="rounded-xl border border-slate-200 overflow-hidden bg-white">
+                  <div key={type} className="rounded-[1.2rem] border border-slate-200 overflow-hidden bg-white">
                     {/* 预览区域 */}
                     <div
                       className="relative h-48 bg-slate-50 flex items-center justify-center cursor-pointer group"
@@ -383,7 +394,7 @@ export default function CustomerDetailPage() {
                         <button
                           onClick={() => fileInputRefs.current[type]?.click()}
                           disabled={isUploading}
-                          className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          className="flex-1 flex items-center justify-center gap-1 rounded-full border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                         >
                           {isUploading ? (
                             <span className="animate-pulse">上传中...</span>
@@ -395,7 +406,7 @@ export default function CustomerDetailPage() {
                         {doc && (
                           <button
                             onClick={() => handleDownload(doc)}
-                            className="flex items-center justify-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                            className="flex items-center justify-center gap-1 rounded-full border border-slate-300 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
                             title="下载"
                           >
                             <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -410,22 +421,23 @@ export default function CustomerDetailPage() {
                 );
               })}
             </div>
+            </div>
           </section>
 
           {/* ═══════ 预览弹窗 ═══════ */}
           {previewDoc && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setPreviewDoc(null)}>
-              <div className="relative max-h-[90vh] max-w-[90vw] bg-white rounded-xl overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-[1.5rem] bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-between border-b px-4 py-3">
                   <h3 className="font-semibold text-slate-800">{KYC_TYPE_LABELS[previewDoc.kycType]} — {data.name}</h3>
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleDownload(previewDoc)}
-                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white hover:bg-slate-800"
+                      className="admin-btn admin-btn-primary admin-btn-sm"
                     >
                       下载文件
                     </button>
-                    <button onClick={() => setPreviewDoc(null)} className="rounded p-1 hover:bg-slate-100">
+                    <button onClick={() => setPreviewDoc(null)} className="rounded-full p-1.5 hover:bg-slate-100">
                       <svg className="h-5 w-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                       </svg>
@@ -445,24 +457,30 @@ export default function CustomerDetailPage() {
           )}
 
           {/* 额度管理 */}
-          <section className="panel-soft rounded-xl p-5">
-            <h2 className="text-lg font-semibold text-slate-900 mb-3">额度管理</h2>
+          <section className="admin-section-card">
+            <div className="admin-section-card__header">
+              <div>
+                <div className="admin-section-card__title">额度管理</div>
+                <p className="admin-section-card__description">结合证件完成度与特殊额度覆盖规则，统一查看客户可借额度。</p>
+              </div>
+            </div>
+            <div className="admin-section-card__body">
             {credit ? (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="rounded-lg border bg-slate-50 p-3">
+                  <div className="stat-tile admin-stat-card">
                     <p className="text-xs text-slate-500">基础额度</p>
                     <p className="text-lg font-bold text-slate-800">€{credit.baseLimit.toLocaleString()}</p>
                   </div>
-                  <div className="rounded-lg border bg-slate-50 p-3">
+                  <div className="stat-tile admin-stat-card">
                     <p className="text-xs text-slate-500">生效额度</p>
                     <p className="text-lg font-bold text-cyan-700">€{credit.effectiveLimit.toLocaleString()}</p>
                   </div>
-                  <div className="rounded-lg border bg-slate-50 p-3">
+                  <div className="stat-tile admin-stat-card">
                     <p className="text-xs text-slate-500">特殊额度</p>
                     <p className="text-lg font-bold text-amber-600">{credit.creditLimitOverride != null ? `€${credit.creditLimitOverride.toLocaleString()}` : "未设置"}</p>
                   </div>
-                  <div className="rounded-lg border bg-slate-50 p-3">
+                  <div className="stat-tile admin-stat-card">
                     <p className="text-xs text-slate-500">证件完成度</p>
                     <p className="text-lg font-bold">{credit.allDocumentsUploaded ? <span className="text-emerald-600">全部完成</span> : <span className="text-amber-600">{uploadedCount}/3</span>}</p>
                   </div>
@@ -472,7 +490,7 @@ export default function CustomerDetailPage() {
                     <label className="text-sm text-slate-600">设置特殊额度（留空=使用系统计算额度）</label>
                     <input
                       type="number"
-                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      className="admin-field mt-1 text-sm"
                       placeholder="例如 50000"
                       value={creditOverride}
                       onChange={(e) => setCreditOverride(e.target.value)}
@@ -480,7 +498,7 @@ export default function CustomerDetailPage() {
                       step="1000"
                     />
                   </div>
-                  <button type="submit" disabled={creditSaving} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap">
+                  <button type="submit" disabled={creditSaving} className="admin-btn admin-btn-primary whitespace-nowrap">
                     {creditSaving ? "保存中..." : "保存额度"}
                   </button>
                   {credit.creditLimitOverride != null && (
@@ -494,7 +512,7 @@ export default function CustomerDetailPage() {
                         if (!res.ok) throw new Error("清除失败");
                         setCreditOverride(""); setCreditMsg("额度已更新"); loadCredit();
                       } catch { setCreditMsg("清除失败"); } finally { setCreditSaving(false); }
-                    }} className="btn-soft rounded-lg px-3 py-2 text-sm whitespace-nowrap">清除特殊额度</button>
+                    }} className="admin-btn admin-btn-secondary whitespace-nowrap">清除特殊额度</button>
                   )}
                 </form>
                 {creditMsg && <p className={`text-xs ${creditMsg.includes("已更新") ? "text-emerald-600" : "text-red-600"}`}>{creditMsg}</p>}
@@ -502,17 +520,23 @@ export default function CustomerDetailPage() {
             ) : (
               <p className="text-sm text-slate-400">加载中...</p>
             )}
+            </div>
           </section>
 
           {/* 重置密码 */}
-          <section className="panel-soft rounded-xl p-5">
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">重置登录密码</h2>
-            <p className="text-xs text-slate-400 mb-3">为客户重新设置客户端登录密码（手机号 + 密码登录）</p>
+          <section className="admin-section-card">
+            <div className="admin-section-card__header">
+              <div>
+                <div className="admin-section-card__title">重置登录密码</div>
+                <p className="admin-section-card__description">为客户重新设置客户端登录密码（手机号 + 密码登录）。</p>
+              </div>
+            </div>
+            <div className="admin-section-card__body">
             <form onSubmit={handleResetPassword} className="flex gap-2 items-end">
               <div className="flex-1">
                 <input
                   type="password"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  className="admin-field text-sm"
                   placeholder="新密码（至少6位）"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
@@ -520,17 +544,24 @@ export default function CustomerDetailPage() {
                   required
                 />
               </div>
-              <button type="submit" disabled={pwdSaving} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50 whitespace-nowrap">
+              <button type="submit" disabled={pwdSaving} className="admin-btn admin-btn-primary whitespace-nowrap">
                 {pwdSaving ? "重置中..." : "重置密码"}
               </button>
             </form>
             {pwdMsg && <p className={`text-xs mt-2 ${pwdMsg.includes("成功") ? "text-emerald-600" : "text-red-600"}`}>{pwdMsg}</p>}
+            </div>
           </section>
 
           {/* 近期借款 */}
           {data.loanApplications.length > 0 && (
-            <section className="panel-soft rounded-xl p-5">
-              <h2 className="text-lg font-semibold text-slate-900 mb-3">近期借款</h2>
+            <section className="table-shell admin-table-shell">
+              <div className="admin-table-toolbar">
+                <div>
+                  <div className="admin-table-title">近期借款</div>
+                  <p className="admin-table-note">快速跳转到该客户最近的借款申请详情。</p>
+                </div>
+              </div>
+              <div className="px-5 py-4">
               <table className="min-w-full text-sm">
                 <thead><tr className="text-left text-xs text-slate-500 border-b">
                   <th className="py-2">申请编号</th><th className="py-2">金额</th><th className="py-2">状态</th><th className="py-2">时间</th>
@@ -546,6 +577,7 @@ export default function CustomerDetailPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </section>
           )}
         </>

@@ -36,47 +36,75 @@ export default function OverduePage() {
       const data = await res.json();
       setItems(data.items ?? []);
       setTotal(data.total ?? 0);
-    } catch { /* */ } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { load(); }, [page, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void load();
+  }, [page, status]);
 
   async function runScan() {
     try {
       const res = await fetch("/api/overdue/scan", { method: "POST" });
       const data = await res.json();
-      if (!res.ok) { alert(data.error ?? "扫描失败"); return; }
-      alert(`扫描完成：新增 ${data.newOverdue} 条，更新 ${data.updatedOverdue} 条`);
-      load();
-    } catch { alert("扫描失败"); }
+      if (!res.ok) {
+        alert(data.error ?? "扫描失败");
+        return;
+      }
+      alert(`扫描完成: 新增 ${data.newOverdue} 条，更新 ${data.updatedOverdue} 条`);
+      await load();
+    } catch {
+      alert("扫描失败");
+    }
   }
 
   const totalPages = Math.ceil(total / 20);
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">逾期管理</h1>
-          <p className="mt-1 text-sm text-slate-600">查看逾期记录与罚息计算</p>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Overdue Monitor</span>
+          <h1 className="admin-page-header__title">逾期管理</h1>
+          <p className="admin-page-header__description">跟踪逾期天数、逾期金额、罚息累计和当前处置状态。</p>
         </div>
-        <div className="flex gap-2">
-          <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
+        <div className="admin-toolbar-group">
+          <select
+            className="admin-field w-40 text-sm"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+          >
             <option value="">全部状态</option>
             <option value="OPEN">逾期中</option>
             <option value="RESOLVED">已解决</option>
             <option value="WRITTEN_OFF">已核销</option>
           </select>
-          <button onClick={load} className="btn-soft rounded-lg px-3 py-2 text-sm">刷新</button>
-          <button onClick={runScan} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800">执行扫描</button>
+          <button onClick={load} className="admin-btn admin-btn-secondary">
+            刷新
+          </button>
+          <button onClick={runScan} className="admin-btn admin-btn-primary">
+            执行扫描
+          </button>
         </div>
       </header>
 
-      <section className="table-shell overflow-hidden rounded-xl">
+      <section className="table-shell admin-table-shell">
+        <div className="admin-table-toolbar">
+          <div>
+            <div className="admin-table-title">逾期记录</div>
+            <p className="admin-table-note">帮助管理端集中确认今日新增逾期与已处置项目。</p>
+          </div>
+          <div className="text-xs font-medium text-slate-500">每页 20 条</div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
+              <tr className="border-b border-slate-200 text-left">
                 <th className="px-4 py-3">申请编号</th>
                 <th className="px-4 py-3">客户</th>
                 <th className="px-4 py-3">逾期天数</th>
@@ -88,36 +116,69 @@ export default function OverduePage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    加载中...
+                  </td>
+                </tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">暂无逾期记录</td></tr>
-              ) : items.map((o) => {
-                const s = STATUS_MAP[o.status] ?? { label: o.status, cls: "bg-slate-50 text-slate-600 border-slate-200" };
-                return (
-                  <tr key={o.id} className="hover:bg-slate-50/50">
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{o.application?.applicationNo ?? o.applicationId.slice(0, 8)}</td>
-                    <td className="px-4 py-3 text-slate-900">{o.application?.customer?.name ?? "-"}</td>
-                    <td className="px-4 py-3 font-semibold text-red-600">{o.overdueDays} 天</td>
-                    <td className="px-4 py-3 text-slate-700">€{o.overdueAmount.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-amber-700">€{o.penaltyAmount.toLocaleString()}</td>
-                    <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span></td>
-                    <td className="px-4 py-3 text-slate-500">{new Date(o.createdAt).toLocaleDateString()}</td>
-                  </tr>
-                );
-              })}
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    暂无逾期记录
+                  </td>
+                </tr>
+              ) : (
+                items.map((item) => {
+                  const statusMeta = STATUS_MAP[item.status] ?? {
+                    label: item.status,
+                    cls: "bg-slate-50 text-slate-600 border-slate-200",
+                  };
+                  return (
+                    <tr key={item.id}>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">
+                        {item.application?.applicationNo ?? item.applicationId.slice(0, 8)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-900">{item.application?.customer?.name ?? "-"}</td>
+                      <td className="px-4 py-3 font-semibold text-red-600">{item.overdueDays} 天</td>
+                      <td className="px-4 py-3 text-slate-700">EUR {item.overdueAmount.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-amber-700">EUR {item.penaltyAmount.toLocaleString()}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusMeta.cls}`}>
+                          {statusMeta.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">{new Date(item.createdAt).toLocaleDateString()}</td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
-            <span className="text-slate-500">共 {total} 条</span>
-            <div className="flex gap-1">
-              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border px-2 py-1 disabled:opacity-30">上一页</button>
-              <span className="px-2 py-1 text-slate-600">{page}/{totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="rounded border px-2 py-1 disabled:opacity-30">下一页</button>
+        {totalPages > 1 ? (
+          <div className="admin-pagination">
+            <span className="admin-pagination__summary">共 {total} 条记录</span>
+            <div className="admin-pagination__controls">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+                className="admin-btn admin-btn-ghost admin-btn-sm"
+              >
+                上一页
+              </button>
+              <span className="admin-pagination__status">
+                {page}/{totalPages}
+              </span>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+                className="admin-btn admin-btn-ghost admin-btn-sm"
+              >
+                下一页
+              </button>
             </div>
           </div>
-        )}
+        ) : null}
       </section>
     </div>
   );

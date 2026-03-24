@@ -1,49 +1,133 @@
-import { getAdminSession } from "@/lib/auth";
-import { AdminSidebar } from "@/components/admin/Sidebar";
+"use client";
 
-export default async function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const session = await getAdminSession();
-  
-  // Safe default for unauthenticated layout (though middleware usually catches this)
-  const username = session?.username ?? "Guest";
-  const userRole = session?.roles ?? [];
+import type { ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
+
+import Sidebar from "@/components/admin/Sidebar";
+
+type AdminMainLayoutProps = {
+  children: ReactNode;
+};
+
+export default function AdminMainLayout({ children }: AdminMainLayoutProps) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const pathname = usePathname();
+
+  const pageMeta = useMemo(() => {
+    const titleMap: Record<string, string> = {
+      dashboard: "首页工作台",
+      finance: "财务系统",
+      "launch-readiness": "上线检查",
+      customers: "客户管理",
+      "loan-applications": "借款申请",
+      disbursements: "放款管理",
+      repayments: "还款管理",
+      "repayment-plans": "还款计划",
+      overdue: "逾期管理",
+      settlement: "结算中心",
+      ledger: "资金台账",
+      funders: "资金方",
+      "funder-withdrawals": "资金方提现",
+      users: "用户管理",
+      roles: "角色管理",
+      products: "产品配置",
+      templates: "模板中心",
+      extensions: "展期管理",
+      restructures: "重组管理",
+      "audit-logs": "审计日志",
+      register: "新增客户",
+    };
+
+    const parts = pathname.split("/").filter(Boolean).slice(1);
+    const labels = parts.map((part) => titleMap[part] ?? part);
+
+    return {
+      crumbs: ["管理后台", ...labels],
+      current: labels[labels.length - 1] ?? "首页工作台",
+      section: labels[0] ?? "管理后台",
+      today: new Intl.DateTimeFormat("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        weekday: "short",
+      }).format(new Date()),
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    const syncLayout = () => {
+      const width = window.innerWidth;
+      setCollapsed(width < 1440);
+      if (width >= 1100) {
+        setMobileOpen(false);
+      }
+    };
+
+    syncLayout();
+    window.addEventListener("resize", syncLayout);
+    return () => window.removeEventListener("resize", syncLayout);
+  }, []);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950 text-slate-100">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -left-24 top-24 h-72 w-72 rounded-full bg-cyan-300/15 blur-3xl" />
-        <div className="absolute -right-24 bottom-0 h-96 w-96 rounded-full bg-indigo-400/15 blur-3xl" />
-      </div>
+    <div className="admin-workspace-shell">
+      <Sidebar
+        collapsed={collapsed}
+        mobileOpen={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        onToggleCollapse={() => setCollapsed((current) => !current)}
+      />
 
-      <aside className="fixed inset-y-0 z-50 hidden w-[22.5rem] px-3 py-3 lg:flex lg:flex-col">
-        <AdminSidebar userRole={userRole} username={username} />
-      </aside>
-
-      <main className="relative flex min-h-screen w-full min-w-0 flex-col overflow-auto lg:pl-[22.5rem]">
-        <div className="w-full max-w-none px-3 py-3 md:px-5 md:py-5 xl:px-6 xl:py-6 2xl:px-8">
-          <div className="glass-login-card mb-4 rounded-[28px] px-4 py-3 md:px-5">
-            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-cyan-100/85">Admin Workspace</p>
-                <p className="mt-1 text-sm text-slate-200/85">
-                  欢迎回来，{username}。今天继续推进借款、还款、逾期和资金运营全流程。
+      <div className="admin-workspace-main">
+        <div className="admin-workspace-topbar">
+          <div className="admin-topbar-shell">
+            <div className="admin-topbar-copy">
+              <div className="admin-breadcrumbs">
+                {pageMeta.crumbs.map((crumb, index) => (
+                  <span key={`${crumb}-${index}`} className="admin-breadcrumbs__item">
+                    {index > 0 ? <span className="admin-breadcrumbs__sep">/</span> : null}
+                    <span>{crumb}</span>
+                  </span>
+                ))}
+              </div>
+              <div className="admin-topbar-heading">
+                <h1 className="admin-topbar-heading__title">{pageMeta.current}</h1>
+                <p className="admin-topbar-heading__meta">
+                  {pageMeta.section} · 今日 {pageMeta.today}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 text-xs text-slate-200/80">
-                <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5">全屏布局</span>
-                <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5">宽屏工作台</span>
+            </div>
+
+            <div className="admin-topbar-actions">
+              <div className="admin-topbar-chip">
+                <span className="admin-topbar-chip__dot" />
+                系统在线
               </div>
+              <button
+                type="button"
+                onClick={() => setMobileOpen(true)}
+                className="admin-btn admin-btn-secondary admin-btn-sm lg:hidden"
+              >
+                菜单
+              </button>
+              <button
+                type="button"
+                onClick={() => setCollapsed((current) => !current)}
+                className="admin-btn admin-btn-secondary admin-btn-sm hidden lg:inline-flex"
+              >
+                {collapsed ? "展开导航" : "收起导航"}
+              </button>
             </div>
           </div>
-          <div className="fade-in-up rounded-[36px] border border-white/45 bg-white/92 p-4 text-slate-900 shadow-[0_22px_60px_rgba(15,23,42,0.12)] backdrop-blur-sm md:p-6 xl:p-7 2xl:p-8">
-            {children}
-          </div>
         </div>
-      </main>
+
+        <main className="admin-content-stage">
+          <div className="admin-content-backdrop" />
+          <div className="admin-content-inner">
+            <div className="relative z-[1]">{children}</div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

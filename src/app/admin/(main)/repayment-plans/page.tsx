@@ -3,6 +3,18 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+type ScheduleRow = {
+  id: string;
+  periodNumber: number;
+  dueDate: string;
+  principal: number;
+  interest: number;
+  fee: number;
+  totalDue: number;
+  remaining: number;
+  status: string;
+};
+
 type PlanItem = {
   id: string;
   planNo: string;
@@ -18,18 +30,6 @@ type PlanItem = {
   scheduleItems?: ScheduleRow[];
 };
 
-type ScheduleRow = {
-  id: string;
-  periodNumber: number;
-  dueDate: string;
-  principal: number;
-  interest: number;
-  fee: number;
-  totalDue: number;
-  remaining: number;
-  status: string;
-};
-
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
   ACTIVE: { label: "进行中", cls: "bg-blue-50 text-blue-700 border-blue-200" },
   COMPLETED: { label: "已完成", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -40,7 +40,7 @@ const STATUS_MAP: Record<string, { label: string; cls: string }> = {
 const ITEM_STATUS: Record<string, string> = {
   PENDING: "待还",
   PAID: "已还",
-  PARTIALLY_PAID: "部分还",
+  PARTIALLY_PAID: "部分已还",
   OVERDUE: "逾期",
 };
 
@@ -60,39 +60,60 @@ export default function RepaymentPlansPage() {
       const data = await res.json();
       setItems(data.items ?? []);
       setTotal(data.total ?? 0);
-    } catch { /* */ } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { load(); }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void load();
+  }, [page]);
 
   async function toggleSchedule(planId: string) {
-    if (expandedId === planId) { setExpandedId(null); return; }
+    if (expandedId === planId) {
+      setExpandedId(null);
+      return;
+    }
     setExpandedId(planId);
     setScheduleLoading(true);
     try {
       const res = await fetch(`/api/repayment-plans/${planId}/schedule`);
       const data = await res.json();
-      setItems((prev) => prev.map((p) => p.id === planId ? { ...p, scheduleItems: data.items ?? [] } : p));
-    } catch { /* */ } finally { setScheduleLoading(false); }
+      setItems((prev) => prev.map((plan) => (plan.id === planId ? { ...plan, scheduleItems: data.items ?? [] } : plan)));
+    } finally {
+      setScheduleLoading(false);
+    }
   }
 
   const totalPages = Math.ceil(total / 20);
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">还款计划</h1>
-          <p className="mt-1 text-sm text-slate-600">查看所有借款的分期还款计划</p>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Repayment Plans</span>
+          <h1 className="admin-page-header__title">还款计划</h1>
+          <p className="admin-page-header__description">查看借款分期结构、剩余应还、逾期状态与明细计划。</p>
         </div>
-        <button onClick={load} className="btn-soft rounded-lg px-3 py-2 text-sm">刷新</button>
+        <div className="admin-toolbar-group">
+          <button onClick={load} className="admin-btn admin-btn-secondary">
+            刷新
+          </button>
+        </div>
       </header>
 
-      <section className="table-shell overflow-hidden rounded-xl">
+      <section className="table-shell admin-table-shell">
+        <div className="admin-table-toolbar">
+          <div>
+            <div className="admin-table-title">计划列表</div>
+            <p className="admin-table-note">支持展开分期明细，快速核对每期本金、利息、费用与剩余金额。</p>
+          </div>
+          <div className="text-xs font-medium text-slate-500">每页 20 条</div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
+              <tr className="border-b border-slate-200 text-left">
                 <th className="px-4 py-3">计划编号</th>
                 <th className="px-4 py-3">关联申请</th>
                 <th className="px-4 py-3">本金</th>
@@ -105,96 +126,142 @@ export default function RepaymentPlansPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
+                    加载中...
+                  </td>
+                </tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">暂无还款计划</td></tr>
-              ) : items.map((p) => {
-                const s = STATUS_MAP[p.status] ?? { label: p.status, cls: "bg-slate-50 text-slate-600 border-slate-200" };
-                const isExpanded = expandedId === p.id;
-                return (
-                  <tr key={p.id} className="hover:bg-slate-50/50">
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{p.planNo}</td>
-                    <td className="px-4 py-3">
-                      <Link href={`/admin/loan-applications/${p.applicationId}`} className="text-blue-600 hover:underline text-xs">
-                        {p.application?.applicationNo ?? p.applicationId.slice(0, 8)}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">€{p.totalPrincipal.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-slate-700">€{p.totalInterest.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-slate-500">€{p.totalFee.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-slate-700">{p.totalPeriods} 期</td>
-                    <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span></td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => toggleSchedule(p.id)} className="text-blue-600 hover:underline text-sm">
-                        {isExpanded ? "收起" : "明细"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
+                <tr>
+                  <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
+                    暂无还款计划
+                  </td>
+                </tr>
+              ) : (
+                items.map((plan) => {
+                  const statusMeta = STATUS_MAP[plan.status] ?? {
+                    label: plan.status,
+                    cls: "bg-slate-50 text-slate-600 border-slate-200",
+                  };
+                  const isExpanded = expandedId === plan.id;
+
+                  return (
+                    <tr key={plan.id}>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{plan.planNo}</td>
+                      <td className="px-4 py-3">
+                        <Link href={`/admin/loan-applications/${plan.applicationId}`} className="text-xs font-medium text-blue-600 hover:underline">
+                          {plan.application?.applicationNo ?? plan.applicationId.slice(0, 8)}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">EUR {plan.totalPrincipal.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-slate-700">EUR {plan.totalInterest.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-slate-500">EUR {plan.totalFee.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-slate-700">{plan.totalPeriods} 期</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusMeta.cls}`}>
+                          {statusMeta.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <button onClick={() => toggleSchedule(plan.id)} className="text-sm font-medium text-blue-600 hover:underline">
+                          {isExpanded ? "收起" : "查看明细"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
 
-        {/* 展开的还款明细 */}
-        {expandedId && (() => {
-          const plan = items.find((p) => p.id === expandedId);
-          if (!plan) return null;
-          return (
-            <div className="border-t border-slate-200 bg-slate-50/50 p-4">
-              <h3 className="text-sm font-semibold text-slate-700 mb-3">还款明细 — {plan.planNo}</h3>
-              {scheduleLoading ? (
-                <p className="text-sm text-slate-400">加载中...</p>
-              ) : !plan.scheduleItems?.length ? (
-                <p className="text-sm text-slate-400">暂无明细</p>
-              ) : (
-                <table className="min-w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-slate-500 border-b">
-                      <th className="py-2 px-3">期数</th>
-                      <th className="py-2 px-3">到期日</th>
-                      <th className="py-2 px-3">本金</th>
-                      <th className="py-2 px-3">利息</th>
-                      <th className="py-2 px-3">费用</th>
-                      <th className="py-2 px-3">应还</th>
-                      <th className="py-2 px-3">剩余</th>
-                      <th className="py-2 px-3">状态</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {plan.scheduleItems.map((si) => (
-                      <tr key={si.id}>
-                        <td className="py-2 px-3">{si.periodNumber}</td>
-                        <td className="py-2 px-3">{new Date(si.dueDate).toLocaleDateString()}</td>
-                        <td className="py-2 px-3">€{si.principal.toLocaleString()}</td>
-                        <td className="py-2 px-3">€{si.interest.toLocaleString()}</td>
-                        <td className="py-2 px-3">€{si.fee.toLocaleString()}</td>
-                        <td className="py-2 px-3 font-medium">€{si.totalDue.toLocaleString()}</td>
-                        <td className="py-2 px-3">{si.remaining > 0 ? `€${si.remaining.toLocaleString()}` : "-"}</td>
-                        <td className="py-2 px-3">
-                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${si.status === "PAID" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : si.status === "OVERDUE" ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
-                            {ITEM_STATUS[si.status] ?? si.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          );
-        })()}
+        {expandedId ? (
+          <div className="border-t border-slate-200 bg-slate-50/70 p-4">
+            {(() => {
+              const plan = items.find((item) => item.id === expandedId);
+              if (!plan) return null;
 
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
-            <span className="text-slate-500">共 {total} 条</span>
-            <div className="flex gap-1">
-              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border px-2 py-1 disabled:opacity-30">上一页</button>
-              <span className="px-2 py-1 text-slate-600">{page}/{totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="rounded border px-2 py-1 disabled:opacity-30">下一页</button>
+              return (
+                <>
+                  <h3 className="text-sm font-semibold text-slate-800">分期明细: {plan.planNo}</h3>
+                  {scheduleLoading ? (
+                    <p className="mt-3 text-sm text-slate-400">加载中...</p>
+                  ) : !plan.scheduleItems?.length ? (
+                    <p className="mt-3 text-sm text-slate-400">暂无明细</p>
+                  ) : (
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="min-w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-left text-slate-500">
+                            <th className="px-3 py-2">期数</th>
+                            <th className="px-3 py-2">到期日</th>
+                            <th className="px-3 py-2">本金</th>
+                            <th className="px-3 py-2">利息</th>
+                            <th className="px-3 py-2">费用</th>
+                            <th className="px-3 py-2">应还</th>
+                            <th className="px-3 py-2">剩余</th>
+                            <th className="px-3 py-2">状态</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {plan.scheduleItems.map((item) => (
+                            <tr key={item.id}>
+                              <td className="px-3 py-2">{item.periodNumber}</td>
+                              <td className="px-3 py-2">{new Date(item.dueDate).toLocaleDateString()}</td>
+                              <td className="px-3 py-2">EUR {item.principal.toLocaleString()}</td>
+                              <td className="px-3 py-2">EUR {item.interest.toLocaleString()}</td>
+                              <td className="px-3 py-2">EUR {item.fee.toLocaleString()}</td>
+                              <td className="px-3 py-2 font-medium">EUR {item.totalDue.toLocaleString()}</td>
+                              <td className="px-3 py-2">{item.remaining > 0 ? `EUR ${item.remaining.toLocaleString()}` : "-"}</td>
+                              <td className="px-3 py-2">
+                                <span
+                                  className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${
+                                    item.status === "PAID"
+                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      : item.status === "OVERDUE"
+                                        ? "border-red-200 bg-red-50 text-red-700"
+                                        : "border-amber-200 bg-amber-50 text-amber-700"
+                                  }`}
+                                >
+                                  {ITEM_STATUS[item.status] ?? item.status}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
+
+        {totalPages > 1 ? (
+          <div className="admin-pagination">
+            <span className="admin-pagination__summary">共 {total} 条记录</span>
+            <div className="admin-pagination__controls">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+                className="admin-btn admin-btn-ghost admin-btn-sm"
+              >
+                上一页
+              </button>
+              <span className="admin-pagination__status">
+                {page}/{totalPages}
+              </span>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+                className="admin-btn admin-btn-ghost admin-btn-sm"
+              >
+                下一页
+              </button>
             </div>
           </div>
-        )}
+        ) : null}
       </section>
     </div>
   );

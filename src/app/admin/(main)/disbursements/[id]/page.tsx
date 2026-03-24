@@ -97,60 +97,81 @@ export default function DisbursementDetailPage() {
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft flex items-start justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <div className="text-sm text-slate-500">放款单详情</div>
-          <h1 className="text-2xl font-bold text-slate-900">{data.disbursementNo}</h1>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Disbursement Detail</span>
+          <h1 className="admin-page-header__title">{data.disbursementNo}</h1>
+          <p className="admin-page-header__description">查看放款金额、到账净额、资金账户和还款计划生成情况。</p>
           <div className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(data.status)}`}>{getStatusLabel(data.status)}</div>
         </div>
-        <div className="flex gap-2">
+        <div className="admin-toolbar-group">
           {data.status === "PENDING" ? (
-            <button disabled={acting} onClick={confirmPaid} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
+            <button disabled={acting} onClick={confirmPaid} className="admin-btn admin-btn-primary disabled:opacity-50">
               {acting ? "处理中..." : "确认打款"}
             </button>
           ) : null}
-          <Link href="/admin/disbursements" className="btn-soft rounded-lg px-3 py-2 text-sm">返回列表</Link>
+          <Link href="/admin/disbursements" className="admin-btn admin-btn-secondary">返回列表</Link>
         </div>
       </header>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">放款金额</p><p className="text-2xl font-bold">€ {data.amount.toFixed(2)}</p></div>
-        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">手续费</p><p className="text-2xl font-bold">€ {data.feeAmount.toFixed(2)}</p></div>
-        <div className="stat-tile rounded-xl p-4"><p className="text-xs text-slate-500">净到账</p><p className="text-2xl font-bold text-emerald-700">€ {data.netAmount.toFixed(2)}</p></div>
+      <section className="admin-stat-grid md:grid-cols-3">
+        <div className="stat-tile admin-stat-card"><p className="admin-stat-card__label">放款金额</p><p className="admin-stat-card__value">€ {data.amount.toFixed(2)}</p></div>
+        <div className="stat-tile admin-stat-card"><p className="admin-stat-card__label">手续费</p><p className="admin-stat-card__value">€ {data.feeAmount.toFixed(2)}</p></div>
+        <div className="stat-tile admin-stat-card"><p className="admin-stat-card__label">净到账</p><p className="admin-stat-card__value text-emerald-700">€ {data.netAmount.toFixed(2)}</p></div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">
-        <div className="panel-soft rounded-xl p-4 space-y-2">
-          <h2 className="font-semibold">申请信息</h2>
+        <div className="admin-section-card">
+          <div className="admin-section-card__header">
+            <div>
+              <div className="admin-section-card__title">申请信息</div>
+              <p className="admin-section-card__description">对照放款单查看所属申请、客户和产品。</p>
+            </div>
+          </div>
+          <div className="admin-section-card__body space-y-2">
           <p className="text-sm">申请单：{data.application.applicationNo}</p>
           <p className="text-sm">客户：{data.application.customer.name}（{data.application.customer.phone}）</p>
           <p className="text-sm">产品：{data.application.product.name}</p>
           <p className="text-sm">申请状态：{getStatusLabel(data.application.status)}</p>
+          </div>
         </div>
-        <div className="panel-soft rounded-xl p-4 space-y-2">
-          <h2 className="font-semibold">资金账户</h2>
+        <div className="admin-section-card">
+          <div className="admin-section-card__header">
+            <div>
+              <div className="admin-section-card__title">资金账户</div>
+              <p className="admin-section-card__description">核对资金方、打款账户和账户余额。</p>
+            </div>
+          </div>
+          <div className="admin-section-card__body space-y-2">
           <p className="text-sm">资金方：{data.fundAccount.funder.name}</p>
           <p className="text-sm">账户：{data.fundAccount.accountName}</p>
           <p className="text-sm">账号：{data.fundAccount.accountNo}</p>
           <p className="text-sm">当前余额：€ {data.fundAccount.balance.toFixed(2)}</p>
+          </div>
         </div>
       </section>
 
-      <section className="table-shell rounded-xl p-4">
-        <h2 className="font-semibold mb-3">还款计划可视化</h2>
+      <section className="table-shell admin-table-shell">
+        <div className="admin-table-toolbar">
+          <div>
+            <div className="admin-table-title">还款计划可视化</div>
+            <p className="admin-table-note">确认打款后自动生成还款计划，可在此直接核对本金、利息、费用和每期期次。</p>
+          </div>
+        </div>
+        <div className="px-4 py-4">
         {!data.repaymentPlan ? (
           <p className="text-sm text-slate-500">尚未生成还款计划（确认打款后自动生成）</p>
         ) : (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">计划编号</p><p className="text-sm font-medium">{data.repaymentPlan.planNo}</p></div>
-              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">期数</p><p className="text-sm font-medium">{data.repaymentPlan.totalPeriods}</p></div>
-              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">本金</p><p className="text-sm font-medium">€ {data.repaymentPlan.totalPrincipal.toFixed(2)}</p></div>
-              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">利息</p><p className="text-sm font-medium">€ {data.repaymentPlan.totalInterest.toFixed(2)}</p></div>
-              <div className="rounded-lg border bg-slate-50 p-3"><p className="text-xs text-slate-500">费用</p><p className="text-sm font-medium">€ {data.repaymentPlan.totalFee.toFixed(2)}</p></div>
+            <div className="admin-kpi-strip">
+              <div className="admin-kpi-strip__item"><p className="admin-kpi-strip__label">计划编号</p><p className="admin-kpi-strip__value">{data.repaymentPlan.planNo}</p></div>
+              <div className="admin-kpi-strip__item"><p className="admin-kpi-strip__label">期数</p><p className="admin-kpi-strip__value">{data.repaymentPlan.totalPeriods}</p></div>
+              <div className="admin-kpi-strip__item"><p className="admin-kpi-strip__label">本金</p><p className="admin-kpi-strip__value">€ {data.repaymentPlan.totalPrincipal.toFixed(2)}</p></div>
+              <div className="admin-kpi-strip__item"><p className="admin-kpi-strip__label">利息</p><p className="admin-kpi-strip__value">€ {data.repaymentPlan.totalInterest.toFixed(2)}</p></div>
+              <div className="admin-kpi-strip__item"><p className="admin-kpi-strip__label">费用</p><p className="admin-kpi-strip__value">€ {data.repaymentPlan.totalFee.toFixed(2)}</p></div>
             </div>
 
-            <div className="overflow-x-auto border rounded-lg">
+            <div className="overflow-x-auto rounded-[1.2rem] border border-slate-200">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 text-slate-600">
                   <tr>
@@ -184,6 +205,7 @@ export default function DisbursementDetailPage() {
             </div>
           </div>
         )}
+        </div>
       </section>
     </div>
   );

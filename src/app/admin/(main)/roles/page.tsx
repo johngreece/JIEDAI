@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Permission = { id: string; code: string; name: string; module: string };
 type Role = {
@@ -27,7 +27,9 @@ export default function RolesPage() {
       const res = await fetch("/api/roles");
       const data = await res.json();
       setRoles(data.items ?? []);
-    } catch { /* */ } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const loadPerms = useCallback(async () => {
@@ -35,14 +37,21 @@ export default function RolesPage() {
       const res = await fetch("/api/permissions");
       const data = await res.json();
       setAllPerms(data.items ?? []);
-    } catch { /* */ }
+    } catch {
+      setAllPerms([]);
+    }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { loadPerms(); }, [loadPerms]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    void loadPerms();
+  }, [loadPerms]);
+
+  async function handleCreate(event: React.FormEvent) {
+    event.preventDefault();
     setSubmitting(true);
     try {
       const res = await fetch("/api/roles", {
@@ -51,11 +60,18 @@ export default function RolesPage() {
         body: JSON.stringify(form),
       });
       const data = await res.json();
-      if (!res.ok) { alert(data.error ?? "创建失败"); return; }
+      if (!res.ok) {
+        alert(data.error ?? "创建失败");
+        return;
+      }
       setShowForm(false);
       setForm({ name: "", code: "", description: "", permissionIds: [] });
-      load();
-    } catch { alert("创建失败"); } finally { setSubmitting(false); }
+      await load();
+    } catch {
+      alert("创建失败");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function togglePerm(permId: string) {
@@ -67,79 +83,113 @@ export default function RolesPage() {
     }));
   }
 
-  // Group permissions by module
-  const modules = allPerms.reduce<Record<string, Permission[]>>((acc, p) => {
-    (acc[p.module] ??= []).push(p);
+  const modules = allPerms.reduce<Record<string, Permission[]>>((acc, permission) => {
+    (acc[permission.module] ??= []).push(permission);
     return acc;
   }, {});
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">角色管理</h1>
-          <p className="mt-1 text-sm text-slate-600">管理系统角色和权限配置</p>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Roles & Permissions</span>
+          <h1 className="admin-page-header__title">角色管理</h1>
+          <p className="admin-page-header__description">统一管理后台角色、权限模块与用户占用情况，让权限体系更清晰可维护。</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800">
-          {showForm ? "取消" : "新增角色"}
-        </button>
+        <div className="admin-toolbar-group">
+          <button onClick={() => setShowForm((current) => !current)} className="admin-btn admin-btn-primary">
+            {showForm ? "取消新增" : "新增角色"}
+          </button>
+        </div>
       </header>
 
-      {showForm && (
-        <form onSubmit={handleCreate} className="panel-soft rounded-xl p-5 space-y-4">
-          <h3 className="text-sm font-semibold text-slate-700">新增角色</h3>
-          <div className="grid grid-cols-3 gap-4">
-            <input required className="rounded-lg border px-3 py-2 text-sm" placeholder="角色名称" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <input required className="rounded-lg border px-3 py-2 text-sm" placeholder="角色编码 (如 operator)" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
-            <input className="rounded-lg border px-3 py-2 text-sm" placeholder="描述" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+      {showForm ? (
+        <form onSubmit={handleCreate} className="admin-form-shell">
+          <div className="admin-section-card__header -mx-5 -mt-5 mb-5 border-b border-slate-100 px-5">
+            <div>
+              <div className="admin-section-card__title">创建角色</div>
+              <p className="admin-section-card__description">填写角色基础信息，并从权限模块中勾选该角色允许访问的能力。</p>
+            </div>
           </div>
-          {Object.keys(modules).length > 0 && (
-            <div className="space-y-3">
-              <p className="text-sm text-slate-600">选择权限：</p>
-              {Object.entries(modules).map(([mod, perms]) => (
-                <div key={mod} className="flex flex-wrap gap-2 items-center">
-                  <span className="text-xs font-semibold text-slate-500 w-20">{mod}</span>
-                  {perms.map((p) => (
-                    <label key={p.id} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs cursor-pointer ${form.permissionIds.includes(p.id) ? "bg-blue-100 border-blue-300 text-blue-800" : "bg-slate-50 border-slate-200 text-slate-500"}`}>
-                      <input type="checkbox" className="sr-only" checked={form.permissionIds.includes(p.id)} onChange={() => togglePerm(p.id)} />
-                      {p.name}
-                    </label>
-                  ))}
+
+          <div className="admin-form-grid md:grid-cols-3">
+            <input required className="admin-field text-sm" placeholder="角色名称" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <input required className="admin-field text-sm" placeholder="角色编码，如 operator" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+            <input className="admin-field text-sm" placeholder="描述" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          </div>
+
+          {Object.keys(modules).length > 0 ? (
+            <div className="mt-5 space-y-3">
+              <div className="admin-section-card__title text-sm">权限分配</div>
+              {Object.entries(modules).map(([moduleName, permissions]) => (
+                <div key={moduleName} className="admin-note-block">
+                  <div className="mb-3 text-sm font-semibold text-slate-800">{moduleName}</div>
+                  <div className="flex flex-wrap gap-2">
+                    {permissions.map((permission) => {
+                      const active = form.permissionIds.includes(permission.id);
+                      return (
+                        <label
+                          key={permission.id}
+                          className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                            active
+                              ? "border-blue-300 bg-blue-100 text-blue-800"
+                              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                          }`}
+                        >
+                          <input type="checkbox" className="sr-only" checked={active} onChange={() => togglePerm(permission.id)} />
+                          {permission.name}
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </div>
-          )}
-          <button type="submit" disabled={submitting} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50">
-            {submitting ? "创建中..." : "创建"}
-          </button>
+          ) : null}
+
+          <div className="mt-5">
+            <button type="submit" disabled={submitting} className="admin-btn admin-btn-primary">
+              {submitting ? "创建中..." : "创建角色"}
+            </button>
+          </div>
         </form>
-      )}
+      ) : null}
 
       <section className="space-y-4">
         {loading ? (
-          <div className="text-center py-8 text-slate-400">加载中...</div>
+          <div className="py-8 text-center text-slate-400">加载中...</div>
         ) : roles.length === 0 ? (
-          <div className="text-center py-8 text-slate-400">暂无角色</div>
-        ) : roles.map((role) => (
-          <div key={role.id} className="table-shell rounded-xl p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <h3 className="text-sm font-bold text-slate-900">{role.name}</h3>
-                <span className="font-mono text-xs text-slate-400">{role.code}</span>
-                {role.isSystem && <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">系统角色</span>}
+          <div className="py-8 text-center text-slate-400">暂无角色</div>
+        ) : (
+          roles.map((role) => (
+            <div key={role.id} className="admin-section-card">
+              <div className="admin-section-card__header">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="admin-section-card__title">{role.name}</div>
+                  <span className="font-mono text-xs text-slate-400">{role.code}</span>
+                  {role.isSystem ? (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs text-amber-700">系统角色</span>
+                  ) : null}
+                </div>
+                <span className="text-xs text-slate-400">{role.userCount} 个用户</span>
               </div>
-              <span className="text-xs text-slate-400">{role.userCount} 个用户</span>
+              <div className="admin-section-card__body space-y-3">
+                {role.description ? <p className="text-sm text-slate-500">{role.description}</p> : null}
+                <div className="flex flex-wrap gap-2">
+                  {role.permissions.length === 0 ? (
+                    <span className="text-xs text-slate-400">暂无权限</span>
+                  ) : (
+                    role.permissions.map((permission) => (
+                      <span key={permission.id} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600">
+                        {permission.name}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
-            {role.description && <p className="text-sm text-slate-500">{role.description}</p>}
-            <div className="flex flex-wrap gap-1.5">
-              {role.permissions.length === 0 ? (
-                <span className="text-xs text-slate-400">暂无权限</span>
-              ) : role.permissions.map((p) => (
-                <span key={p.id} className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">{p.name}</span>
-              ))}
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </section>
     </div>
   );

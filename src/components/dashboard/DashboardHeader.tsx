@@ -13,7 +13,7 @@ const QUICK_ACTIONS = [
 ];
 
 function getGreeting(hour: number) {
-  if (hour < 6) return "夜深了";
+  if (hour < 6) return "凌晨好";
   if (hour < 12) return "上午好";
   if (hour < 18) return "下午好";
   return "晚上好";
@@ -47,7 +47,7 @@ export function DashboardHeader({ username }: { username: string }) {
   }, []);
 
   return (
-    <header className="panel-soft rounded-[26px] px-5 py-4 xl:px-6">
+    <header className="dashboard-panel px-5 py-4 xl:px-6">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(520px,1fr)] xl:items-center">
         <div className="min-w-0">
           <div>
@@ -66,22 +66,14 @@ export function DashboardHeader({ username }: { username: string }) {
             </div>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
-              借款、还款、逾期同屏处理
-            </span>
-            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
-              财务入金与结算直达
-            </span>
+            <span className="dashboard-pill">借款、还款、逾期同屏处理</span>
+            <span className="dashboard-pill">财务入金与结算直达</span>
           </div>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {QUICK_ACTIONS.map((action) => (
-            <Link
-              key={action.href}
-              href={action.href}
-              className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:no-underline"
-            >
+            <Link key={action.href} href={action.href} className="dashboard-action-chip hover:no-underline">
               {action.label}
             </Link>
           ))}

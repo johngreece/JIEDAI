@@ -51,19 +51,29 @@ export default function AuditLogsPage() {
     }
   }
 
-  useEffect(() => { load(); }, [page, entityType]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void load();
+  }, [page, entityType]);
 
   const totalPages = Math.ceil(total / 30);
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">审计日志</h1>
-          <p className="mt-1 text-sm text-slate-600">系统操作审计追踪</p>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Audit Logs</span>
+          <h1 className="admin-page-header__title">审计日志</h1>
+          <p className="admin-page-header__description">跟踪后台关键操作、金额变动与责任归属，便于排查异常和回溯行为。</p>
         </div>
-        <div className="flex gap-2">
-          <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={entityType} onChange={(e) => { setEntityType(e.target.value); setPage(1); }}>
+        <div className="admin-toolbar-group">
+          <select
+            className="admin-field w-44 text-sm"
+            value={entityType}
+            onChange={(e) => {
+              setEntityType(e.target.value);
+              setPage(1);
+            }}
+          >
             <option value="">全部类型</option>
             <option value="LoanApplication">借款申请</option>
             <option value="Disbursement">放款</option>
@@ -72,20 +82,26 @@ export default function AuditLogsPage() {
             <option value="Contract">合同</option>
             <option value="User">用户</option>
           </select>
-          <button onClick={load} className="btn-soft rounded-lg px-3 py-2 text-sm">刷新</button>
+          <button onClick={load} className="admin-btn admin-btn-secondary">刷新</button>
         </div>
       </header>
 
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-      <section className="table-shell overflow-hidden rounded-xl">
+      <section className="table-shell admin-table-shell">
+        <div className="admin-table-toolbar">
+          <div>
+            <div className="admin-table-title">操作审计列表</div>
+            <p className="admin-table-note">金额类操作会用更明显的标签，方便财务和管理员优先关注。</p>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
+              <tr className="border-b border-slate-200 text-left">
                 <th className="px-4 py-3">时间</th>
                 <th className="px-4 py-3">操作人</th>
-                <th className="px-4 py-3">操作</th>
+                <th className="px-4 py-3">动作</th>
                 <th className="px-4 py-3">实体类型</th>
                 <th className="px-4 py-3">说明</th>
                 <th className="px-4 py-3">IP</th>
@@ -96,33 +112,35 @@ export default function AuditLogsPage() {
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
               ) : items.length === 0 ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">暂无日志</td></tr>
-              ) : items.map((log) => (
-                <tr key={log.id} className="hover:bg-slate-50/50">
-                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{new Date(log.createdAt).toLocaleString()}</td>
-                  <td className="px-4 py-3 text-slate-900">{log.user.realName ?? log.user.username}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${log.isAmountChange ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
-                      {ACTION_MAP[log.action] ?? log.action}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-slate-500">{log.entityType}</td>
-                  <td className="px-4 py-3 text-slate-700 max-w-xs truncate">{log.changeSummary ?? "-"}</td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">{log.ipAddress ?? "-"}</td>
-                </tr>
-              ))}
+              ) : (
+                items.map((log) => (
+                  <tr key={log.id}>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-500">{new Date(log.createdAt).toLocaleString()}</td>
+                    <td className="px-4 py-3 text-slate-900">{log.user.realName ?? log.user.username}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${log.isAmountChange ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                        {ACTION_MAP[log.action] ?? log.action}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">{log.entityType}</td>
+                    <td className="max-w-xs truncate px-4 py-3 text-slate-700">{log.changeSummary ?? "-"}</td>
+                    <td className="px-4 py-3 text-xs text-slate-400">{log.ipAddress ?? "-"}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
-            <span className="text-slate-500">共 {total} 条</span>
-            <div className="flex gap-1">
-              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border px-2 py-1 disabled:opacity-30">上一页</button>
-              <span className="px-2 py-1 text-slate-600">{page}/{totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="rounded border px-2 py-1 disabled:opacity-30">下一页</button>
+        {totalPages > 1 ? (
+          <div className="admin-pagination">
+            <span className="admin-pagination__summary">共 {total} 条</span>
+            <div className="admin-pagination__controls">
+              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="admin-btn admin-btn-ghost admin-btn-sm">上一页</button>
+              <span className="admin-pagination__status">{page}/{totalPages}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="admin-btn admin-btn-ghost admin-btn-sm">下一页</button>
             </div>
           </div>
-        )}
+        ) : null}
       </section>
     </div>
   );

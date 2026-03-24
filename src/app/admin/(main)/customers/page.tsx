@@ -49,39 +49,56 @@ export default function CustomersPage() {
     }
   }
 
-  useEffect(() => { load(); }, [page, keyword]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void load();
+  }, [page, keyword]);
 
-  function doSearch() { setPage(1); setKeyword(searchInput.trim()); }
+  function doSearch() {
+    setPage(1);
+    setKeyword(searchInput.trim());
+  }
 
   const totalPages = Math.ceil(total / 20);
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">客户管理</h1>
-          <p className="mt-1 text-sm text-slate-600">查看与管理所有客户信息</p>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Customer Center</span>
+          <h1 className="admin-page-header__title">客户管理</h1>
+          <p className="admin-page-header__description">统一查看客户档案、联系方式、风控等级与注册时间。</p>
         </div>
-        <div className="flex gap-2">
+        <div className="admin-toolbar-group">
           <input
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm w-48"
-            placeholder="姓名/手机号/证件号"
+            className="admin-field w-52 text-sm"
+            placeholder="姓名 / 手机 / 证件号"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && doSearch()}
           />
-          <button onClick={doSearch} className="btn-soft rounded-lg px-3 py-2 text-sm">搜索</button>
-          <Link href="/admin/register" className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800">新增客户</Link>
+          <button onClick={doSearch} className="admin-btn admin-btn-secondary">
+            搜索
+          </button>
+          <Link href="/admin/register" className="admin-btn admin-btn-primary">
+            新增客户
+          </Link>
         </div>
       </header>
 
-      {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-      <section className="table-shell overflow-hidden rounded-xl">
+      <section className="table-shell admin-table-shell">
+        <div className="admin-table-toolbar">
+          <div>
+            <div className="admin-table-title">客户清单</div>
+            <p className="admin-table-note">支持按关键词快速检索并进入客户详情。</p>
+          </div>
+          <div className="text-xs font-medium text-slate-500">每页 20 条</div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
+              <tr className="border-b border-slate-200 text-left">
                 <th className="px-4 py-3">姓名</th>
                 <th className="px-4 py-3">手机号</th>
                 <th className="px-4 py-3">证件号</th>
@@ -93,40 +110,68 @@ export default function CustomersPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    加载中...
+                  </td>
+                </tr>
               ) : items.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">暂无客户</td></tr>
-              ) : items.map((c) => {
-                const risk = RISK_MAP[c.riskLevel] ?? RISK_MAP.NORMAL;
-                return (
-                  <tr key={c.id} className="hover:bg-slate-50/50">
-                    <td className="px-4 py-3 font-medium text-slate-900">{c.name}</td>
-                    <td className="px-4 py-3 text-slate-700">{c.phone}</td>
-                    <td className="px-4 py-3 text-slate-500 font-mono text-xs">{c.idNumber}</td>
-                    <td className="px-4 py-3 text-slate-500">{c.email ?? "-"}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${risk.cls}`}>{risk.label}</span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">{new Date(c.createdAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-3">
-                      <Link href={`/admin/customers/${c.id}`} className="text-blue-600 hover:underline text-sm">详情</Link>
-                    </td>
-                  </tr>
-                );
-              })}
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                    暂无客户
+                  </td>
+                </tr>
+              ) : (
+                items.map((customer) => {
+                  const risk = RISK_MAP[customer.riskLevel] ?? RISK_MAP.NORMAL;
+                  return (
+                    <tr key={customer.id}>
+                      <td className="px-4 py-3 font-medium text-slate-900">{customer.name}</td>
+                      <td className="px-4 py-3 text-slate-700">{customer.phone}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-500">{customer.idNumber}</td>
+                      <td className="px-4 py-3 text-slate-500">{customer.email ?? "-"}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${risk.cls}`}>
+                          {risk.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">{new Date(customer.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-3">
+                        <Link href={`/admin/customers/${customer.id}`} className="text-sm font-medium text-blue-600 hover:underline">
+                          查看详情
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
-            <span className="text-slate-500">共 {total} 条</span>
-            <div className="flex gap-1">
-              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border px-2 py-1 disabled:opacity-30">上一页</button>
-              <span className="px-2 py-1 text-slate-600">{page}/{totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="rounded border px-2 py-1 disabled:opacity-30">下一页</button>
+        {totalPages > 1 ? (
+          <div className="admin-pagination">
+            <span className="admin-pagination__summary">共 {total} 条记录</span>
+            <div className="admin-pagination__controls">
+              <button
+                disabled={page <= 1}
+                onClick={() => setPage(page - 1)}
+                className="admin-btn admin-btn-ghost admin-btn-sm"
+              >
+                上一页
+              </button>
+              <span className="admin-pagination__status">
+                {page}/{totalPages}
+              </span>
+              <button
+                disabled={page >= totalPages}
+                onClick={() => setPage(page + 1)}
+                className="admin-btn admin-btn-ghost admin-btn-sm"
+              >
+                下一页
+              </button>
             </div>
           </div>
-        )}
+        ) : null}
       </section>
     </div>
   );

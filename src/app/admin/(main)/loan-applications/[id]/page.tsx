@@ -265,22 +265,29 @@ export default function LoanApplicationDetailPage() {
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft flex flex-wrap items-start justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <div className="text-sm text-slate-500">借款申请详情</div>
-          <h1 className="text-2xl font-bold text-slate-900">{data.applicationNo}</h1>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Application Detail</span>
+          <h1 className="admin-page-header__title">{data.applicationNo}</h1>
+          <p className="admin-page-header__description">借款申请详情、审批动作、合同生成参数与审批历史。</p>
           <div className={`mt-2 inline-flex rounded-full border px-2 py-0.5 text-xs ${getStatusBadgeClass(data.status)}`}>
             {getStatusLabel(data.status)}
           </div>
         </div>
-        <Link href="/admin/loan-applications" className="text-sm text-blue-600 hover:underline">
+        <Link href="/admin/loan-applications" className="admin-btn admin-btn-secondary">
           返回列表
         </Link>
       </header>
 
       <section className="grid gap-4 md:grid-cols-2">
-        <div className="panel-soft rounded-xl p-4 space-y-3">
-          <h2 className="font-semibold text-slate-900">申请信息</h2>
+        <div className="admin-section-card">
+          <div className="admin-section-card__header">
+            <div>
+              <div className="admin-section-card__title">申请信息</div>
+              <p className="admin-section-card__description">草稿和被拒状态支持直接在详情页修改后重新提交。</p>
+            </div>
+          </div>
+          <div className="admin-section-card__body space-y-3">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <label className="space-y-1">
               <span className="text-slate-500">金额</span>
@@ -329,14 +336,21 @@ export default function LoanApplicationDetailPage() {
             />
           </label>
           {editable ? (
-            <button disabled={saving} onClick={() => void save()} className="btn-primary px-4 py-2 text-sm disabled:opacity-50">
+            <button disabled={saving} onClick={() => void save()} className="admin-btn admin-btn-primary disabled:opacity-50">
               保存编辑
             </button>
           ) : null}
+          </div>
         </div>
 
-        <div className="panel-soft rounded-xl p-4 space-y-3">
-          <h2 className="font-semibold text-slate-900">客户与产品</h2>
+        <div className="admin-section-card">
+          <div className="admin-section-card__header">
+            <div>
+              <div className="admin-section-card__title">客户与产品</div>
+              <p className="admin-section-card__description">集中查看客户实名、产品归属和智能风控建议。</p>
+            </div>
+          </div>
+          <div className="admin-section-card__body space-y-3">
           <p className="text-sm text-slate-700">客户：{data.customer.name}（{data.customer.phone}）</p>
           <p className="text-sm text-slate-700">证件号：{data.customer.idNumber}</p>
           <p className="text-sm text-slate-700">产品：{data.product.name}</p>
@@ -359,17 +373,24 @@ export default function LoanApplicationDetailPage() {
           {data.totalApprovedAmount != null ? (
             <p className="text-sm text-emerald-700">审批金额：{formatMoney(data.totalApprovedAmount)}</p>
           ) : null}
+          </div>
         </div>
       </section>
 
-      <section className="panel-soft rounded-xl p-4 space-y-3">
-        <h2 className="font-semibold text-slate-900">审批动作</h2>
-        <div className="flex flex-wrap gap-2">
+      <section className="admin-section-card">
+        <div className="admin-section-card__header">
+          <div>
+            <div className="admin-section-card__title">审批动作</div>
+            <p className="admin-section-card__description">根据不同状态直接执行风控通过、拒绝或正式审批。</p>
+          </div>
+        </div>
+        <div className="admin-section-card__body">
+        <div className="admin-btn-group">
           {(data.status === "DRAFT" || data.status === "REJECTED") && (
             <button
               disabled={saving}
               onClick={() => void postAction(`/api/loan-applications/${params.id}/submit`)}
-              className="btn-soft px-3 py-1.5 text-sm"
+                className="admin-btn admin-btn-secondary admin-btn-sm"
             >
               提交风控
             </button>
@@ -384,7 +405,7 @@ export default function LoanApplicationDetailPage() {
                     comment: "详情页通过",
                   })
                 }
-                className="btn-primary px-3 py-1.5 text-sm disabled:opacity-50"
+                className="admin-btn admin-btn-primary admin-btn-sm disabled:opacity-50"
               >
                 风控通过
               </button>
@@ -396,7 +417,7 @@ export default function LoanApplicationDetailPage() {
                     comment: "详情页拒绝",
                   })
                 }
-                className="btn-danger px-3 py-1.5 text-sm disabled:opacity-50"
+                className="admin-btn admin-btn-danger admin-btn-sm disabled:opacity-50"
               >
                 风控拒绝
               </button>
@@ -411,7 +432,7 @@ export default function LoanApplicationDetailPage() {
                     action: "APPROVE",
                   })
                 }
-                className="btn-primary px-3 py-1.5 text-sm disabled:opacity-50"
+                className="admin-btn admin-btn-primary admin-btn-sm disabled:opacity-50"
               >
                 审批通过
               </button>
@@ -423,17 +444,19 @@ export default function LoanApplicationDetailPage() {
                     comment: "审批拒绝",
                   })
                 }
-                className="btn-danger px-3 py-1.5 text-sm disabled:opacity-50"
+                className="admin-btn admin-btn-danger admin-btn-sm disabled:opacity-50"
               >
                 审批拒绝
               </button>
             </>
           )}
         </div>
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="panel-soft rounded-xl p-4 space-y-4">
+        <div className="admin-section-card">
+          <div className="admin-section-card__body space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold text-slate-900">主合同生成参数</h2>
@@ -444,7 +467,7 @@ export default function LoanApplicationDetailPage() {
             <button
               type="button"
               onClick={calculateContractPrincipal}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              className="admin-btn admin-btn-secondary admin-btn-sm"
             >
               自动计算合同本金
             </button>
@@ -527,7 +550,7 @@ export default function LoanApplicationDetailPage() {
             </label>
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+          <div className="admin-note-block admin-note-block--soft text-sm text-slate-600">
             当前口径预览：基础本金 {contractForm.basePrincipal || "0"} + 并入本金利息{" "}
             {contractForm.capitalizedInterestAmount || "0"} = 合同本金 {contractForm.contractPrincipal || "0"}。
             合同中另列展示利率 {contractForm.contractDisplayInterestRate || "2%"}，该利率不参与系统正常利息重复计算。
@@ -546,12 +569,12 @@ export default function LoanApplicationDetailPage() {
           ) : null}
 
           {!data.mainContract ? (
-            <div className="flex flex-wrap gap-3">
+            <div className="admin-btn-group">
               <button
                 type="button"
                 disabled={!canSubmitContractActions || previewingContract}
                 onClick={() => void previewContract()}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className="admin-btn admin-btn-secondary disabled:opacity-50"
               >
                 {previewingContract ? "预览中..." : "预览合同"}
               </button>
@@ -559,7 +582,7 @@ export default function LoanApplicationDetailPage() {
                 type="button"
                 disabled={!canSubmitContractActions || generatingContract}
                 onClick={() => void generateContract()}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50"
+                className="admin-btn admin-btn-primary disabled:opacity-50"
               >
                 {generatingContract ? "生成中..." : "直接生成主合同"}
               </button>
@@ -569,10 +592,17 @@ export default function LoanApplicationDetailPage() {
               当前申请已生成主合同，不允许重复生成。
             </div>
           )}
+          </div>
         </div>
 
-        <div className="panel-soft rounded-xl p-4 space-y-3">
-          <h2 className="font-semibold text-slate-900">主合同状态</h2>
+        <div className="admin-section-card">
+          <div className="admin-section-card__header">
+            <div>
+              <div className="admin-section-card__title">主合同状态</div>
+              <p className="admin-section-card__description">查看主合同生成、签署和参数快照。</p>
+            </div>
+          </div>
+          <div className="admin-section-card__body space-y-3">
           {!data.mainContract ? (
             <p className="text-sm text-slate-500">当前还没有主合同。</p>
           ) : (
@@ -599,27 +629,29 @@ export default function LoanApplicationDetailPage() {
               <Link
                 href={`/client/sign/contract/${data.mainContract.id}`}
                 target="_blank"
-                className="inline-flex w-fit rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                className="admin-btn admin-btn-secondary w-fit"
               >
                 查看合同签署页
               </Link>
             </>
           )}
+          </div>
         </div>
       </section>
 
       {preview ? (
-        <section className="panel-soft rounded-xl p-4 space-y-4">
+        <section className="admin-section-card">
+          <div className="admin-section-card__body space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="font-semibold text-slate-900">合同预览</h2>
               <p className="mt-1 text-sm text-slate-500">合同号：{preview.contractNo}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="admin-btn-group">
               <button
                 type="button"
                 onClick={() => setPreview(null)}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                className="admin-btn admin-btn-secondary admin-btn-sm"
               >
                 关闭预览
               </button>
@@ -627,7 +659,7 @@ export default function LoanApplicationDetailPage() {
                 type="button"
                 disabled={generatingContract}
                 onClick={() => void generateContract()}
-                className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800 disabled:opacity-50"
+                className="admin-btn admin-btn-primary admin-btn-sm disabled:opacity-50"
               >
                 {generatingContract ? "生成中..." : "确认并生成"}
               </button>
@@ -639,11 +671,18 @@ export default function LoanApplicationDetailPage() {
               className="prose prose-sm max-w-none"
             />
           </div>
+          </div>
         </section>
       ) : null}
 
-      <section className="table-shell rounded-xl p-4">
-        <h2 className="mb-3 font-semibold text-slate-900">审批历史</h2>
+      <section className="table-shell admin-table-shell">
+        <div className="admin-table-toolbar">
+          <div>
+            <div className="admin-table-title">审批历史</div>
+            <p className="admin-table-note">查看历次审批意见和时间线。</p>
+          </div>
+        </div>
+        <div className="px-4 py-4">
 
         {["DISBURSED", "OVERDUE"].includes(data.status) ? (
           <section className="mb-6">
@@ -667,6 +706,7 @@ export default function LoanApplicationDetailPage() {
             ))}
           </ul>
         )}
+        </div>
       </section>
     </div>
   );

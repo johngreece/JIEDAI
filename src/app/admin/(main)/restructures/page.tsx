@@ -40,10 +40,14 @@ export default function RestructuresPage() {
       const data = await res.json();
       setItems(data.items ?? []);
       setTotal(data.total ?? 0);
-    } catch { /* */ } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }
 
-  useEffect(() => { load(); }, [page, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    void load();
+  }, [page, status]);
 
   async function approve(id: string, action: "APPROVE" | "REJECT") {
     setActing(id);
@@ -55,36 +59,54 @@ export default function RestructuresPage() {
       });
       const data = await res.json();
       if (!res.ok) alert(data.error ?? "操作失败");
-      load();
-    } catch { alert("操作失败"); } finally { setActing(null); }
+      await load();
+    } catch {
+      alert("操作失败");
+    } finally {
+      setActing(null);
+    }
   }
 
   const totalPages = Math.ceil(total / 20);
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">贷款重组</h1>
-          <p className="mt-1 text-sm text-slate-600">审批和管理贷款重组申请</p>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Restructures</span>
+          <h1 className="admin-page-header__title">贷款重组</h1>
+          <p className="admin-page-header__description">审批贷款重组申请，核对剩余本金、利息、新期限和新利率。</p>
         </div>
-        <div className="flex gap-2">
-          <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
+        <div className="admin-toolbar-group">
+          <select
+            className="admin-field w-40 text-sm"
+            value={status}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
+          >
             <option value="">全部状态</option>
             <option value="PENDING">待审批</option>
             <option value="APPROVED">已批准</option>
             <option value="REJECTED">已拒绝</option>
           </select>
-          <button onClick={load} className="btn-soft rounded-lg px-3 py-2 text-sm">刷新</button>
+          <button onClick={load} className="admin-btn admin-btn-secondary">刷新</button>
         </div>
       </header>
 
-      <section className="table-shell overflow-hidden rounded-xl">
+      <section className="table-shell admin-table-shell">
+        <div className="admin-table-toolbar">
+          <div>
+            <div className="admin-table-title">重组申请列表</div>
+            <p className="admin-table-note">高风险申请在批准前应配合风控与财务一起复核。</p>
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs text-slate-500">
-                <th className="px-4 py-3">申请ID</th>
+              <tr className="border-b border-slate-200 text-left">
+                <th className="px-4 py-3">申请 ID</th>
                 <th className="px-4 py-3">剩余本金</th>
                 <th className="px-4 py-3">剩余利息</th>
                 <th className="px-4 py-3">新期限</th>
@@ -92,7 +114,7 @@ export default function RestructuresPage() {
                 <th className="px-4 py-3">原因</th>
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">申请时间</th>
-                <th className="px-4 py-3">操作</th>
+                <th className="px-4 py-3">操作 / 备注</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -100,42 +122,46 @@ export default function RestructuresPage() {
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-400">加载中...</td></tr>
               ) : items.length === 0 ? (
                 <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-400">暂无重组记录</td></tr>
-              ) : items.map((r) => {
-                const s = STATUS_MAP[r.status] ?? { label: r.status, cls: "bg-slate-50 text-slate-600 border-slate-200" };
-                return (
-                  <tr key={r.id} className="hover:bg-slate-50/50">
-                    <td className="px-4 py-3 font-mono text-xs text-slate-700">{r.applicationId.slice(0, 8)}</td>
-                    <td className="px-4 py-3 text-slate-700">€{Number(r.remainingPrincipal).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-slate-500">€{Number(r.remainingInterest).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-slate-700">{r.newTermValue} {r.newTermUnit === "MONTH" ? "月" : "天"}</td>
-                    <td className="px-4 py-3 text-slate-700">{(Number(r.newRate) * 100).toFixed(2)}%</td>
-                    <td className="px-4 py-3 text-slate-500 max-w-xs truncate">{r.applyReason ?? "-"}</td>
-                    <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span></td>
-                    <td className="px-4 py-3 text-slate-500">{new Date(r.createdAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-3">
-                      {r.status === "PENDING" ? (
-                        <div className="flex gap-2">
-                          <button disabled={acting === r.id} onClick={() => approve(r.id, "APPROVE")} className="text-emerald-600 hover:underline text-sm disabled:opacity-50">批准</button>
-                          <button disabled={acting === r.id} onClick={() => approve(r.id, "REJECT")} className="text-red-600 hover:underline text-sm disabled:opacity-50">拒绝</button>
-                        </div>
-                      ) : r.remark ?? "-"}
-                    </td>
-                  </tr>
-                );
-              })}
+              ) : (
+                items.map((item) => {
+                  const statusMeta = STATUS_MAP[item.status] ?? { label: item.status, cls: "bg-slate-50 text-slate-600 border-slate-200" };
+                  return (
+                    <tr key={item.id}>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-700">{item.applicationId.slice(0, 8)}</td>
+                      <td className="px-4 py-3 text-slate-700">EUR {Number(item.remainingPrincipal).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-slate-500">EUR {Number(item.remainingInterest).toLocaleString()}</td>
+                      <td className="px-4 py-3 text-slate-700">{item.newTermValue} {item.newTermUnit === "MONTH" ? "月" : "天"}</td>
+                      <td className="px-4 py-3 text-slate-700">{(Number(item.newRate) * 100).toFixed(2)}%</td>
+                      <td className="max-w-xs truncate px-4 py-3 text-slate-500">{item.applyReason ?? "-"}</td>
+                      <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusMeta.cls}`}>{statusMeta.label}</span></td>
+                      <td className="px-4 py-3 text-slate-500">{new Date(item.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-3">
+                        {item.status === "PENDING" ? (
+                          <div className="admin-btn-group">
+                            <button disabled={acting === item.id} onClick={() => approve(item.id, "APPROVE")} className="text-sm text-emerald-600 hover:underline disabled:opacity-50">批准</button>
+                            <button disabled={acting === item.id} onClick={() => approve(item.id, "REJECT")} className="text-sm text-red-600 hover:underline disabled:opacity-50">拒绝</button>
+                          </div>
+                        ) : (
+                          item.remark ?? "-"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
-            <span className="text-slate-500">共 {total} 条</span>
-            <div className="flex gap-1">
-              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border px-2 py-1 disabled:opacity-30">上一页</button>
-              <span className="px-2 py-1 text-slate-600">{page}/{totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="rounded border px-2 py-1 disabled:opacity-30">下一页</button>
+        {totalPages > 1 ? (
+          <div className="admin-pagination">
+            <span className="admin-pagination__summary">共 {total} 条</span>
+            <div className="admin-pagination__controls">
+              <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="admin-btn admin-btn-ghost admin-btn-sm">上一页</button>
+              <span className="admin-pagination__status">{page}/{totalPages}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(page + 1)} className="admin-btn admin-btn-ghost admin-btn-sm">下一页</button>
             </div>
           </div>
-        )}
+        ) : null}
       </section>
     </div>
   );

@@ -89,24 +89,24 @@ export function DashboardSummary() {
   if (loading) {
     return (
       <div className="grid gap-4 xl:grid-cols-12">
-        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-8" />
-        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-4" />
-        <div className="stat-tile h-80 animate-pulse rounded-[30px] xl:col-span-12" />
-        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-4" />
-        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-4" />
-        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-4" />
+        <div className="dashboard-panel h-72 animate-pulse xl:col-span-8" />
+        <div className="dashboard-panel h-72 animate-pulse xl:col-span-4" />
+        <div className="dashboard-panel h-80 animate-pulse xl:col-span-12" />
+        <div className="dashboard-panel h-72 animate-pulse xl:col-span-4" />
+        <div className="dashboard-panel h-72 animate-pulse xl:col-span-4" />
+        <div className="dashboard-panel h-72 animate-pulse xl:col-span-4" />
       </div>
     );
   }
 
   if (error || !summary || !smart) {
     return (
-      <div className="rounded-[30px] border border-red-200 bg-red-50 p-6 text-red-700">
+      <div className="dashboard-panel border-red-200 bg-red-50/90 p-6 text-red-700">
         <div className="text-lg font-semibold">首页数据加载失败</div>
         <p className="mt-2 text-sm">{error || "请稍后重试。"}</p>
         <button
           onClick={() => void loadData()}
-          className="mt-4 rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white"
+          className="admin-btn admin-btn-danger admin-btn-sm mt-4"
         >
           重新加载
         </button>
@@ -124,14 +124,14 @@ export function DashboardSummary() {
         <Panel className="xl:col-span-8">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.95fr)] xl:items-end">
             <div className="min-w-0">
-              <div className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold tracking-[0.18em] text-slate-500">
+              <div className="dashboard-pill tracking-[0.18em]">
                 ADMIN OVERVIEW
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <h2 className="text-3xl font-bold tracking-tight text-slate-900 xl:text-4xl">
                   全屏运营工作台
                 </h2>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-600">
+                <span className="dashboard-pill dashboard-pill--soft text-sm font-medium">
                   今日高优先任务 {formatNumber(urgentCount)} 项
                 </span>
               </div>
@@ -203,14 +203,14 @@ export function DashboardSummary() {
             <DataRow label="资金池余额" value={formatCurrency(summary.funderBalance)} />
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+            <span className="dashboard-chip">
               30天净利润 {formatCurrency(smart.operations?.realNetProfit30d)}
             </span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+            <span className="dashboard-chip">
               坏账率 {formatPercent(smart.operations?.badDebtRate)}
             </span>
             {lastUpdated ? (
-              <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5">
+              <span className="dashboard-chip bg-white">
                 更新于 {lastUpdated.toLocaleTimeString("zh-CN", { hour12: false })}
               </span>
             ) : null}
@@ -224,7 +224,7 @@ export function DashboardSummary() {
             <button
               onClick={() => void loadData("refresh")}
               disabled={refreshing}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+              className="admin-btn admin-btn-secondary admin-btn-sm"
             >
               {refreshing ? "刷新中..." : "刷新数据"}
             </button>
@@ -283,7 +283,7 @@ export function DashboardSummary() {
             title="今日工作轨道"
             hint="三条横向工作流并排展示，先看申请，再看应还，再看逾期。"
           />
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <div className="dashboard-soft-row px-4 py-3 text-sm text-slate-600">
             工作台已切换为宽屏模式，桌面端优先展示横向信息流。
           </div>
         </div>
@@ -360,7 +360,7 @@ export function DashboardSummary() {
               sub="已确认注资金额"
             />
           </div>
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-600">
+          <div className="admin-note-block admin-note-block--soft mt-4 text-sm leading-7 text-slate-600">
             进入“财务中心”或“资金方”，选择资金方账户后录入金额、渠道和备注，
             系统会直接写入数据库，并同步增加资金池余额与资金流水。
           </div>
@@ -432,14 +432,14 @@ export function DashboardSummary() {
               <Link
                 key={`${item.type}-${item.href}`}
                 href={item.href}
-                className={`block rounded-2xl border px-4 py-3 transition hover:-translate-y-0.5 hover:shadow-sm hover:no-underline ${
+                className={`dashboard-tone-card px-4 py-3 hover:no-underline ${
                   item.urgency === "critical"
-                    ? "border-red-200 bg-red-50 text-red-700"
+                    ? "dashboard-tone-card--critical"
                     : item.urgency === "high"
-                      ? "border-orange-200 bg-orange-50 text-orange-700"
+                      ? "dashboard-tone-card--high"
                       : item.urgency === "medium"
-                        ? "border-amber-200 bg-amber-50 text-amber-700"
-                        : "border-blue-200 bg-blue-50 text-blue-700"
+                        ? "dashboard-tone-card--medium"
+                        : "dashboard-tone-card--default"
                 }`}
               >
                 <div className="flex items-center justify-between gap-4">
@@ -450,7 +450,7 @@ export function DashboardSummary() {
                     <div className="mt-1 truncate text-base font-semibold">{item.label}</div>
                     <p className="mt-1 text-sm leading-6 opacity-90">{item.description}</p>
                   </div>
-                  <div className="rounded-full bg-white/85 px-3 py-1 text-sm font-bold">
+                  <div className="dashboard-pill bg-white/90 px-3 py-1 text-sm font-bold">
                     {formatNumber(item.count)}
                   </div>
                 </div>
@@ -498,7 +498,7 @@ export function DashboardSummary() {
             {(smart.health?.insights || []).map((item: string) => (
               <div
                 key={item}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-600"
+                className="dashboard-soft-row p-4 text-sm leading-7 text-slate-600"
               >
                 {item}
               </div>
@@ -568,7 +568,7 @@ export function DashboardSummary() {
 
 function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <section className={`stat-tile rounded-[30px] p-5 xl:p-6 2xl:p-7 ${className}`}>
+    <section className={`dashboard-panel p-5 xl:p-6 2xl:p-7 ${className}`}>
       {children}
     </section>
   );
@@ -595,7 +595,7 @@ function HeroMetric({
   tone?: Tone;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+    <div className="dashboard-subcard p-4">
       <div className="text-sm text-slate-500">{label}</div>
       <ResponsiveValue value={value} className={`mt-2 text-[clamp(1.2rem,1.9vw,1.8rem)] ${getToneClass(tone)}`} />
       <div className="mt-1 text-xs text-slate-500">{sub}</div>
@@ -615,7 +615,7 @@ function MetricCard({
   tone?: Tone;
 }) {
   return (
-    <div className="stat-tile rounded-[26px] p-5">
+    <div className="dashboard-panel rounded-[26px] p-5">
       <div className="text-sm text-slate-500">{title}</div>
       <ResponsiveValue value={value} className={`mt-3 text-[clamp(1.05rem,1.7vw,1.7rem)] ${getToneClass(tone)}`} />
       <div className="mt-2 text-sm text-slate-500">{note}</div>
@@ -635,7 +635,7 @@ function StripMetric({
   compact?: boolean;
 }) {
   return (
-    <div className={`rounded-2xl border border-slate-200 bg-slate-50 ${compact ? "px-4 py-3" : "px-4 py-3"}`}>
+    <div className={`dashboard-row ${compact ? "px-4 py-3" : "px-4 py-3"}`}>
       <div className={`flex flex-col gap-2 ${compact ? "xl:flex-row xl:items-center xl:justify-between" : "sm:flex-row sm:items-center sm:justify-between"}`}>
         <div className="min-w-0">
           <div className="text-sm text-slate-500">{label}</div>
@@ -672,14 +672,14 @@ function WorkbenchLane({
 }) {
   return (
     <div
-      className={`rounded-[28px] border p-4 ${
-        tone === "danger" ? "border-red-200 bg-red-50/40" : "border-slate-200 bg-slate-50"
+      className={`dashboard-lane p-4 ${
+        tone === "danger" ? "dashboard-lane--danger" : ""
       }`}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <div className="truncate text-base font-semibold text-slate-900">{title}</div>
-          <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+          <span className="dashboard-pill bg-white px-3 py-1 text-sm font-semibold text-slate-700">
             {formatNumber(count)}
           </span>
         </div>
@@ -698,7 +698,7 @@ function WorkbenchLane({
               <Link
                 key={`${item.title}-${item.subtitle}-${item.primary}`}
                 href={item.href}
-                className="block rounded-2xl border border-white/70 bg-white px-4 py-3 transition hover:border-slate-300 hover:no-underline"
+                className="dashboard-list-link px-4 py-3 hover:no-underline"
               >
                 <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_auto] xl:items-center">
                   <div className="min-w-0">
@@ -706,10 +706,10 @@ function WorkbenchLane({
                     <div className="mt-1 truncate text-xs text-slate-500">{item.subtitle}</div>
                   </div>
                   <div className="grid gap-2 text-right sm:grid-cols-2 xl:min-w-[220px] xl:text-left">
-                    <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700">
+                    <span className="dashboard-chip">
                       {item.primary}
                     </span>
-                    <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700">
+                    <span className="dashboard-chip">
                       {item.secondary}
                     </span>
                   </div>
@@ -725,7 +725,7 @@ function WorkbenchLane({
 
 function FlowRow({ left, sub, right }: { left: string; sub: string; right: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="dashboard-row px-4 py-3">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-slate-900">{left}</div>
@@ -747,7 +747,7 @@ function DataRow({
   tone?: Tone;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="dashboard-row px-4 py-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 text-sm text-slate-500">{label}</div>
         <ResponsiveValue
@@ -772,7 +772,7 @@ function RadarRow({
   status: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+    <div className="dashboard-subcard p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-slate-900">{label}</div>
@@ -801,13 +801,13 @@ function LevelBox({
 }) {
   const cls =
     tone === "red"
-      ? "border-red-200 bg-red-50 text-red-700"
+      ? "dashboard-tone-card--critical"
       : tone === "amber"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-blue-200 bg-blue-50 text-blue-700";
+        ? "dashboard-tone-card--medium"
+        : "dashboard-tone-card--default";
 
   return (
-    <div className={`rounded-2xl border p-4 ${cls}`}>
+    <div className={`dashboard-tone-card p-4 ${cls}`}>
       <div className="text-sm">{label}</div>
       <div className="mt-2 text-[clamp(1.5rem,2vw,2rem)] font-bold tracking-tight">{formatNumber(value)}</div>
     </div>
@@ -816,10 +816,10 @@ function LevelBox({
 
 function PipelineRow({ title, total, extra }: { title: string; total: number; extra: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="dashboard-row px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm font-semibold text-slate-900">{title}</div>
-        <div className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+        <div className="dashboard-pill bg-white px-3 py-1 text-sm font-semibold text-slate-700">
           {formatNumber(total)}
         </div>
       </div>
@@ -840,10 +840,10 @@ function ActionChip({
   return (
     <Link
       href={href}
-      className={`rounded-xl px-4 py-2 text-sm font-medium hover:no-underline ${
+      className={`dashboard-action-chip hover:no-underline ${
         primary
-          ? "bg-slate-900 text-white hover:bg-slate-800"
-          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          ? "dashboard-action-chip--primary"
+          : ""
       }`}
     >
       {children}
@@ -853,7 +853,7 @@ function ActionChip({
 
 function EmptyState({ text }: { text: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-4 text-sm text-slate-500">
+    <div className="dashboard-empty-state">
       {text}
     </div>
   );

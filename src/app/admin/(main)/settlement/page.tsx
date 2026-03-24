@@ -8,7 +8,11 @@ const API = "/api/settlement";
 
 function formatMoney(value: unknown) {
   const num = Number(value || 0);
-  return `€${num >= 10000 ? num.toLocaleString() : num.toFixed(2)}`;
+  return `EUR ${num >= 10000 ? num.toLocaleString() : num.toFixed(2)}`;
+}
+
+function sumBy(rows: any[], key: string) {
+  return rows.reduce((sum, item) => sum + Number(item[key] || 0), 0);
 }
 
 export default function SettlementPage() {
@@ -18,27 +22,19 @@ export default function SettlementPage() {
   const [error, setError] = useState("");
 
   const now = new Date();
-  const [startStr, setStartStr] = useState(
-    new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10),
-  );
-  const [endStr, setEndStr] = useState(
-    new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10),
-  );
+  const [startStr, setStartStr] = useState(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10));
+  const [endStr, setEndStr] = useState(new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10));
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      const url = tab === "profit"
-        ? `${API}?type=profit`
-        : `${API}?type=${tab}&start=${startStr}&end=${endStr}`;
-
+      const url = tab === "profit" ? `${API}?type=profit` : `${API}?type=${tab}&start=${startStr}&end=${endStr}`;
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(await response.text());
       }
-
       setData(await response.json());
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
@@ -51,7 +47,7 @@ export default function SettlementPage() {
     void fetchData();
   }, [fetchData]);
 
-  const setRange = (days: number | "month" | "all") => {
+  function setRange(days: number | "month" | "all") {
     const today = new Date();
 
     if (days === "all") {
@@ -70,7 +66,7 @@ export default function SettlementPage() {
     start.setDate(start.getDate() - days);
     setStartStr(start.toISOString().slice(0, 10));
     setEndStr(today.toISOString().slice(0, 10));
-  };
+  }
 
   const tabs = [
     { key: "summary", label: "结算总览" },
@@ -82,52 +78,50 @@ export default function SettlementPage() {
 
   return (
     <div className="space-y-6">
-      <header className="panel-soft rounded-2xl px-5 py-4">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">财务结算中心</h1>
-        <p className="mt-1 text-sm text-slate-600">把经营利润、现金回笼和在贷余额分开展示，方便真正入财务账。</p>
+      <header className="panel-soft admin-page-header">
+        <div className="admin-page-header__meta">
+          <span className="admin-page-header__eyebrow">Settlement Center</span>
+          <h1 className="admin-page-header__title">财务结算中心</h1>
+          <p className="admin-page-header__description">把经营利润、现金回笼、在贷余额、分润与台账校验拆开显示，方便真正入财务账。</p>
+        </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
-          {tabs.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setTab(item.key)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
-                tab === item.key ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
+      <section className="admin-section-card">
+        <div className="admin-section-card__header">
+          <div>
+            <div className="admin-section-card__title">分析视图</div>
+            <p className="admin-section-card__description">切换不同视角，快速核对日结、客户收益、资金方收益和利润结构。</p>
+          </div>
+          <div className="admin-segmented">
+            {tabs.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setTab(item.key)}
+                className={`admin-segmented__item ${tab === item.key ? "is-active" : ""}`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
-
         {tab !== "profit" ? (
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <input
-              type="date"
-              value={startStr}
-              onChange={(event) => setStartStr(event.target.value)}
-              className="input-base rounded-lg px-2 py-1"
-            />
-            <span className="text-slate-400">至</span>
-            <input
-              type="date"
-              value={endStr}
-              onChange={(event) => setEndStr(event.target.value)}
-              className="input-base rounded-lg px-2 py-1"
-            />
-            <button type="button" onClick={() => setRange(7)} className="btn-soft rounded-lg px-2 py-1 text-xs">7天</button>
-            <button type="button" onClick={() => setRange(30)} className="btn-soft rounded-lg px-2 py-1 text-xs">30天</button>
-            <button type="button" onClick={() => setRange("month")} className="btn-soft rounded-lg px-2 py-1 text-xs">本月</button>
-            <button type="button" onClick={() => setRange("all")} className="btn-soft rounded-lg px-2 py-1 text-xs">全部</button>
+          <div className="admin-section-card__body pt-0">
+            <div className="admin-toolbar-group">
+              <input type="date" value={startStr} onChange={(event) => setStartStr(event.target.value)} className="admin-field w-[160px] text-sm" />
+              <span className="text-sm text-slate-400">至</span>
+              <input type="date" value={endStr} onChange={(event) => setEndStr(event.target.value)} className="admin-field w-[160px] text-sm" />
+              <button type="button" onClick={() => setRange(7)} className="admin-btn admin-btn-ghost admin-btn-sm">7天</button>
+              <button type="button" onClick={() => setRange(30)} className="admin-btn admin-btn-ghost admin-btn-sm">30天</button>
+              <button type="button" onClick={() => setRange("month")} className="admin-btn admin-btn-ghost admin-btn-sm">本月</button>
+              <button type="button" onClick={() => setRange("all")} className="admin-btn admin-btn-ghost admin-btn-sm">全部</button>
+            </div>
           </div>
         ) : null}
-      </div>
+      </section>
 
       {loading ? <div className="py-12 text-center text-slate-400">加载中...</div> : null}
-      {error ? <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+      {error ? <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
       {!loading && !error && data ? (
         <>
@@ -190,32 +184,38 @@ function SummaryView({ data }: { data: JsonRecord }) {
   ];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      {cards.map((card) => (
-        <div key={card.title} className="stat-tile rounded-xl p-5">
-          <div className="mb-3 text-sm font-semibold text-slate-700">{card.title}</div>
-          <div className="space-y-2">
-            {card.items.map((item) => (
-              <div key={item.label} className="flex items-center justify-between gap-3 text-sm">
-                <span className="text-slate-500">{item.label}</span>
-                <span className={item.accent ? "font-semibold text-emerald-600" : "font-medium text-slate-800"}>
-                  {item.value}
-                </span>
-              </div>
-            ))}
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        {cards.map((card) => (
+          <div key={card.title} className="admin-section-card">
+            <div className="admin-section-card__header">
+              <div className="admin-section-card__title">{card.title}</div>
+            </div>
+            <div className="admin-section-card__body space-y-2">
+              {card.items.map((item) => (
+                <div key={item.label} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-500">{item.label}</span>
+                  <span className={item.accent ? "font-semibold text-emerald-600" : "font-medium text-slate-800"}>{item.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="admin-section-card">
+        <div className="admin-section-card__header">
+          <div>
+            <div className="admin-section-card__title">台账校验</div>
+            <p className="admin-section-card__description">快速校验 DEBIT / CREDIT 合计与差额，便于发现财务入账异常。</p>
           </div>
         </div>
-      ))}
-
-      <div className="stat-tile rounded-xl p-5 lg:col-span-2">
-        <div className="mb-3 text-sm font-semibold text-slate-700">台账校验</div>
-        <div className="grid gap-3 text-sm sm:grid-cols-3">
-          <LedgerBox label="DEBIT 合计" value={formatMoney(data.ledgerDebitTotal)} />
-          <LedgerBox label="CREDIT 合计" value={formatMoney(data.ledgerCreditTotal)} />
-          <LedgerBox
-            label="差额"
-            value={formatMoney(Math.abs(Number(data.ledgerDebitTotal) - Number(data.ledgerCreditTotal)))}
-          />
+        <div className="admin-section-card__body">
+          <div className="admin-kpi-strip">
+            <LedgerBox label="DEBIT 合计" value={formatMoney(data.ledgerDebitTotal)} />
+            <LedgerBox label="CREDIT 合计" value={formatMoney(data.ledgerCreditTotal)} />
+            <LedgerBox label="差额" value={formatMoney(Math.abs(Number(data.ledgerDebitTotal) - Number(data.ledgerCreditTotal)))} />
+          </div>
         </div>
       </div>
     </div>
@@ -228,44 +228,52 @@ function DailyView({ data }: { data: any[] }) {
   }
 
   return (
-    <div className="table-shell overflow-hidden rounded-xl">
-      <table className="min-w-full text-sm">
-        <thead>
-          <tr className="bg-slate-50 text-left text-xs font-medium text-slate-500">
-            <th className="px-4 py-3">日期</th>
-            <th className="px-4 py-3 text-right">放款额</th>
-            <th className="px-4 py-3 text-right">前置费用</th>
-            <th className="px-4 py-3 text-right">回款额</th>
-            <th className="px-4 py-3 text-right">当日收入</th>
-            <th className="px-4 py-3 text-right">净现金流</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {data.map((row) => (
-            <tr key={row.date} className="hover:bg-slate-50">
-              <td className="px-4 py-2.5 font-medium text-slate-700">{row.date}</td>
-              <td className="px-4 py-2.5 text-right text-slate-600">{formatMoney(row.disbursedAmount)}</td>
-              <td className="px-4 py-2.5 text-right text-emerald-600">{formatMoney(row.disbursedFee)}</td>
-              <td className="px-4 py-2.5 text-right text-blue-600">{formatMoney(row.repaidAmount)}</td>
-              <td className="px-4 py-2.5 text-right font-medium text-emerald-600">{formatMoney(row.repaidProfit)}</td>
-              <td className={`px-4 py-2.5 text-right font-medium ${row.netCashflow >= 0 ? "text-emerald-600" : "text-red-500"}`}>
-                {row.netCashflow >= 0 ? "+" : ""}
-                {formatMoney(row.netCashflow)}
-              </td>
+    <div className="table-shell admin-table-shell">
+      <div className="admin-table-toolbar">
+        <div>
+          <div className="admin-table-title">每日结算明细</div>
+          <p className="admin-table-note">用于核对每日放款、费用收入、回款与净现金流。</p>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left">
+              <th className="px-4 py-3">日期</th>
+              <th className="px-4 py-3 text-right">放款额</th>
+              <th className="px-4 py-3 text-right">前置费用</th>
+              <th className="px-4 py-3 text-right">回款额</th>
+              <th className="px-4 py-3 text-right">当日收入</th>
+              <th className="px-4 py-3 text-right">净现金流</th>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="bg-slate-50 text-sm font-semibold">
-            <td className="px-4 py-2.5 text-slate-700">合计</td>
-            <td className="px-4 py-2.5 text-right">{formatMoney(sumBy(data, "disbursedAmount"))}</td>
-            <td className="px-4 py-2.5 text-right text-emerald-600">{formatMoney(sumBy(data, "disbursedFee"))}</td>
-            <td className="px-4 py-2.5 text-right text-blue-600">{formatMoney(sumBy(data, "repaidAmount"))}</td>
-            <td className="px-4 py-2.5 text-right text-emerald-600">{formatMoney(sumBy(data, "repaidProfit"))}</td>
-            <td className="px-4 py-2.5 text-right">{formatMoney(sumBy(data, "netCashflow"))}</td>
-          </tr>
-        </tfoot>
-      </table>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {data.map((row) => (
+              <tr key={row.date}>
+                <td className="px-4 py-2.5 font-medium text-slate-700">{row.date}</td>
+                <td className="px-4 py-2.5 text-right text-slate-600">{formatMoney(row.disbursedAmount)}</td>
+                <td className="px-4 py-2.5 text-right text-emerald-600">{formatMoney(row.disbursedFee)}</td>
+                <td className="px-4 py-2.5 text-right text-blue-600">{formatMoney(row.repaidAmount)}</td>
+                <td className="px-4 py-2.5 text-right font-medium text-emerald-600">{formatMoney(row.repaidProfit)}</td>
+                <td className={`px-4 py-2.5 text-right font-medium ${row.netCashflow >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  {row.netCashflow >= 0 ? "+" : ""}
+                  {formatMoney(row.netCashflow)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-slate-50 text-sm font-semibold">
+              <td className="px-4 py-2.5 text-slate-700">合计</td>
+              <td className="px-4 py-2.5 text-right">{formatMoney(sumBy(data, "disbursedAmount"))}</td>
+              <td className="px-4 py-2.5 text-right text-emerald-600">{formatMoney(sumBy(data, "disbursedFee"))}</td>
+              <td className="px-4 py-2.5 text-right text-blue-600">{formatMoney(sumBy(data, "repaidAmount"))}</td>
+              <td className="px-4 py-2.5 text-right text-emerald-600">{formatMoney(sumBy(data, "repaidProfit"))}</td>
+              <td className="px-4 py-2.5 text-right">{formatMoney(sumBy(data, "netCashflow"))}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 }
@@ -276,45 +284,49 @@ function CustomerView({ data }: { data: any[] }) {
   }
 
   return (
-    <div className="table-shell overflow-hidden rounded-xl">
-      <table className="min-w-full text-sm">
-        <thead>
-          <tr className="bg-slate-50 text-left text-xs font-medium text-slate-500">
-            <th className="px-4 py-3">客户</th>
-            <th className="px-4 py-3">手机号</th>
-            <th className="px-4 py-3 text-right">借款笔数</th>
-            <th className="px-4 py-3 text-right">累计借款</th>
-            <th className="px-4 py-3 text-right">累计回款</th>
-            <th className="px-4 py-3 text-right">客户余额</th>
-            <th className="px-4 py-3 text-right">利润贡献</th>
-            <th className="px-4 py-3">状态</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {data.map((item) => (
-            <tr key={item.customerId} className="hover:bg-slate-50">
-              <td className="px-4 py-2.5 font-medium text-slate-700">{item.customerName}</td>
-              <td className="px-4 py-2.5 text-slate-500">{item.phone}</td>
-              <td className="px-4 py-2.5 text-right text-slate-600">{item.loanCount}</td>
-              <td className="px-4 py-2.5 text-right text-slate-600">{formatMoney(item.totalBorrowed)}</td>
-              <td className="px-4 py-2.5 text-right text-blue-600">{formatMoney(item.totalRepaid)}</td>
-              <td className="px-4 py-2.5 text-right font-medium text-slate-800">{formatMoney(item.outstandingBalance)}</td>
-              <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">{formatMoney(item.profitFromCustomer)}</td>
-              <td className="px-4 py-2.5">
-                <span
-                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                    item.isOverdue ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
-                  }`}
-                >
-                  {item.isOverdue ? "逾期" : "正常"}
-                </span>
-              </td>
+    <div className="table-shell admin-table-shell">
+      <div className="admin-table-toolbar">
+        <div>
+          <div className="admin-table-title">客户对账</div>
+          <p className="admin-table-note">核对客户累计借款、累计回款、余额和利润贡献。</p>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left">
+              <th className="px-4 py-3">客户</th>
+              <th className="px-4 py-3">手机号</th>
+              <th className="px-4 py-3 text-right">借款笔数</th>
+              <th className="px-4 py-3 text-right">累计借款</th>
+              <th className="px-4 py-3 text-right">累计回款</th>
+              <th className="px-4 py-3 text-right">客户余额</th>
+              <th className="px-4 py-3 text-right">利润贡献</th>
+              <th className="px-4 py-3">状态</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-        共 {data.length} 位客户，合计利润贡献 {formatMoney(sumBy(data, "profitFromCustomer"))}
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {data.map((item) => (
+              <tr key={item.customerId}>
+                <td className="px-4 py-2.5 font-medium text-slate-700">{item.customerName}</td>
+                <td className="px-4 py-2.5 text-slate-500">{item.phone}</td>
+                <td className="px-4 py-2.5 text-right text-slate-600">{item.loanCount}</td>
+                <td className="px-4 py-2.5 text-right text-slate-600">{formatMoney(item.totalBorrowed)}</td>
+                <td className="px-4 py-2.5 text-right text-blue-600">{formatMoney(item.totalRepaid)}</td>
+                <td className="px-4 py-2.5 text-right font-medium text-slate-800">{formatMoney(item.outstandingBalance)}</td>
+                <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">{formatMoney(item.profitFromCustomer)}</td>
+                <td className="px-4 py-2.5">
+                  <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${item.isOverdue ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+                    {item.isOverdue ? "逾期" : "正常"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="admin-pagination">
+        <span className="admin-pagination__summary">共 {data.length} 位客户，合计利润贡献 {formatMoney(sumBy(data, "profitFromCustomer"))}</span>
       </div>
     </div>
   );
@@ -328,25 +340,25 @@ function FunderView({ data }: { data: any[] }) {
   return (
     <div className="space-y-4">
       {data.map((item) => (
-        <div key={item.funderId} className="stat-tile rounded-xl p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
+        <div key={item.funderId} className="admin-section-card">
+          <div className="admin-section-card__header">
             <div>
-              <div className="text-sm font-semibold text-slate-800">{item.funderName}</div>
-              <div className="text-xs text-slate-400">联系人 {item.contactPerson || "-"}</div>
+              <div className="admin-section-card__title">{item.funderName}</div>
+              <p className="admin-section-card__description">联系人: {item.contactPerson || "-"}</p>
             </div>
-            <span className="inline-flex rounded-full bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
               {item.existingSettlement?.status === "SETTLED" ? "已结算" : item.existingSettlement ? "待结算" : "未生成"}
             </span>
           </div>
-
-          <div className="grid gap-3 text-sm sm:grid-cols-4">
-            <MiniMetric label="账户余额" value={formatMoney(item.totalBalance)} />
-            <MiniMetric label="累计入金" value={formatMoney(item.totalInflow)} />
-            <MiniMetric label="分润比例" value={item.shareRatio} accent />
-            <MiniMetric label="应分利润" value={formatMoney(item.shareAmount)} accent />
+          <div className="admin-section-card__body space-y-4">
+            <div className="grid gap-3 text-sm sm:grid-cols-4">
+              <MiniMetric label="账户余额" value={formatMoney(item.totalBalance)} />
+              <MiniMetric label="累计入金" value={formatMoney(item.totalInflow)} />
+              <MiniMetric label="分润比例" value={item.shareRatio} accent />
+              <MiniMetric label="应分利润" value={formatMoney(item.shareAmount)} accent />
+            </div>
+            <div className="text-xs text-slate-500">期间可分收入 {formatMoney(item.periodTotalInterest)}</div>
           </div>
-
-          <div className="mt-3 text-xs text-slate-500">期间可分收入 {formatMoney(item.periodTotalInterest)}</div>
         </div>
       ))}
     </div>
@@ -368,49 +380,42 @@ function ProfitView({ data }: { data: JsonRecord }) {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <MetricCard label="综合 ROI" value={data.overallROI} accent />
         <MetricCard label="登记回收本金" value={formatMoney(data.totalPrincipalRecovered)} />
-        <MetricCard
-          label="当前在贷余额"
-          value={formatMoney(data.currentOutstandingBalance)}
-          danger={Number(data.currentOutstandingBalance) > 0}
-        />
+        <MetricCard label="当前在贷余额" value={formatMoney(data.currentOutstandingBalance)} danger={Number(data.currentOutstandingBalance) > 0} />
       </div>
 
-      <div className="stat-tile rounded-xl p-5">
-        <div className="mb-3 text-sm font-semibold text-slate-700">回款速度分析</div>
-        <div className="grid gap-4 text-sm md:grid-cols-3">
-          <SpeedCard
-            label="24 小时内回款"
-            count={data.repaymentSpeed?.fastRepay?.count || 0}
-            revenue={formatMoney(data.repaymentSpeed?.fastRepay?.revenue)}
-            tone="emerald"
-          />
-          <SpeedCard
-            label="24 小时后回款"
-            count={data.repaymentSpeed?.slowRepay?.count || 0}
-            revenue={formatMoney(data.repaymentSpeed?.slowRepay?.revenue)}
-            tone="amber"
-          />
-          <SpeedCard
-            label="未形成回款"
-            count={data.repaymentSpeed?.noRepay?.count || 0}
-            revenue="持续跟进"
-            tone="red"
-          />
+      <div className="admin-section-card">
+        <div className="admin-section-card__header">
+          <div>
+            <div className="admin-section-card__title">回款速度分析</div>
+            <p className="admin-section-card__description">从回款速度看收益结构和风险分布。</p>
+          </div>
+        </div>
+        <div className="admin-section-card__body">
+          <div className="grid gap-4 text-sm md:grid-cols-3">
+            <SpeedCard label="24 小时内回款" count={data.repaymentSpeed?.fastRepay?.count || 0} revenue={formatMoney(data.repaymentSpeed?.fastRepay?.revenue)} tone="emerald" />
+            <SpeedCard label="24 小时后回款" count={data.repaymentSpeed?.slowRepay?.count || 0} revenue={formatMoney(data.repaymentSpeed?.slowRepay?.revenue)} tone="amber" />
+            <SpeedCard label="未形成回款" count={data.repaymentSpeed?.noRepay?.count || 0} revenue="持续跟进" tone="red" />
+          </div>
         </div>
       </div>
 
-      <div className="stat-tile rounded-xl p-5">
-        <div className="mb-3 text-sm font-semibold text-slate-700">经营建议</div>
-        <ul className="space-y-2.5">
-          {(data.strategies || []).map((item: string, index: number) => (
-            <li key={`${item}-${index}`} className="flex items-start gap-3 text-sm">
-              <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
-                {index + 1}
-              </span>
-              <span className="text-slate-700">{item}</span>
-            </li>
-          ))}
-        </ul>
+      <div className="admin-section-card">
+        <div className="admin-section-card__header">
+          <div>
+            <div className="admin-section-card__title">经营建议</div>
+            <p className="admin-section-card__description">根据利润、风险和回款速度给出日常经营参考。</p>
+          </div>
+        </div>
+        <div className="admin-section-card__body">
+          <ul className="space-y-2.5">
+            {(data.strategies || []).map((item: string, index: number) => (
+              <li key={`${item}-${index}`} className="flex items-start gap-3 text-sm">
+                <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">{index + 1}</span>
+                <span className="text-slate-700">{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   );
@@ -418,54 +423,32 @@ function ProfitView({ data }: { data: JsonRecord }) {
 
 function LedgerBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-1 text-sm font-semibold text-slate-900">{value}</div>
+    <div className="admin-kpi-strip__item">
+      <div className="admin-kpi-strip__label">{label}</div>
+      <div className="admin-kpi-strip__value">{value}</div>
     </div>
   );
 }
 
 function MiniMetric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div>
+    <div className="admin-note-block admin-note-block--soft">
       <div className="text-xs text-slate-400">{label}</div>
       <div className={`mt-1 font-medium ${accent ? "text-emerald-600" : "text-slate-800"}`}>{value}</div>
     </div>
   );
 }
 
-function MetricCard({
-  label,
-  value,
-  accent,
-  danger,
-}: {
-  label: string;
-  value: string | number;
-  accent?: boolean;
-  danger?: boolean;
-}) {
+function MetricCard({ label, value, accent, danger }: { label: string; value: string | number; accent?: boolean; danger?: boolean }) {
   return (
-    <div className="stat-tile rounded-xl p-4">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className={`mt-1 text-xl font-bold ${danger ? "text-red-600" : accent ? "text-emerald-600" : "text-slate-800"}`}>
-        {value}
-      </div>
+    <div className="stat-tile admin-stat-card">
+      <div className="admin-stat-card__label">{label}</div>
+      <div className={`admin-stat-card__value ${danger ? "text-red-600" : accent ? "text-emerald-600" : "text-slate-800"}`}>{value}</div>
     </div>
   );
 }
 
-function SpeedCard({
-  label,
-  count,
-  revenue,
-  tone,
-}: {
-  label: string;
-  count: number;
-  revenue: string;
-  tone: "emerald" | "amber" | "red";
-}) {
+function SpeedCard({ label, count, revenue, tone }: { label: string; count: number; revenue: string; tone: "emerald" | "amber" | "red" }) {
   const toneClass = {
     emerald: "bg-emerald-50 text-emerald-600",
     amber: "bg-amber-50 text-amber-600",
@@ -473,14 +456,10 @@ function SpeedCard({
   }[tone];
 
   return (
-    <div className={`rounded-lg p-4 text-center ${toneClass}`}>
+    <div className={`rounded-[1.25rem] p-4 text-center ${toneClass}`}>
       <div className="text-2xl font-bold">{count}</div>
       <div className="mt-1 text-xs">{label}</div>
       <div className="mt-2 text-xs font-medium">{revenue}</div>
     </div>
   );
-}
-
-function sumBy(rows: any[], key: string) {
-  return rows.reduce((sum, item) => sum + Number(item[key] || 0), 0);
 }
