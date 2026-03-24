@@ -22,11 +22,9 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 function formatCurrency(value: number | string) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
+  return `€${new Intl.NumberFormat("zh-CN", {
     maximumFractionDigits: 0,
-  }).format(Number(value || 0));
+  }).format(Number(value || 0))}`;
 }
 
 function formatNumber(value: number | string) {
@@ -234,7 +232,7 @@ export function DashboardSummary() {
         </Panel>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
         <MetricCard
           title="今日放款"
           value={formatCurrency(summary.todayDisbursement)}
@@ -599,7 +597,7 @@ function HeroMetric({
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="text-sm text-slate-500">{label}</div>
-      <div className={`mt-2 text-3xl font-bold ${getToneClass(tone)}`}>{value}</div>
+      <ResponsiveValue value={value} className={`mt-2 text-[clamp(1.2rem,1.9vw,1.8rem)] ${getToneClass(tone)}`} />
       <div className="mt-1 text-xs text-slate-500">{sub}</div>
     </div>
   );
@@ -619,12 +617,7 @@ function MetricCard({
   return (
     <div className="stat-tile rounded-[26px] p-5">
       <div className="text-sm text-slate-500">{title}</div>
-      <div
-        className={`mt-3 min-w-0 text-[clamp(1.35rem,2vw,1.85rem)] font-bold tracking-tight ${getToneClass(tone)}`}
-        title={value}
-      >
-        {value}
-      </div>
+      <ResponsiveValue value={value} className={`mt-3 text-[clamp(1.05rem,1.7vw,1.7rem)] ${getToneClass(tone)}`} />
       <div className="mt-2 text-sm text-slate-500">{note}</div>
     </div>
   );
@@ -643,17 +636,16 @@ function StripMetric({
 }) {
   return (
     <div className={`rounded-2xl border border-slate-200 bg-slate-50 ${compact ? "px-4 py-3" : "px-4 py-3"}`}>
-      <div className={`flex gap-4 ${compact ? "items-center justify-between" : "items-center justify-between"}`}>
+      <div className={`flex flex-col gap-2 ${compact ? "xl:flex-row xl:items-center xl:justify-between" : "sm:flex-row sm:items-center sm:justify-between"}`}>
         <div className="min-w-0">
           <div className="text-sm text-slate-500">{label}</div>
           <div className="mt-1 text-xs text-slate-500">{sub}</div>
         </div>
-        <div
-          className={`min-w-0 text-right font-semibold tracking-tight text-slate-900 ${compact ? "text-[clamp(1rem,1.5vw,1.35rem)]" : "text-[clamp(1rem,1.6vw,1.45rem)]"}`}
-          title={value}
-        >
-          {value}
-        </div>
+        <ResponsiveValue
+          value={value}
+          alignClass={compact ? "xl:text-right" : "sm:text-right"}
+          className={compact ? "text-[clamp(0.95rem,1.25vw,1.15rem)]" : "text-[clamp(0.95rem,1.35vw,1.25rem)]"}
+        />
       </div>
     </div>
   );
@@ -756,14 +748,13 @@ function DataRow({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 text-sm text-slate-500">{label}</div>
-        <div
-          className={`min-w-0 text-right text-[clamp(1rem,1.45vw,1.25rem)] font-semibold tracking-tight ${getToneClass(tone)}`}
-          title={value}
-        >
-          {value}
-        </div>
+        <ResponsiveValue
+          value={value}
+          alignClass="sm:text-right"
+          className={`text-[clamp(0.95rem,1.2vw,1.1rem)] ${getToneClass(tone)}`}
+        />
       </div>
     </div>
   );
@@ -864,6 +855,31 @@ function EmptyState({ text }: { text: string }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-4 text-sm text-slate-500">
       {text}
+    </div>
+  );
+}
+
+function ResponsiveValue({
+  value,
+  className = "",
+  alignClass = "",
+}: {
+  value: string;
+  className?: string;
+  alignClass?: string;
+}) {
+  const trimmed = value.trim();
+  const isCurrency = trimmed.startsWith("€");
+  const symbol = isCurrency ? "€" : null;
+  const body = isCurrency ? trimmed.slice(1) : trimmed;
+
+  return (
+    <div
+      className={`min-w-0 max-w-full overflow-hidden font-semibold leading-tight tracking-tight text-slate-900 ${alignClass} ${className}`}
+      title={value}
+    >
+      {symbol ? <span className="mr-1 text-[0.82em] align-top">{symbol}</span> : null}
+      <span className="break-all whitespace-normal">{body}</span>
     </div>
   );
 }
