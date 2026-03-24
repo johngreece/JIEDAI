@@ -13,14 +13,9 @@ import { recordRepaymentLedger } from "@/services/ledger.service";
 import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
 import { resolveOverdue } from "@/services/overdue.service";
 import {
-  DEFAULT_OVERDUE,
-  DEFAULT_TIERS,
-  DEFAULT_UPFRONT_FEE_RATE,
-  calculateRealtimeRepayment,
-  type ChannelType,
-  type OverdueConfig,
-  type RepaymentTier,
-} from "@/lib/interest-engine";
+  calculateLiveOutstandingFromSnapshot,
+  extractPaidDates,
+} from "@/lib/repayment-runtime";
 
 export type RepaymentStatus =
   | "PENDING"
@@ -47,43 +42,6 @@ export function canTransition(from: RepaymentStatus, to: RepaymentStatus): boole
   return ALLOWED_TRANSITIONS[from]?.includes(to) ?? false;
 }
 
-function getRealtimeOutstandingAtPaymentTime(params: {
-  rulesSnapshotJson: string | null;
-  principal: number;
-  disbursedAt: Date | null | undefined;
-  paymentTime: Date;
-}): number | null {
-  const { rulesSnapshotJson, principal, disbursedAt, paymentTime } = params;
-  if (!rulesSnapshotJson || !disbursedAt) return null;
-
-  try {
-    const snapshot = JSON.parse(rulesSnapshotJson) as {
-      channel?: ChannelType;
-      upfrontFeeRate?: number;
-      tiers?: RepaymentTier[];
-      overdueConfig?: OverdueConfig;
-      dueDate?: string;
-    };
-
-    if (!snapshot.dueDate) return null;
-
-    const realtime = calculateRealtimeRepayment({
-      principal,
-      channel: snapshot.channel ?? "FULL_AMOUNT",
-      upfrontFeeRate: snapshot.upfrontFeeRate ?? DEFAULT_UPFRONT_FEE_RATE,
-      tiers: snapshot.tiers ?? DEFAULT_TIERS,
-      overdueConfig: snapshot.overdueConfig ?? DEFAULT_OVERDUE,
-      startTime: new Date(disbursedAt),
-      dueDate: new Date(snapshot.dueDate),
-      currentTime: paymentTime,
-    });
-
-    return realtime.totalRepayment;
-  } catch {
-    return null;
-  }
-}
-
 export async function confirmRepayment(params: {
   repaymentId: string;
   customerId: string;
@@ -100,6 +58,24 @@ export async function confirmRepayment(params: {
 
   if (!repayment) {
     throw new Error("Repayment not found");
+  }
+
+  const plan = await prisma.repaymentPlan.findUnique({
+    where: { id: repayment.planId },
+    select: {
+      applicationId: true,
+    },
+  });
+
+  const applicationOwner = plan
+    ? await prisma.loanApplication.findUnique({
+        where: { id: plan.applicationId },
+        select: { customerId: true },
+      })
+    : null;
+
+  if (!plan || !applicationOwner || applicationOwner.customerId !== params.customerId) {
+    throw new Error("You cannot confirm this repayment");
   }
 
   const targetStatus: RepaymentStatus =
@@ -288,11 +264,22 @@ export async function settleRepaymentReceipt(params: {
     const singleScheduleItem = repayment.plan.scheduleItems.length === 1
       ? repayment.plan.scheduleItems[0]
       : null;
-    const realtimeOutstanding = getRealtimeOutstandingAtPaymentTime({
+    const overdueRecord = singleScheduleItem
+      ? await tx.overdueRecord.findFirst({
+          where: {
+            scheduleItemId: singleScheduleItem.id,
+            status: "OVERDUE",
+          },
+          orderBy: { createdAt: "desc" },
+          select: { overdueFeeDetail: true },
+        })
+      : null;
+    const realtimeOutstanding = calculateLiveOutstandingFromSnapshot({
       rulesSnapshotJson: repayment.plan.rulesSnapshotJson,
       principal: Number(application.amount),
       disbursedAt: application.disbursement?.disbursedAt,
       paymentTime: repayment.receivedAt ?? now,
+      paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),
     });
     const dynamicRemainingByItem = new Map<string, number>();
     if (singleScheduleItem && realtimeOutstanding != null) {

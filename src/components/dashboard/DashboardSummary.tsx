@@ -3,263 +3,56 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-type SummaryData = {
-  todayDisbursement: string;
-  todayRepayment: string;
-  overdueAmount: string;
-  activeLoanCount: number;
-  overdueCount: number;
-  funderBalance: string;
-  totalProfit: string;
-  profitRate: number;
-  upcomingDue7d: string;
-  pendingConfirmRepayment: number;
-  pendingSignContract: number;
-  pendingDisbursement: number;
-};
+type SummaryData = Record<string, any>;
+type SmartData = Record<string, any>;
+type Tone = "default" | "success" | "warn" | "danger";
 
-type SmartTodo = {
-  type: string;
-  label: string;
-  count: number;
+type WorkbenchRow = {
+  title: string;
+  subtitle: string;
+  primary: string;
+  secondary: string;
   href: string;
-  urgency: "critical" | "high" | "medium" | "low";
-  description: string;
-};
-
-type SmartData = {
-  alerts: {
-    dueTodayTotal: number;
-    due3DayTotal: number;
-    due7DayTotal: number;
-  };
-  overdue: {
-    mild: number;
-    moderate: number;
-    severe: number;
-    total: number;
-    totalAmount: number;
-    totalPenalty: number;
-    topCustomers: Array<{
-      customerId: string;
-      name: string;
-      phone: string;
-      riskLevel: string;
-      totalAmount: number;
-      totalPenalty: number;
-      maxDays: number;
-      count: number;
-    }>;
-  };
-  customers: {
-    total: number;
-    topBorrowers: Array<{
-      name: string;
-      phone: string;
-      totalBorrowed: number;
-      activeLoans: number;
-      valueTier: string;
-      riskLevel: string;
-    }>;
-    riskCustomers: Array<{
-      name: string;
-      phone: string;
-      overdueCount: number;
-      totalBorrowed: number;
-      riskLevel: string;
-      hasExpiredKyc: boolean;
-    }>;
-    potentialReborrow: Array<{
-      name: string;
-      phone: string;
-      settledLoans: number;
-      totalBorrowed: number;
-    }>;
-  };
-  pipeline: {
-    applications: {
-      total: number;
-      olderThan3d: number;
-      highRisk: number;
-    };
-    contracts: {
-      total: number;
-      olderThan2d: number;
-    };
-    disbursements: {
-      total: number;
-      olderThan1d: number;
-      totalAmount: number;
-    };
-    repayments: {
-      total: number;
-      olderThan1d: number;
-      totalAmount: number;
-    };
-    extensionsPending: number;
-    restructuresPending: number;
-  };
-  compliance: {
-    pendingKyc: number;
-    expiredKyc: number;
-    expiringSoonKyc: number;
-  };
-  cashflow: {
-    fundBalance: number;
-    expectedCollections7d: number;
-    expectedCollections30d: number;
-    pendingDisbursementAmount: number;
-    predictedNetInflow7d: number;
-    predictedNetInflow30d: number;
-    fundingGap7d: number;
-    fundingGap30d: number;
-    coverageRatio: number;
-    pressureLevel: string;
-  };
-  collectionAutomation: {
-    stages: Array<{
-      code: string;
-      label: string;
-      count: number;
-      amount: number;
-    }>;
-    activeCases: number;
-    externalTouchpointsEnabled: boolean;
-  };
-  financialForecast: {
-    collections7d: number;
-    collections30d: number;
-    fundingGap7d: number;
-    fundingGap30d: number;
-    netInflow7d: number;
-    netInflow30d: number;
-    funderInterest7d: number;
-    funderInterest30d: number;
-    funderCollections7d: number;
-    funderCollections30d: number;
-    topFunderReturns: Array<{
-      funderId: string;
-      funderName: string;
-      interest7d: number;
-      interest30d: number;
-      collection7d: number;
-      collection30d: number;
-    }>;
-  };
-  riskEngine: {
-    averageRecommendedRiskScore: number;
-    overdueProbabilityAverage: number;
-    highRiskCustomers: number;
-    blacklistCandidates: number;
-    repeatBorrowCandidates: number;
-    topSignals: Array<{
-      customerId: string;
-      name: string;
-      phone: string;
-      recommendedRiskScore: number;
-      recommendedRiskLevel: string;
-      overdueProbability: number;
-      reasons: string[];
-    }>;
-  };
-  anomalies: {
-    total: number;
-    critical: number;
-    high: number;
-    byType: {
-      sharedDevice: number;
-      profileChurn: number;
-      applicationBurst: number;
-      withdrawalSpike: number;
-    };
-    incidents: Array<{
-      type: string;
-      severity: "low" | "medium" | "high" | "critical";
-      entityType: string;
-      entityId: string;
-      title: string;
-      summary: string;
-      detectedAt: string;
-      metrics: Record<string, number | string>;
-    }>;
-  };
-  operations: {
-    marketingSpend7d: number;
-    marketingSpend30d: number;
-    newCustomers7d: number;
-    newCustomers30d: number;
-    cac7d: number;
-    cac30d: number;
-    approvalConversion30d: number;
-    disbursementConversion30d: number;
-    badDebtRate: number;
-    realNetProfit30d: number;
-    capitalTurnoverDays: number;
-  };
-  riskRadar: Array<{
-    key: string;
-    label: string;
-    score: number;
-    status: string;
-    summary: string;
-  }>;
-  smartTodos: SmartTodo[];
-  health: {
-    score: number;
-    onTimeRate: number;
-    overdueRate: number;
-    insights: string[];
-  };
 };
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "数据加载失败");
-  }
+  if (!response.ok) throw new Error((await response.text()) || "加载失败");
   return response.json();
 }
 
-async function fetchDashboardData() {
-  const [summary, smart] = await Promise.all([
-    fetchJson<SummaryData>("/api/dashboard/summary"),
-    fetchJson<SmartData>("/api/dashboard/smart"),
-  ]);
-
-  return { summary, smart };
-}
-
 function formatCurrency(value: number | string) {
-  const amount = Number(value || 0);
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
     currency: "EUR",
     maximumFractionDigits: 0,
-  }).format(amount);
+  }).format(Number(value || 0));
 }
 
 function formatNumber(value: number | string) {
   return new Intl.NumberFormat("zh-CN").format(Number(value || 0));
 }
 
-function formatPercent(value: number) {
-  return `${value.toFixed(1)}%`;
+function formatPercent(value: number | string) {
+  return `${Number(value || 0).toFixed(1)}%`;
 }
 
-const urgencyTone: Record<SmartTodo["urgency"], string> = {
-  critical: "border-red-200 bg-red-50 text-red-700",
-  high: "border-orange-200 bg-orange-50 text-orange-700",
-  medium: "border-amber-200 bg-amber-50 text-amber-700",
-  low: "border-blue-200 bg-blue-50 text-blue-700",
-};
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
-const urgencyLabel: Record<SmartTodo["urgency"], string> = {
-  critical: "立即处理",
-  high: "优先处理",
-  medium: "尽快跟进",
-  low: "建议关注",
-};
+function getToneClass(tone: Tone) {
+  if (tone === "success") return "text-emerald-700";
+  if (tone === "warn") return "text-amber-700";
+  if (tone === "danger") return "text-red-700";
+  return "text-slate-900";
+}
 
 export function DashboardSummary() {
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -270,20 +63,21 @@ export function DashboardSummary() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const loadData = async (mode: "initial" | "refresh" = "initial") => {
-    if (mode === "initial") {
-      setLoading(true);
-    } else {
-      setRefreshing(true);
-    }
+    if (mode === "refresh") setRefreshing(true);
+    else setLoading(true);
 
     try {
-      const data = await fetchDashboardData();
-      setSummary(data.summary);
-      setSmart(data.smart);
+      const [summaryData, smartData] = await Promise.all([
+        fetchJson<SummaryData>("/api/dashboard/summary"),
+        fetchJson<SmartData>("/api/dashboard/smart"),
+      ]);
+
+      setSummary(summaryData);
+      setSmart(smartData);
       setError(null);
       setLastUpdated(new Date());
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "加载失败");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "加载失败");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -296,27 +90,25 @@ export function DashboardSummary() {
 
   if (loading) {
     return (
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div key={index} className="stat-tile rounded-2xl p-5">
-            <div className="h-4 w-24 animate-pulse rounded bg-slate-100" />
-            <div className="mt-4 h-8 w-32 animate-pulse rounded bg-slate-100" />
-            <div className="mt-3 h-3 w-20 animate-pulse rounded bg-slate-100" />
-          </div>
-        ))}
+      <div className="grid gap-4 xl:grid-cols-12">
+        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-8" />
+        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-4" />
+        <div className="stat-tile h-80 animate-pulse rounded-[30px] xl:col-span-12" />
+        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-4" />
+        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-4" />
+        <div className="stat-tile h-72 animate-pulse rounded-[30px] xl:col-span-4" />
       </div>
     );
   }
 
   if (error || !summary || !smart) {
     return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-700">
-        <h3 className="text-lg font-semibold">智能看板加载失败</h3>
-        <p className="mt-2 text-sm">{error || "暂时无法获取数据，请稍后重试。"}</p>
+      <div className="rounded-[30px] border border-red-200 bg-red-50 p-6 text-red-700">
+        <div className="text-lg font-semibold">首页数据加载失败</div>
+        <p className="mt-2 text-sm">{error || "请稍后重试。"}</p>
         <button
-          type="button"
           onClick={() => void loadData()}
-          className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+          className="mt-4 rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white"
         >
           重新加载
         </button>
@@ -324,43 +116,125 @@ export function DashboardSummary() {
     );
   }
 
-  const urgentCount = smart.smartTodos.filter(
-    (item) => item.urgency === "critical" || item.urgency === "high"
+  const urgentCount = (smart.smartTodos || []).filter((item: any) =>
+    item.urgency === "critical" || item.urgency === "high",
   ).length;
 
   return (
-    <div className="space-y-6">
-      <section className="panel-soft rounded-2xl px-5 py-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm text-slate-500">今日智能结论</p>
-            <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-              当前业务健康度 {smart.health.score} 分
-            </h2>
-            <p className="mt-1 text-sm text-slate-500">
-              高优先任务 {urgentCount} 项，未来 7 天资金覆盖率 {smart.cashflow.coverageRatio.toFixed(2)}x。
-            </p>
+    <div className="space-y-5">
+      <section className="grid gap-5 xl:grid-cols-12">
+        <Panel className="xl:col-span-8">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.95fr)] xl:items-end">
+            <div className="min-w-0">
+              <div className="inline-flex rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold tracking-[0.18em] text-slate-500">
+                ADMIN OVERVIEW
+              </div>
+              <div className="mt-4 flex flex-wrap items-end gap-3">
+                <h2 className="text-3xl font-bold tracking-tight text-slate-900 xl:text-4xl">
+                  全屏运营工作台
+                </h2>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-600">
+                  今日高优先任务 {formatNumber(urgentCount)} 项
+                </span>
+              </div>
+              <p className="mt-3 max-w-4xl text-sm leading-7 text-slate-600 xl:text-base">
+                把借款申请、到期还款、逾期催收、资金入金和利润监控压在同一屏内，
+                先看今天谁申请、谁应还、谁逾期，再直接进入处理。
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <HeroMetric
+                label="健康评分"
+                value={formatNumber(smart.health?.score)}
+                sub={`准时率 ${formatPercent(smart.health?.onTimeRate)}`}
+                tone="success"
+              />
+              <HeroMetric
+                label="7天覆盖率"
+                value={`${Number(smart.cashflow?.coverageRatio || 0).toFixed(2)}x`}
+                sub={`净流入 ${formatCurrency(smart.cashflow?.predictedNetInflow7d)}`}
+                tone={Number(smart.cashflow?.coverageRatio) >= 1.2 ? "success" : Number(smart.cashflow?.coverageRatio) >= 1 ? "warn" : "danger"}
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StripMetric
+              label="今日借款申请"
+              value={formatNumber(smart.workbench?.summary?.loanApplicationsToday)}
+              sub="今天新增待审核申请"
+            />
+            <StripMetric
+              label="今日应还"
+              value={formatNumber(smart.workbench?.summary?.repaymentsDueToday)}
+              sub="今天到期待还款单"
+            />
+            <StripMetric
+              label="今日逾期"
+              value={formatNumber(smart.workbench?.summary?.overdueToday)}
+              sub="今天新增逾期名单"
+            />
+            <StripMetric
+              label="今日入金"
+              value={formatCurrency(smart.financeHub?.todayCapitalInflow)}
+              sub={`活跃资金方 ${formatNumber(smart.financeHub?.activeFunders)}`}
+            />
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-4">
+          <SectionHeader
+            title="今日指挥面板"
+            hint="用一列压缩展示，保持横向节奏，不再堆成长卡片。"
+          />
+          <div className="mt-5 space-y-3">
+            <DataRow label="今日放款" value={formatCurrency(summary.todayDisbursement)} />
+            <DataRow label="今日回款" value={formatCurrency(summary.todayRepayment)} tone="success" />
+            <DataRow label="待放款笔数" value={formatNumber(summary.pendingDisbursement)} />
+            <DataRow
+              label="待确认还款"
+              value={formatNumber(summary.pendingConfirmRepayment)}
+              tone="warn"
+            />
+            <DataRow
+              label="严重逾期"
+              value={formatNumber(smart.overdue?.severe)}
+              tone="danger"
+            />
+            <DataRow label="资金池余额" value={formatCurrency(summary.funderBalance)} />
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+              30天净利润 {formatCurrency(smart.operations?.realNetProfit30d)}
+            </span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5">
+              坏账率 {formatPercent(smart.operations?.badDebtRate)}
+            </span>
             {lastUpdated ? (
-              <span className="text-sm text-slate-500">
-                更新时间 {lastUpdated.toLocaleTimeString("zh-CN", { hour12: false })}
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5">
+                更新于 {lastUpdated.toLocaleTimeString("zh-CN", { hour12: false })}
               </span>
             ) : null}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionChip href="/admin/loan-applications" primary>
+              处理借款
+            </ActionChip>
+            <ActionChip href="/admin/repayments">处理还款</ActionChip>
+            <ActionChip href="/admin/overdue">处理逾期</ActionChip>
             <button
-              type="button"
               onClick={() => void loadData("refresh")}
               disabled={refreshing}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
             >
               {refreshing ? "刷新中..." : "刷新数据"}
             </button>
           </div>
-        </div>
+        </Panel>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-8">
         <MetricCard
           title="今日放款"
           value={formatCurrency(summary.todayDisbursement)}
@@ -369,384 +243,28 @@ export function DashboardSummary() {
         <MetricCard
           title="今日回款"
           value={formatCurrency(summary.todayRepayment)}
-          note={`待确认还款 ${formatNumber(summary.pendingConfirmRepayment)} 笔`}
+          note={`待确认 ${formatNumber(summary.pendingConfirmRepayment)} 笔`}
         />
         <MetricCard
           title="逾期敞口"
-          value={formatCurrency(smart.overdue.totalAmount)}
-          note={`严重逾期 ${formatNumber(smart.overdue.severe)} 笔`}
+          value={formatCurrency(smart.overdue?.totalAmount)}
+          note={`严重逾期 ${formatNumber(smart.overdue?.severe)} 笔`}
           tone="danger"
-        />
-        <MetricCard
-          title="健康评分"
-          value={`${smart.health.score}`}
-          note={`准时率 ${formatPercent(smart.health.onTimeRate)}`}
-          tone={smart.health.score >= 75 ? "success" : smart.health.score >= 55 ? "warn" : "danger"}
-        />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
-        <div className="space-y-6">
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader
-              title="智能行动清单"
-              hint="按风险和收益优先级排序，适合直接分配给运营、风控和财务。"
-            />
-            <div className="mt-4 space-y-3">
-              {smart.smartTodos.length === 0 ? (
-                <EmptyState text="当前没有需要优先推进的智能待办。" />
-              ) : (
-                smart.smartTodos.slice(0, 6).map((item) => (
-                  <Link
-                    key={item.type}
-                    href={item.href}
-                    className={`block rounded-xl border p-4 transition hover:-translate-y-0.5 hover:shadow-sm hover:no-underline ${urgencyTone[item.urgency]}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-medium">{urgencyLabel[item.urgency]}</div>
-                        <div className="mt-1 text-base font-semibold">{item.label}</div>
-                        <p className="mt-2 text-sm opacity-90">{item.description}</p>
-                      </div>
-                      <div className="rounded-full bg-white/80 px-3 py-1 text-sm font-semibold">
-                        {formatNumber(item.count)}
-                      </div>
-                    </div>
-                  </Link>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="stat-tile rounded-2xl p-5">
-              <SectionHeader
-                title="风险雷达"
-                hint="把回款、资金、合规、运营和资产组合拆开看。"
-              />
-              <div className="mt-4 space-y-3">
-                {smart.riskRadar.map((item) => (
-                  <div key={item.key} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-slate-900">{item.label}</div>
-                        <div className="mt-1 text-xs text-slate-500">{item.summary}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-slate-900">{item.score}</div>
-                        <div className="text-xs text-slate-500">{item.status}</div>
-                      </div>
-                    </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
-                      <div
-                        className="h-full rounded-full bg-slate-900 transition-all"
-                        style={{ width: `${item.score}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="stat-tile rounded-2xl p-5">
-              <SectionHeader
-                title="预警结构"
-                hint="今天到期、近期到期和逾期层级可以一起看。"
-              />
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <MiniStat
-                  label="今日到期"
-                  value={formatCurrency(smart.alerts.dueTodayTotal)}
-                  sub={`${formatNumber(smart.overdue.total)} 笔逾期存量`}
-                />
-                <MiniStat
-                  label="3天内到期"
-                  value={formatCurrency(smart.alerts.due3DayTotal)}
-                  sub="适合提前提醒"
-                />
-                <MiniStat
-                  label="7天内到期"
-                  value={formatCurrency(smart.alerts.due7DayTotal)}
-                  sub="便于安排催收节奏"
-                />
-              </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <LevelCard label="轻度逾期" value={smart.overdue.mild} tone="blue" />
-                <LevelCard label="中度逾期" value={smart.overdue.moderate} tone="amber" />
-                <LevelCard label="严重逾期" value={smart.overdue.severe} tone="red" />
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-6 lg:grid-cols-3">
-            <CustomerList
-              title="高价值客户"
-              items={smart.customers.topBorrowers.map((item) => ({
-                title: item.name,
-                meta: `${item.valueTier} · ${item.riskLevel}`,
-                detail: `${formatCurrency(item.totalBorrowed)} · 活跃借款 ${item.activeLoans} 笔`,
-              }))}
-              empty="当前还没有可识别的高价值客户。"
-            />
-            <CustomerList
-              title="风险客户"
-              items={smart.customers.riskCustomers.map((item) => ({
-                title: item.name,
-                meta: `${item.riskLevel}${item.hasExpiredKyc ? " · KYC过期" : ""}`,
-                detail: `${formatCurrency(item.totalBorrowed)} · 逾期 ${item.overdueCount} 笔`,
-              }))}
-              empty="当前没有风险客户。"
-            />
-            <CustomerList
-              title="复借机会"
-              items={smart.customers.potentialReborrow.map((item) => ({
-                title: item.name,
-                meta: `${item.settledLoans} 笔已结清`,
-                detail: `${formatCurrency(item.totalBorrowed)} 历史借款`,
-              }))}
-              empty="当前没有明显的复借机会客户。"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader title="资金预测" hint="用资金池、应回款和待放款，预判未来 7 天压力。" />
-            <div className="mt-4 space-y-3">
-              <DataRow label="资金池余额" value={formatCurrency(smart.cashflow.fundBalance)} />
-              <DataRow label="7天预期回款" value={formatCurrency(smart.cashflow.expectedCollections7d)} />
-              <DataRow label="30天预期回款" value={formatCurrency(smart.cashflow.expectedCollections30d)} />
-              <DataRow
-                label="待放款占用"
-                value={formatCurrency(smart.cashflow.pendingDisbursementAmount)}
-              />
-              <DataRow
-                label="7天净流入"
-                value={formatCurrency(smart.cashflow.predictedNetInflow7d)}
-                tone={smart.cashflow.predictedNetInflow7d >= 0 ? "success" : "danger"}
-              />
-              <DataRow
-                label="30天净流入"
-                value={formatCurrency(smart.cashflow.predictedNetInflow30d)}
-                tone={smart.cashflow.predictedNetInflow30d >= 0 ? "success" : "danger"}
-              />
-              <DataRow
-                label="7天资金缺口"
-                value={formatCurrency(smart.cashflow.fundingGap7d)}
-                tone={smart.cashflow.fundingGap7d > 0 ? "danger" : "success"}
-              />
-              <DataRow
-                label="30天资金缺口"
-                value={formatCurrency(smart.cashflow.fundingGap30d)}
-                tone={smart.cashflow.fundingGap30d > 0 ? "warn" : "success"}
-              />
-              <DataRow
-                label="资金覆盖率"
-                value={`${smart.cashflow.coverageRatio.toFixed(2)}x`}
-                tone={smart.cashflow.coverageRatio >= 1.2 ? "success" : smart.cashflow.coverageRatio >= 1 ? "warn" : "danger"}
-              />
-            </div>
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-sm font-semibold text-slate-900">判断</div>
-              <p className="mt-1 text-sm text-slate-600">
-                当前资金状态为 <span className="font-semibold text-slate-900">{smart.cashflow.pressureLevel}</span>。
-              </p>
-            </div>
-          </div>
-
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader title="合规与资料" hint="把 KYC 补齐情况独立出来，避免业务推进过快。" />
-            <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-              <MiniStat label="待补KYC" value={formatNumber(smart.compliance.pendingKyc)} sub="可安排资料催办" />
-              <MiniStat label="已过期" value={formatNumber(smart.compliance.expiredKyc)} sub="需要优先处理" />
-              <MiniStat label="30天内到期" value={formatNumber(smart.compliance.expiringSoonKyc)} sub="可提前续期" />
-            </div>
-          </div>
-
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader title="流程积压" hint="看审批、签约、出款、核销四个环节有没有卡住。" />
-            <div className="mt-4 space-y-3">
-              <PipelineCard
-                title="借款申请"
-                total={smart.pipeline.applications.total}
-                extra={`超时 ${smart.pipeline.applications.olderThan3d} · 高风险 ${smart.pipeline.applications.highRisk}`}
-              />
-              <PipelineCard
-                title="待签合同"
-                total={smart.pipeline.contracts.total}
-                extra={`超时 ${smart.pipeline.contracts.olderThan2d}`}
-              />
-              <PipelineCard
-                title="待放款"
-                total={smart.pipeline.disbursements.total}
-                extra={`超时 ${smart.pipeline.disbursements.olderThan1d} · ${formatCurrency(smart.pipeline.disbursements.totalAmount)}`}
-              />
-              <PipelineCard
-                title="待核销还款"
-                total={smart.pipeline.repayments.total}
-                extra={`超时 ${smart.pipeline.repayments.olderThan1d} · ${formatCurrency(smart.pipeline.repayments.totalAmount)}`}
-              />
-              <PipelineCard
-                title="展期 / 重组"
-                total={smart.pipeline.extensionsPending + smart.pipeline.restructuresPending}
-                extra={`展期 ${smart.pipeline.extensionsPending} · 重组 ${smart.pipeline.restructuresPending}`}
-              />
-            </div>
-          </div>
-
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader title="系统建议" hint="不是数据堆砌，而是直接给出下一步动作。" />
-            <div className="mt-4 space-y-3">
-              {smart.health.insights.map((item) => (
-                <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader title="智能催收分层" hint="把到期前、到期日和逾期节点拆开，方便上线自动触达。" />
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {smart.collectionAutomation.stages.map((item) => (
-                <MiniStat
-                  key={item.code}
-                  label={item.label}
-                  value={`${formatNumber(item.count)} 笔`}
-                  sub={formatCurrency(item.amount)}
-                />
-              ))}
-            </div>
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-              当前需自动跟进 {formatNumber(smart.collectionAutomation.activeCases)} 笔，
-              {smart.collectionAutomation.externalTouchpointsEnabled ? "已支持站内 + 外部渠道联动。" : "暂未打通外部渠道。"}
-            </div>
-          </div>
-
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader title="风险评分引擎" hint="客户行为分、复借分和逾期概率，已经形成可运营的推荐视图。" />
-            <div className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-              <MiniStat
-                label="平均风险分"
-                value={formatNumber(smart.riskEngine.averageRecommendedRiskScore)}
-                sub={`逾期概率 ${formatNumber(smart.riskEngine.overdueProbabilityAverage)}%`}
-              />
-              <MiniStat
-                label="高风险客户"
-                value={formatNumber(smart.riskEngine.highRiskCustomers)}
-                sub={`黑名单候选 ${formatNumber(smart.riskEngine.blacklistCandidates)}`}
-              />
-              <MiniStat
-                label="复借候选"
-                value={formatNumber(smart.riskEngine.repeatBorrowCandidates)}
-                sub="可做精细化二次营销"
-              />
-            </div>
-            <div className="mt-4 space-y-3">
-              {smart.riskEngine.topSignals.map((item) => (
-                <div key={item.customerId} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-slate-900">{item.name}</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {item.recommendedRiskLevel} · 逾期概率 {item.overdueProbability}%
-                      </div>
-                    </div>
-                    <div className="text-lg font-bold text-slate-900">{item.recommendedRiskScore}</div>
-                  </div>
-                  <div className="mt-2 text-sm text-slate-600">{item.reasons.join(" / ") || "暂无额外风险说明"}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader title="异常检测" hint="同设备多账号、资料频繁改动、申请突增和异常提现统一收口。" />
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <MiniStat
-                label="异常总数"
-                value={formatNumber(smart.anomalies.total)}
-                sub={`高危 ${formatNumber(smart.anomalies.critical)} · 高风险 ${formatNumber(smart.anomalies.high)}`}
-              />
-              <MiniStat
-                label="共享设备"
-                value={formatNumber(smart.anomalies.byType.sharedDevice)}
-                sub={`资料频改 ${formatNumber(smart.anomalies.byType.profileChurn)}`}
-              />
-              <MiniStat
-                label="申请突增"
-                value={formatNumber(smart.anomalies.byType.applicationBurst)}
-                sub={`异常提现 ${formatNumber(smart.anomalies.byType.withdrawalSpike)}`}
-              />
-              <MiniStat
-                label="资金方预测"
-                value={formatCurrency(smart.financialForecast.funderInterest30d)}
-                sub="未来 30 天预估收益"
-              />
-            </div>
-            <div className="mt-4 space-y-3">
-              {smart.anomalies.incidents.map((item) => (
-                <div key={`${item.type}-${item.entityId}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-semibold text-slate-900">{item.title}</div>
-                    <div className="text-xs uppercase text-slate-500">{item.severity}</div>
-                  </div>
-                  <div className="mt-2 text-sm text-slate-600">{item.summary}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="stat-tile rounded-2xl p-5">
-            <SectionHeader title="经营仪表盘" hint="先把上线运营最关键的获客、转化、坏账和净利润打通。" />
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <MiniStat
-                label="CAC 7天"
-                value={formatCurrency(smart.operations.cac7d)}
-                sub={`营销投入 ${formatCurrency(smart.operations.marketingSpend7d)}`}
-              />
-              <MiniStat
-                label="CAC 30天"
-                value={formatCurrency(smart.operations.cac30d)}
-                sub={`新增客户 ${formatNumber(smart.operations.newCustomers30d)}`}
-              />
-              <MiniStat
-                label="审批转化"
-                value={formatPercent(smart.operations.approvalConversion30d)}
-                sub={`放款转化 ${formatPercent(smart.operations.disbursementConversion30d)}`}
-              />
-              <MiniStat
-                label="坏账率"
-                value={formatPercent(smart.operations.badDebtRate)}
-                sub={`周转天数 ${smart.operations.capitalTurnoverDays.toFixed(1)} 天`}
-              />
-            </div>
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-sm text-slate-500">真实净利润（30 天）</div>
-              <div className="mt-2 text-2xl font-bold text-slate-900">
-                {formatCurrency(smart.operations.realNetProfit30d)}
-              </div>
-              <div className="mt-1 text-xs text-slate-500">已扣除营销投入与资金方收益预测成本。</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          title="活跃借款"
-          value={formatNumber(summary.activeLoanCount)}
-          note={`在库客户 ${formatNumber(smart.customers.total)} 人`}
         />
         <MetricCard
           title="资金池余额"
           value={formatCurrency(summary.funderBalance)}
-          note={`7天到期 ${formatCurrency(summary.upcomingDue7d)}`}
+          note={`7天应回 ${formatCurrency(summary.upcomingDue7d)}`}
         />
         <MetricCard
-          title="总利润"
+          title="活跃借款"
+          value={formatNumber(summary.activeLoanCount)}
+          note={`客户总数 ${formatNumber(smart.customers?.total)}`}
+        />
+        <MetricCard
+          title="累计利润"
           value={formatCurrency(summary.totalProfit)}
-          note={`利润率 ${formatPercent(Number(summary.profitRate || 0))}`}
+          note={`利润率 ${formatPercent(summary.profitRate)}`}
           tone="success"
         />
         <MetricCard
@@ -754,7 +272,335 @@ export function DashboardSummary() {
           value={formatNumber(summary.pendingSignContract)}
           note={`逾期笔数 ${formatNumber(summary.overdueCount)}`}
         />
+        <MetricCard
+          title="今日入金"
+          value={formatCurrency(smart.financeHub?.todayCapitalInflow)}
+          note={`活跃资金方 ${formatNumber(smart.financeHub?.activeFunders)}`}
+        />
       </section>
+
+      <Panel>
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+          <SectionHeader
+            title="今日工作轨道"
+            hint="三条横向工作流并排展示，先看申请，再看应还，再看逾期。"
+          />
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            工作台已切换为宽屏模式，桌面端优先展示横向信息流。
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 xl:grid-cols-3">
+          <WorkbenchLane
+            title="今日借款申请"
+            count={smart.workbench?.summary?.loanApplicationsToday}
+            actionHref="/admin/loan-applications"
+            actionLabel="去审申请"
+            emptyText="今天还没有新的借款申请。"
+            items={smart.workbench?.todayLoanApplications || []}
+            mapItem={(item: any): WorkbenchRow => ({
+              title: item.customerName,
+              subtitle: `${item.applicationNo} · ${item.phone || "未留电话"}`,
+              primary: `金额 ${formatCurrency(item.amount)}`,
+              secondary: `${item.riskLevel} · ${formatDateTime(item.createdAt)}`,
+              href: item.href,
+            })}
+          />
+          <WorkbenchLane
+            title="今日应还名单"
+            count={smart.workbench?.summary?.repaymentsDueToday}
+            actionHref="/admin/repayments"
+            actionLabel="去看还款"
+            emptyText="今天没有到期应还账单。"
+            items={smart.workbench?.todayRepayments || []}
+            mapItem={(item: any): WorkbenchRow => ({
+              title: item.customerName,
+              subtitle: `${item.planNo} · ${item.phone || "未留电话"}`,
+              primary: `应还 ${formatCurrency(item.amount)}`,
+              secondary: `${item.status} · ${formatDateTime(item.dueDate)}`,
+              href: item.href,
+            })}
+          />
+          <WorkbenchLane
+            title="今日逾期名单"
+            count={smart.workbench?.summary?.overdueToday}
+            actionHref="/admin/overdue"
+            actionLabel="去催收"
+            emptyText="今天没有新增逾期。"
+            tone="danger"
+            items={smart.workbench?.todayOverdues || []}
+            mapItem={(item: any): WorkbenchRow => ({
+              title: item.customerName,
+              subtitle: `${item.phone || "未留电话"} · ${item.riskLevel}`,
+              primary: `逾期 ${formatCurrency(item.overdueAmount)}`,
+              secondary: `罚息 ${formatCurrency(item.penaltyAmount)} · ${item.overdueDays} 天`,
+              href: item.href,
+            })}
+          />
+        </div>
+      </Panel>
+
+      <section className="grid gap-5 xl:grid-cols-12">
+        <Panel className="xl:col-span-4">
+          <SectionHeader
+            title="财务入口"
+            hint="入金、结算、提现审批和流水查询都压进同一区域。"
+          />
+          <div className="mt-5 grid gap-3">
+            <StripMetric
+              label="活跃资金方"
+              value={formatNumber(smart.financeHub?.activeFunders)}
+              sub="当前可参与出资"
+            />
+            <StripMetric
+              label="资金账户"
+              value={formatNumber(smart.financeHub?.activeFundAccounts)}
+              sub="当前可用入金账户"
+            />
+            <StripMetric
+              label="今日入金"
+              value={formatCurrency(smart.financeHub?.todayCapitalInflow)}
+              sub="已确认注资金额"
+            />
+          </div>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-600">
+            进入“财务中心”或“资金方”，选择资金方账户后录入金额、渠道和备注，
+            系统会直接写入数据库，并同步增加资金池余额与资金流水。
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <ActionChip href="/admin/finance" primary>
+              财务中心
+            </ActionChip>
+            <ActionChip href="/admin/funders">录入入金</ActionChip>
+            <ActionChip href="/admin/settlement">结算中心</ActionChip>
+            <ActionChip href="/admin/funder-withdrawals">提现审批</ActionChip>
+            <ActionChip href="/admin/ledger">资金流水</ActionChip>
+          </div>
+          <div className="mt-4 space-y-2">
+            {(smart.financeHub?.recentInflows || []).length === 0 ? (
+              <EmptyState text="今天还没有确认入金记录。" />
+            ) : (
+              (smart.financeHub?.recentInflows || []).map((item: any) => (
+                <FlowRow
+                  key={item.id}
+                  left={item.funderName}
+                  sub={`${item.accountName} · ${item.channel} · ${formatDateTime(item.inflowDate)}`}
+                  right={formatCurrency(item.amount)}
+                />
+              ))
+            )}
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-4">
+          <SectionHeader
+            title="资金预测"
+            hint="改成横向数据条，减少卡片上下堆叠。"
+          />
+          <div className="mt-5 space-y-3">
+            <DataRow label="资金池余额" value={formatCurrency(smart.cashflow?.fundBalance)} />
+            <DataRow label="7天预期回款" value={formatCurrency(smart.cashflow?.expectedCollections7d)} />
+            <DataRow label="30天预期回款" value={formatCurrency(smart.cashflow?.expectedCollections30d)} />
+            <DataRow label="待放款占用" value={formatCurrency(smart.cashflow?.pendingDisbursementAmount)} />
+            <DataRow
+              label="7天净流入"
+              value={formatCurrency(smart.cashflow?.predictedNetInflow7d)}
+              tone={Number(smart.cashflow?.predictedNetInflow7d) >= 0 ? "success" : "danger"}
+            />
+            <DataRow
+              label="30天净流入"
+              value={formatCurrency(smart.cashflow?.predictedNetInflow30d)}
+              tone={Number(smart.cashflow?.predictedNetInflow30d) >= 0 ? "success" : "danger"}
+            />
+            <DataRow
+              label="7天资金缺口"
+              value={formatCurrency(smart.cashflow?.fundingGap7d)}
+              tone={Number(smart.cashflow?.fundingGap7d) > 0 ? "danger" : "success"}
+            />
+            <DataRow
+              label="30天资金缺口"
+              value={formatCurrency(smart.cashflow?.fundingGap30d)}
+              tone={Number(smart.cashflow?.fundingGap30d) > 0 ? "warn" : "success"}
+            />
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-4">
+          <SectionHeader
+            title="智能行动清单"
+            hint="改为紧凑型横向行卡，优先级和入口一眼能看完。"
+          />
+          <div className="mt-5 space-y-3">
+            {(smart.smartTodos || []).slice(0, 8).map((item: any) => (
+              <Link
+                key={`${item.type}-${item.href}`}
+                href={item.href}
+                className={`block rounded-2xl border px-4 py-3 transition hover:-translate-y-0.5 hover:shadow-sm hover:no-underline ${
+                  item.urgency === "critical"
+                    ? "border-red-200 bg-red-50 text-red-700"
+                    : item.urgency === "high"
+                      ? "border-orange-200 bg-orange-50 text-orange-700"
+                      : item.urgency === "medium"
+                        ? "border-amber-200 bg-amber-50 text-amber-700"
+                        : "border-blue-200 bg-blue-50 text-blue-700"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold tracking-[0.12em]">
+                      {String(item.urgency).toUpperCase()}
+                    </div>
+                    <div className="mt-1 truncate text-base font-semibold">{item.label}</div>
+                    <p className="mt-1 text-sm leading-6 opacity-90">{item.description}</p>
+                  </div>
+                  <div className="rounded-full bg-white/85 px-3 py-1 text-sm font-bold">
+                    {formatNumber(item.count)}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Panel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-12">
+        <Panel className="xl:col-span-4">
+          <SectionHeader
+            title="风险雷达"
+            hint="每个维度一行横向读数，避免碎片化。"
+          />
+          <div className="mt-5 space-y-3">
+            {(smart.riskRadar || []).map((item: any) => (
+              <RadarRow
+                key={item.key}
+                label={item.label}
+                score={item.score}
+                summary={item.summary}
+                status={item.status}
+              />
+            ))}
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-4">
+          <SectionHeader
+            title="预警结构"
+            hint="把到期、逾期、健康洞察压成一块。"
+          />
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <StripMetric label="今日到期" value={formatCurrency(smart.alerts?.dueTodayTotal)} sub="今天应收" />
+            <StripMetric label="3天到期" value={formatCurrency(smart.alerts?.due3DayTotal)} sub="适合提前提醒" />
+            <StripMetric label="7天到期" value={formatCurrency(smart.alerts?.due7DayTotal)} sub="便于安排节奏" />
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <LevelBox label="轻度逾期" value={smart.overdue?.mild} tone="blue" />
+            <LevelBox label="中度逾期" value={smart.overdue?.moderate} tone="amber" />
+            <LevelBox label="严重逾期" value={smart.overdue?.severe} tone="red" />
+          </div>
+          <div className="mt-4 space-y-2">
+            {(smart.health?.insights || []).map((item: string) => (
+              <div
+                key={item}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-600"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <Panel className="xl:col-span-4">
+          <SectionHeader
+            title="流程与经营"
+            hint="审批、签约、核销和经营指标统一快读。"
+          />
+          <div className="mt-5 space-y-3">
+            <PipelineRow
+              title="借款申请"
+              total={smart.pipeline?.applications?.total}
+              extra={`超时 ${smart.pipeline?.applications?.olderThan3d} · 高风险 ${smart.pipeline?.applications?.highRisk}`}
+            />
+            <PipelineRow
+              title="待签合同"
+              total={smart.pipeline?.contracts?.total}
+              extra={`超时 ${smart.pipeline?.contracts?.olderThan2d}`}
+            />
+            <PipelineRow
+              title="待放款"
+              total={smart.pipeline?.disbursements?.total}
+              extra={`超时 ${smart.pipeline?.disbursements?.olderThan1d} · ${formatCurrency(smart.pipeline?.disbursements?.totalAmount)}`}
+            />
+            <PipelineRow
+              title="待核销还款"
+              total={smart.pipeline?.repayments?.total}
+              extra={`超时 ${smart.pipeline?.repayments?.olderThan1d} · ${formatCurrency(smart.pipeline?.repayments?.totalAmount)}`}
+            />
+            <PipelineRow
+              title="展期 / 重组"
+              total={Number(smart.pipeline?.extensionsPending || 0) + Number(smart.pipeline?.restructuresPending || 0)}
+              extra={`展期 ${smart.pipeline?.extensionsPending || 0} · 重组 ${smart.pipeline?.restructuresPending || 0}`}
+            />
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <StripMetric
+              label="30天净利润"
+              value={formatCurrency(smart.operations?.realNetProfit30d)}
+              sub="已扣营销与资金成本"
+            />
+            <StripMetric
+              label="坏账率"
+              value={formatPercent(smart.operations?.badDebtRate)}
+              sub={`周转 ${Number(smart.operations?.capitalTurnoverDays || 0).toFixed(1)} 天`}
+            />
+            <StripMetric
+              label="审批转化"
+              value={formatPercent(smart.operations?.approvalConversion30d)}
+              sub={`放款转化 ${formatPercent(smart.operations?.disbursementConversion30d)}`}
+            />
+            <StripMetric
+              label="CAC 30天"
+              value={formatCurrency(smart.operations?.cac30d)}
+              sub={`CAC 7天 ${formatCurrency(smart.operations?.cac7d)}`}
+            />
+          </div>
+        </Panel>
+      </section>
+    </div>
+  );
+}
+
+function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <section className={`stat-tile rounded-[30px] p-5 xl:p-6 2xl:p-7 ${className}`}>
+      {children}
+    </section>
+  );
+}
+
+function SectionHeader({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div>
+      <h3 className="text-xl font-semibold tracking-tight text-slate-900">{title}</h3>
+      <p className="mt-1 text-sm leading-6 text-slate-500">{hint}</p>
+    </div>
+  );
+}
+
+function HeroMetric({
+  label,
+  value,
+  sub,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  tone?: Tone;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="text-sm text-slate-500">{label}</div>
+      <div className={`mt-2 text-3xl font-bold ${getToneClass(tone)}`}>{value}</div>
+      <div className="mt-1 text-xs text-slate-500">{sub}</div>
     </div>
   );
 }
@@ -768,93 +614,114 @@ function MetricCard({
   title: string;
   value: string;
   note: string;
-  tone?: "default" | "success" | "warn" | "danger";
+  tone?: Tone;
 }) {
-  const toneClass =
-    tone === "success"
-      ? "text-emerald-700"
-      : tone === "warn"
-        ? "text-amber-700"
-        : tone === "danger"
-          ? "text-red-700"
-          : "text-slate-900";
-
   return (
-    <div className="stat-tile rounded-2xl p-5">
-      <p className="text-sm text-slate-500">{title}</p>
-      <div className={`mt-3 text-3xl font-bold tracking-tight ${toneClass}`}>{value}</div>
-      <p className="mt-2 text-sm text-slate-500">{note}</p>
+    <div className="stat-tile rounded-[26px] p-5">
+      <div className="text-sm text-slate-500">{title}</div>
+      <div className={`mt-3 text-3xl font-bold tracking-tight ${getToneClass(tone)}`}>{value}</div>
+      <div className="mt-2 text-sm text-slate-500">{note}</div>
     </div>
   );
 }
 
-function SectionHeader({ title, hint }: { title: string; hint: string }) {
+function StripMetric({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div>
-      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-      <p className="mt-1 text-sm text-slate-500">{hint}</p>
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm text-slate-500">{label}</div>
+          <div className="mt-1 text-xs text-slate-500">{sub}</div>
+        </div>
+        <div className="whitespace-nowrap text-xl font-semibold tracking-tight text-slate-900">
+          {value}
+        </div>
+      </div>
     </div>
   );
 }
 
-function MiniStat({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <div className="text-sm text-slate-500">{label}</div>
-      <div className="mt-2 text-xl font-semibold text-slate-900">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{sub}</div>
-    </div>
-  );
-}
-
-function LevelCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "blue" | "amber" | "red";
-}) {
-  const toneClass =
-    tone === "red"
-      ? "border-red-200 bg-red-50 text-red-700"
-      : tone === "amber"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-blue-200 bg-blue-50 text-blue-700";
-
-  return (
-    <div className={`rounded-xl border p-4 ${toneClass}`}>
-      <div className="text-sm">{label}</div>
-      <div className="mt-2 text-2xl font-bold">{formatNumber(value)}</div>
-    </div>
-  );
-}
-
-function CustomerList({
+function WorkbenchLane({
   title,
+  count,
+  actionHref,
+  actionLabel,
   items,
-  empty,
+  mapItem,
+  emptyText,
+  tone = "default",
 }: {
   title: string;
-  items: Array<{ title: string; meta: string; detail: string }>;
-  empty: string;
+  count: number;
+  actionHref: string;
+  actionLabel: string;
+  items: any[];
+  mapItem: (item: any) => WorkbenchRow;
+  emptyText: string;
+  tone?: "default" | "danger";
 }) {
   return (
-    <div className="stat-tile rounded-2xl p-5">
-      <SectionHeader title={title} hint="按当前智能画像筛选出的优先关注名单。" />
-      <div className="mt-4 space-y-3">
+    <div
+      className={`rounded-[28px] border p-4 ${
+        tone === "danger" ? "border-red-200 bg-red-50/40" : "border-slate-200 bg-slate-50"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="truncate text-base font-semibold text-slate-900">{title}</div>
+          <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+            {formatNumber(count)}
+          </span>
+        </div>
+        <Link href={actionHref} className="whitespace-nowrap text-sm font-medium text-blue-600 hover:underline">
+          {actionLabel}
+        </Link>
+      </div>
+
+      <div className="mt-4 space-y-2">
         {items.length === 0 ? (
-          <EmptyState text={empty} />
+          <EmptyState text={emptyText} />
         ) : (
-          items.map((item) => (
-            <div key={`${title}-${item.title}-${item.detail}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <div className="text-sm font-semibold text-slate-900">{item.title}</div>
-              <div className="mt-1 text-xs text-slate-500">{item.meta}</div>
-              <div className="mt-2 text-sm text-slate-700">{item.detail}</div>
-            </div>
-          ))
+          items.map((raw) => {
+            const item = mapItem(raw);
+            return (
+              <Link
+                key={`${item.title}-${item.subtitle}-${item.primary}`}
+                href={item.href}
+                className="block rounded-2xl border border-white/70 bg-white px-4 py-3 transition hover:border-slate-300 hover:no-underline"
+              >
+                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_auto] xl:items-center">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-slate-900">{item.title}</div>
+                    <div className="mt-1 truncate text-xs text-slate-500">{item.subtitle}</div>
+                  </div>
+                  <div className="grid gap-2 text-right sm:grid-cols-2 xl:min-w-[220px] xl:text-left">
+                    <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700">
+                      {item.primary}
+                    </span>
+                    <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-700">
+                      {item.secondary}
+                    </span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })
         )}
+      </div>
+    </div>
+  );
+}
+
+function FlowRow({ left, sub, right }: { left: string; sub: string; right: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-900">{left}</div>
+          <div className="mt-1 truncate text-xs text-slate-500">{sub}</div>
+        </div>
+        <div className="whitespace-nowrap text-sm font-semibold text-emerald-700">{right}</div>
       </div>
     </div>
   );
@@ -867,47 +734,115 @@ function DataRow({
 }: {
   label: string;
   value: string;
-  tone?: "default" | "success" | "warn" | "danger";
+  tone?: Tone;
 }) {
-  const toneClass =
-    tone === "success"
-      ? "text-emerald-700"
-      : tone === "warn"
-        ? "text-amber-700"
-        : tone === "danger"
-          ? "text-red-700"
-          : "text-slate-900";
-
   return (
-    <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className={`text-sm font-semibold ${toneClass}`}>{value}</span>
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="text-sm text-slate-500">{label}</div>
+        <div className={`whitespace-nowrap text-lg font-semibold tracking-tight ${getToneClass(tone)}`}>
+          {value}
+        </div>
+      </div>
     </div>
   );
 }
 
-function PipelineCard({
-  title,
-  total,
-  extra,
+function RadarRow({
+  label,
+  score,
+  summary,
+  status,
 }: {
-  title: string;
-  total: number;
-  extra: string;
+  label: string;
+  score: number;
+  summary: string;
+  status: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-semibold text-slate-900">{title}</span>
-        <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-900">{label}</div>
+          <div className="mt-1 text-xs text-slate-500">{summary}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold tracking-tight text-slate-900">{score}</div>
+          <div className="text-xs text-slate-500">{status}</div>
+        </div>
+      </div>
+      <div className="mt-3 h-2 rounded-full bg-slate-200">
+        <div className="h-2 rounded-full bg-slate-900" style={{ width: `${score}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function LevelBox({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "blue" | "amber" | "red";
+}) {
+  const cls =
+    tone === "red"
+      ? "border-red-200 bg-red-50 text-red-700"
+      : tone === "amber"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-blue-200 bg-blue-50 text-blue-700";
+
+  return (
+    <div className={`rounded-2xl border p-4 ${cls}`}>
+      <div className="text-sm">{label}</div>
+      <div className="mt-2 text-3xl font-bold tracking-tight">{formatNumber(value)}</div>
+    </div>
+  );
+}
+
+function PipelineRow({ title, total, extra }: { title: string; total: number; extra: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-semibold text-slate-900">{title}</div>
+        <div className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-700">
           {formatNumber(total)}
-        </span>
+        </div>
       </div>
       <div className="mt-2 text-xs text-slate-500">{extra}</div>
     </div>
   );
 }
 
+function ActionChip({
+  href,
+  children,
+  primary = false,
+}: {
+  href: string;
+  children: React.ReactNode;
+  primary?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`rounded-xl px-4 py-2 text-sm font-medium hover:no-underline ${
+        primary
+          ? "bg-slate-900 text-white hover:bg-slate-800"
+          : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+      }`}
+    >
+      {children}
+    </Link>
+  );
+}
+
 function EmptyState({ text }: { text: string }) {
-  return <div className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">{text}</div>;
+  return (
+    <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 p-4 text-sm text-slate-500">
+      {text}
+    </div>
+  );
 }

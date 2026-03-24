@@ -24,6 +24,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-width: 320px;
+  text-rendering: optimizeLegibility;
 }
 
 html {
@@ -171,13 +172,13 @@ a:hover { text-decoration: underline; }
 .panel-soft {
   border: 1px solid rgba(148, 163, 184, 0.28);
   background: linear-gradient(160deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.95));
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.05);
 }
 
 .stat-tile {
   border: 1px solid rgba(148, 163, 184, 0.25);
   background: #ffffff;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.045);
 }
 
 .btn-soft {

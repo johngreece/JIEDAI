@@ -25,7 +25,7 @@ export default async function AdminDashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 2xl:space-y-6">
       <DashboardHeader username={session.username} />
       <section aria-label="智能数据概览" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
         <DashboardSummary />

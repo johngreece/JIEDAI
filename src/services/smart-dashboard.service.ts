@@ -78,6 +78,10 @@ export class SmartDashboardService {
       expiringSoonKycCount,
       pendingExtensions,
       pendingRestructures,
+      todayApplications,
+      activeFundersCount,
+      activeFundAccountCount,
+      todayCapitalInflows,
     ] = await Promise.all([
       prisma.repaymentScheduleItem.findMany({
         where: {
@@ -91,6 +95,7 @@ export class SmartDashboardService {
           dueDate: true,
           totalDue: true,
           remaining: true,
+          status: true,
           plan: {
             select: {
               applicationId: true,
@@ -322,7 +327,83 @@ export class SmartDashboardService {
       prisma.restructure.count({
         where: { status: "PENDING" },
       }),
+      prisma.loanApplication.findMany({
+        where: {
+          deletedAt: null,
+          createdAt: { gte: today, lt: tomorrow },
+        },
+        select: {
+          id: true,
+          applicationNo: true,
+          amount: true,
+          status: true,
+          createdAt: true,
+          customer: {
+            select: {
+              name: true,
+              phone: true,
+              riskLevel: true,
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 8,
+      }),
+      prisma.funder.count({
+        where: {
+          deletedAt: null,
+          isActive: true,
+        },
+      }),
+      prisma.fundAccount.count({
+        where: { isActive: true },
+      }),
+      prisma.capitalInflow.findMany({
+        where: {
+          status: "CONFIRMED",
+          inflowDate: { gte: today, lt: tomorrow },
+        },
+        select: {
+          id: true,
+          amount: true,
+          channel: true,
+          inflowDate: true,
+          fundAccount: {
+            select: {
+              accountName: true,
+              funder: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { inflowDate: "desc" },
+        take: 6,
+      }),
     ]);
+
+    const dueTodayApplicationIds = Array.from(
+      new Set(dueTodayItems.map((item) => item.plan.applicationId).filter(Boolean))
+    );
+    const dueTodayApplications = dueTodayApplicationIds.length
+      ? await prisma.loanApplication.findMany({
+          where: { id: { in: dueTodayApplicationIds } },
+          select: {
+            id: true,
+            customer: {
+              select: {
+                name: true,
+                phone: true,
+              },
+            },
+          },
+        })
+      : [];
+    const dueTodayApplicationMap = new Map(
+      dueTodayApplications.map((item) => [item.id, item.customer]),
+    );
 
     const mapAlertItem = (
       item: {
@@ -349,8 +430,15 @@ export class SmartDashboardService {
     const mildOverdue = overdueRecords.filter((record) => record.overdueDays <= 7);
     const moderateOverdue = overdueRecords.filter((record) => record.overdueDays > 7 && record.overdueDays <= 14);
     const severeOverdue = overdueRecords.filter((record) => record.overdueDays > 14);
+    const todayOverdueRecords = overdueRecords.filter(
+      (record) => record.createdAt >= today && record.createdAt < tomorrow,
+    );
     const overdueTotal = overdueRecords.reduce((sum, record) => sum + toNumber(record.overdueAmount), 0);
     const penaltyTotal = overdueRecords.reduce((sum, record) => sum + toNumber(record.penaltyAmount), 0);
+    const todayCapitalInflowAmount = todayCapitalInflows.reduce(
+      (sum, item) => sum + toNumber(item.amount),
+      0,
+    );
 
     const overdueByCustomer = new Map<
       string,
@@ -1047,6 +1135,62 @@ export class SmartDashboardService {
         overdueRate,
         totalScheduleItems,
         insights,
+      },
+      workbench: {
+        summary: {
+          loanApplicationsToday: todayApplications.length,
+          repaymentsDueToday: dueTodayItems.length,
+          overdueToday: todayOverdueRecords.length,
+        },
+        todayLoanApplications: todayApplications.map((item) => ({
+          id: item.id,
+          applicationNo: item.applicationNo,
+          customerName: item.customer?.name || "未知客户",
+          phone: item.customer?.phone || "",
+          riskLevel: item.customer?.riskLevel || "NORMAL",
+          amount: toNumber(item.amount),
+          status: item.status,
+          createdAt: item.createdAt,
+          href: `/admin/loan-applications/${item.id}`,
+        })),
+        todayRepayments: dueTodayItems.slice(0, 8).map((item) => {
+          const customer = dueTodayApplicationMap.get(item.plan.applicationId);
+          return {
+            id: item.id,
+            planId: item.planId,
+            planNo: item.plan.planNo,
+            customerName: customer?.name || "未知客户",
+            phone: customer?.phone || "",
+            amount: toNumber(item.remaining || item.totalDue),
+            status: item.status,
+            dueDate: item.dueDate,
+            href: "/admin/repayments",
+          };
+        }),
+        todayOverdues: todayOverdueRecords.slice(0, 8).map((item) => ({
+          id: item.id,
+          customerName: item.customer?.name || "未知客户",
+          phone: item.customer?.phone || "",
+          riskLevel: item.customer?.riskLevel || "NORMAL",
+          overdueAmount: toNumber(item.overdueAmount),
+          penaltyAmount: toNumber(item.penaltyAmount),
+          overdueDays: item.overdueDays,
+          createdAt: item.createdAt,
+          href: "/admin/overdue",
+        })),
+      },
+      financeHub: {
+        activeFunders: activeFundersCount,
+        activeFundAccounts: activeFundAccountCount,
+        todayCapitalInflow: Number(todayCapitalInflowAmount.toFixed(2)),
+        recentInflows: todayCapitalInflows.map((item) => ({
+          id: item.id,
+          amount: toNumber(item.amount),
+          channel: item.channel,
+          inflowDate: item.inflowDate,
+          accountName: item.fundAccount.accountName,
+          funderName: item.fundAccount.funder.name,
+        })),
       },
     };
   }

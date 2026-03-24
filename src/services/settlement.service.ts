@@ -582,7 +582,7 @@ export class SettlementService {
         select: { id: true },
       }).then((rows) => rows.map((row) => row.id));
 
-      const [disbursementAgg, repaymentAgg, lastLedger, overdueCount, loanCount] = await Promise.all([
+      const [disbursementAgg, repaymentAgg, outstandingAgg, overdueCount, loanCount] = await Promise.all([
         prisma.disbursement.aggregate({
           where: {
             application: { customerId: customer.id },
@@ -603,10 +603,15 @@ export class SettlementService {
           _sum: { amount: 0, interestPart: 0, feePart: 0, penaltyPart: 0 },
         })),
 
-        prisma.ledgerEntry.findFirst({
-          where: { customerId: customer.id },
-          orderBy: { createdAt: "desc" },
-          select: { balanceAfter: true },
+        prisma.repaymentScheduleItem.aggregate({
+          where: {
+            status: { in: ["PENDING", "PARTIAL", "OVERDUE"] },
+            plan: {
+              status: "ACTIVE",
+              applicationId: { in: applicationIds },
+            },
+          },
+          _sum: { remaining: true },
         }),
 
         prisma.overdueRecord.count({
@@ -638,7 +643,7 @@ export class SettlementService {
         phone: customer.phone,
         totalBorrowed,
         totalRepaid,
-        outstandingBalance: toNumber(lastLedger?.balanceAfter),
+        outstandingBalance: toNumber(outstandingAgg._sum?.remaining),
         profitFromCustomer,
         loanCount,
         isOverdue: overdueCount > 0,

@@ -4,6 +4,10 @@ import { Prisma } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import {
+  calculateLiveOutstandingFromSnapshot,
+  extractPaidDates,
+} from "@/lib/repayment-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +115,66 @@ export async function POST(
   const itemMap = new Map<string, ScheduleItemLite>(
     typedScheduleItems.map((item) => [item.id, item])
   );
+
+  const planContext = await prisma.repaymentPlan.findUnique({
+    where: { id: repayment.planId },
+    select: {
+      applicationId: true,
+      rulesSnapshotJson: true,
+    },
+  });
+  const planApplication = planContext
+    ? await prisma.loanApplication.findUnique({
+        where: { id: planContext.applicationId },
+        select: {
+          amount: true,
+          disbursement: {
+            select: {
+              disbursedAt: true,
+            },
+          },
+        },
+      })
+    : null;
+
+  const confirmedRepayments = await prisma.repayment.findMany({
+    where: {
+      planId: repayment.planId,
+      status: "CONFIRMED",
+    },
+    select: { amount: true },
+  });
+  const confirmedAmount = confirmedRepayments.reduce((sum, item) => sum + Number(item.amount), 0);
+
+  const singleOpenItem = typedScheduleItems.length === 1 ? typedScheduleItems[0] : null;
+  let dynamicAvailableByItem = new Map<string, number>();
+
+  if (planContext && planApplication && singleOpenItem) {
+    const overdueRecord = await prisma.overdueRecord.findFirst({
+      where: {
+        scheduleItemId: singleOpenItem.id,
+        status: "OVERDUE",
+      },
+      orderBy: { createdAt: "desc" },
+      select: { overdueFeeDetail: true },
+    });
+
+    const liveOutstanding = calculateLiveOutstandingFromSnapshot({
+      rulesSnapshotJson: planContext.rulesSnapshotJson,
+      principal: Number(planApplication.amount),
+      disbursedAt: planApplication.disbursement?.disbursedAt,
+      paymentTime: repayment.receivedAt ?? new Date(),
+      paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),
+    });
+
+    if (liveOutstanding != null) {
+      dynamicAvailableByItem.set(
+        singleOpenItem.id,
+        Math.max(0, liveOutstanding - confirmedAmount),
+      );
+    }
+  }
+
   const requestedByItem = new Map<string, number>();
   allocations.forEach((allocation) => {
     requestedByItem.set(
@@ -123,7 +187,8 @@ export async function POST(
     const scheduleItem = itemMap.get(itemId);
     if (!scheduleItem) continue;
 
-    const remaining = Number(scheduleItem.remaining);
+    const remaining =
+      dynamicAvailableByItem.get(itemId) ?? Number(scheduleItem.remaining);
     const reserved = reservedMap.get(itemId) || 0;
     const available = Math.max(0, remaining - reserved);
 

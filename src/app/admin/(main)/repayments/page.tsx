@@ -42,6 +42,18 @@ type ScheduleItem = {
   status: string;
 };
 
+type AllocationDraft = {
+  itemId: string;
+  amount: string;
+  type: "PRINCIPAL" | "INTEREST" | "FEE" | "PENALTY";
+};
+
+const EMPTY_ALLOCATION_ROW: AllocationDraft = {
+  itemId: "",
+  amount: "",
+  type: "PRINCIPAL",
+};
+
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -68,9 +80,7 @@ export default function AdminRepaymentsPage() {
   });
   const [allocForm, setAllocForm] = useState({
     repaymentId: "",
-    itemId: "",
-    amount: "",
-    type: "PRINCIPAL",
+    items: [{ ...EMPTY_ALLOCATION_ROW }],
   });
 
   async function loadAll() {
@@ -136,8 +146,12 @@ export default function AdminRepaymentsPage() {
 
   async function allocate(event: React.FormEvent) {
     event.preventDefault();
-    if (!allocForm.repaymentId || !allocForm.itemId || !allocForm.amount) {
-      alert("请先选择还款单、期次并填写金额");
+    const normalizedItems = allocForm.items.filter(
+      (item) => item.itemId && item.amount && Number(item.amount) > 0,
+    );
+
+    if (!allocForm.repaymentId || normalizedItems.length === 0) {
+      alert("请先选择还款单，并至少填写一条有效分配");
       return;
     }
 
@@ -146,13 +160,11 @@ export default function AdminRepaymentsPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        allocations: [
-          {
-            itemId: allocForm.itemId,
-            amount: Number(allocForm.amount),
-            type: allocForm.type,
-          },
-        ],
+        allocations: normalizedItems.map((item) => ({
+          itemId: item.itemId,
+          amount: Number(item.amount),
+          type: item.type,
+        })),
       }),
     });
 
@@ -163,7 +175,7 @@ export default function AdminRepaymentsPage() {
       return;
     }
 
-    setAllocForm({ repaymentId: "", itemId: "", amount: "", type: "PRINCIPAL" });
+    setAllocForm({ repaymentId: "", items: [{ ...EMPTY_ALLOCATION_ROW }] });
     setSchedule([]);
     setAllocatingId(null);
     await loadAll();
@@ -197,6 +209,8 @@ export default function AdminRepaymentsPage() {
     () => repayments.filter((item) => ["PENDING", "MATCHED", "MANUAL_REVIEW"].includes(item.status)),
     [repayments]
   );
+  const selectedRepayment = pendingRegister.find((item) => item.id === allocForm.repaymentId) ?? null;
+  const allocationDraftTotal = allocForm.items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 
   const waitingForCustomer = pendingQueue.filter((item) => item.status === "PENDING_CONFIRM");
   const waitingForReceipt = pendingQueue.filter((item) => item.status === "CUSTOMER_CONFIRMED");
@@ -304,11 +318,17 @@ export default function AdminRepaymentsPage() {
               value={allocForm.repaymentId}
               onChange={(event) => {
                 const repayment = pendingRegister.find((item) => item.id === event.target.value);
-                setAllocForm((current) => ({
-                  ...current,
+                const defaultItemId = schedule[0]?.id ?? "";
+                setAllocForm({
                   repaymentId: event.target.value,
-                  amount: repayment ? String(repayment.amount) : current.amount,
-                }));
+                  items: [
+                    {
+                      itemId: defaultItemId,
+                      amount: repayment ? String(repayment.amount) : "",
+                      type: "PRINCIPAL",
+                    },
+                  ],
+                });
                 if (repayment) {
                   void loadSchedule(repayment.plan.id);
                 }
@@ -324,48 +344,132 @@ export default function AdminRepaymentsPage() {
             </select>
           </label>
 
-          <label className="space-y-1 text-sm">
-            <span className="text-slate-500">选择期次</span>
-            <select
-              required
-              value={allocForm.itemId}
-              onChange={(event) => setAllocForm((current) => ({ ...current, itemId: event.target.value }))}
-              className="input-base"
-            >
-              <option value="">请选择期次</option>
-              {schedule.map((item) => (
-                <option key={item.id} value={item.id}>
-                  第{item.periodNumber}期 | 剩余 {money(item.remaining)} | {new Date(item.dueDate).toLocaleDateString("zh-CN")}
-                </option>
+          <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">分配明细</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  支持一笔还款拆成多条：本金、利息、费用、罚息可以分别录入。
+                </div>
+              </div>
+              <div className="text-xs text-slate-600">
+                已录入 {money(allocationDraftTotal)}
+                {selectedRepayment ? ` / 应分配 ${money(selectedRepayment.amount)}` : ""}
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {allocForm.items.map((row, index) => (
+                <div key={`${index}-${row.type}-${row.itemId}`} className="grid gap-3 md:grid-cols-[1.4fr_1fr_1fr_auto]">
+                  <select
+                    required
+                    value={row.itemId}
+                    onChange={(event) =>
+                      setAllocForm((current) => ({
+                        ...current,
+                        items: current.items.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, itemId: event.target.value } : item
+                        ),
+                      }))
+                    }
+                    className="input-base"
+                  >
+                    <option value="">请选择期次</option>
+                    {schedule.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        第{item.periodNumber}期 | 剩余 {money(item.remaining)} | {new Date(item.dueDate).toLocaleDateString("zh-CN")}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={row.type}
+                    onChange={(event) =>
+                      setAllocForm((current) => ({
+                        ...current,
+                        items: current.items.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, type: event.target.value as AllocationDraft["type"] } : item
+                        ),
+                      }))
+                    }
+                    className="input-base"
+                  >
+                    <option value="PRINCIPAL">本金</option>
+                    <option value="INTEREST">利息</option>
+                    <option value="FEE">费用</option>
+                    <option value="PENALTY">罚息</option>
+                  </select>
+
+                  <input
+                    required
+                    type="number"
+                    step="0.01"
+                    value={row.amount}
+                    onChange={(event) =>
+                      setAllocForm((current) => ({
+                        ...current,
+                        items: current.items.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, amount: event.target.value } : item
+                        ),
+                      }))
+                    }
+                    className="input-base"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAllocForm((current) => ({
+                        ...current,
+                        items:
+                          current.items.length > 1
+                            ? current.items.filter((_, itemIndex) => itemIndex !== index)
+                            : [{ ...EMPTY_ALLOCATION_ROW }],
+                      }))
+                    }
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    删除
+                  </button>
+                </div>
               ))}
-            </select>
-          </label>
+            </div>
 
-          <label className="space-y-1 text-sm">
-            <span className="text-slate-500">分配类型</span>
-            <select
-              value={allocForm.type}
-              onChange={(event) => setAllocForm((current) => ({ ...current, type: event.target.value }))}
-              className="input-base"
-            >
-              <option value="PRINCIPAL">本金</option>
-              <option value="INTEREST">利息</option>
-              <option value="FEE">费用</option>
-              <option value="PENALTY">罚息</option>
-            </select>
-          </label>
-
-          <label className="space-y-1 text-sm">
-            <span className="text-slate-500">分配金额</span>
-            <input
-              required
-              type="number"
-              step="0.01"
-              value={allocForm.amount}
-              onChange={(event) => setAllocForm((current) => ({ ...current, amount: event.target.value }))}
-              className="input-base"
-            />
-          </label>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setAllocForm((current) => ({
+                    ...current,
+                    items: [...current.items, { itemId: schedule[0]?.id ?? "", amount: "", type: "INTEREST" }],
+                  }))
+                }
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                新增一行
+              </button>
+              {selectedRepayment ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAllocForm((current) => ({
+                      ...current,
+                      items: [
+                        {
+                          itemId: schedule[0]?.id ?? current.items[0]?.itemId ?? "",
+                          amount: String(selectedRepayment.amount),
+                          type: "PRINCIPAL",
+                        },
+                      ],
+                    }))
+                  }
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                >
+                  以整笔金额覆盖首行
+                </button>
+              ) : null}
+            </div>
+          </div>
 
           <div className="md:col-span-2">
             <button

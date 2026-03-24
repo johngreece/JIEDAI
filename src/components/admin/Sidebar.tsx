@@ -68,6 +68,7 @@ export function AdminSidebar({ userRole, username }: { userRole?: string[]; user
       label: "资金管理",
       icon: I.fund,
       items: [
+        { name: "财务中心", href: "/admin/finance", icon: I.chart },
         { name: "台账查询", href: "/admin/ledger", icon: I.cash },
         { name: "财务结算", href: "/admin/settlement", icon: I.chart },
         { name: "资金方", href: "/admin/funders", icon: I.fund },
