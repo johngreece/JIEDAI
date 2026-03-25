@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { DashboardService } from "@/services/dashboard.service";
+import { getDashboardSummaryData } from "@/lib/dashboard-data";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const data = await DashboardService.getSummary();
+    const data = await getDashboardSummaryData();
     return NextResponse.json(data);
   } catch (error) {
     console.error("Dashboard summary error:", error);

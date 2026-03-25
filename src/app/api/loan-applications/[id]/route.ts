@@ -183,3 +183,61 @@ export async function PUT(
     remark: updated.remark,
   });
 }
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await requirePermission(["loan:create"]);
+  if (session instanceof Response) return session;
+
+  const { id } = await params;
+  const app = await prisma.loanApplication.findUnique({
+    where: { id },
+    include: {
+      disbursement: { select: { id: true, status: true } },
+      contracts: {
+        where: { deletedAt: null },
+        select: { id: true, status: true },
+      },
+    },
+  });
+
+  if (!app || app.deletedAt) {
+    return NextResponse.json({ error: "申请不存在" }, { status: 404 });
+  }
+
+  const hasRepaymentPlan = await prisma.repaymentPlan.findFirst({
+    where: { applicationId: id },
+    select: { id: true },
+  });
+
+  if (app.disbursement || hasRepaymentPlan) {
+    return NextResponse.json({ error: "该申请已进入放款/还款流程，不能直接删除" }, { status: 409 });
+  }
+
+  const activeContract = app.contracts.find((item) => item.status !== "CANCELLED");
+  if (activeContract) {
+    return NextResponse.json({ error: "该申请已有合同记录，不能直接删除" }, { status: 409 });
+  }
+
+  await prisma.loanApplication.update({
+    where: { id },
+    data: { deletedAt: new Date() },
+  });
+
+  await writeAuditLog({
+    userId: session.sub,
+    action: "delete",
+    entityType: "loan_application",
+    entityId: id,
+    oldValue: {
+      applicationNo: app.applicationNo,
+      status: app.status,
+      amount: Number(app.amount),
+    },
+    changeSummary: "删除借款申请",
+  }).catch(() => undefined);
+
+  return NextResponse.json({ success: true });
+}

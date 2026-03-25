@@ -1,6 +1,7 @@
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DashboardSummary } from "@/components/dashboard/DashboardSummary";
 import { getAdminSession } from "@/lib/auth";
+import { getDashboardSummaryData, getSmartDashboardData } from "@/lib/dashboard-data";
 
 export default async function AdminDashboardPage() {
   const session = await getAdminSession();
@@ -21,11 +22,23 @@ export default async function AdminDashboardPage() {
     );
   }
 
+  const [summaryResult, smartResult] = await Promise.allSettled([
+    getDashboardSummaryData(),
+    getSmartDashboardData(),
+  ]);
+
+  const initialSummary = summaryResult.status === "fulfilled" ? summaryResult.value : null;
+  const initialSmart = smartResult.status === "fulfilled" ? smartResult.value : null;
+
   return (
     <div className="space-y-5 2xl:space-y-6">
       <DashboardHeader username={session.username} />
-      <section aria-label="智能数据概览" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <DashboardSummary />
+      <section aria-label="智能数据总览" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <DashboardSummary
+          initialSummary={initialSummary}
+          initialSmart={initialSmart}
+          initialLoadedAt={new Date().toISOString()}
+        />
       </section>
     </div>
   );

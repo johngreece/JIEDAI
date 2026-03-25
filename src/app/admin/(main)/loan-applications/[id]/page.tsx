@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import RealtimeTimer from "@/components/RealtimeTimer";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
@@ -66,10 +66,12 @@ function formatMoney(value: number) {
 
 export default function LoanApplicationDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [generatingContract, setGeneratingContract] = useState(false);
   const [previewingContract, setPreviewingContract] = useState(false);
   const [preview, setPreview] = useState<ContractPreview | null>(null);
@@ -263,6 +265,23 @@ export default function LoanApplicationDetailPage() {
   const canGenerateContract = data.status === "APPROVED" && !data.mainContract;
   const canSubmitContractActions = canGenerateContract && !contractFieldsInvalid;
 
+  async function removeApplication() {
+    if (!data) return;
+    if (!window.confirm(`确认删除借款申请“${data.applicationNo}”吗？`)) return;
+    setDeleting(true);
+    try {
+      const response = await fetch(`/api/loan-applications/${params.id}`, {
+        method: "DELETE",
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error ?? "删除失败");
+      router.push("/admin/loan-applications");
+    } catch (cause) {
+      alert(cause instanceof Error ? cause.message : "删除失败");
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header className="panel-soft admin-page-header">
@@ -274,9 +293,21 @@ export default function LoanApplicationDetailPage() {
             {getStatusLabel(data.status)}
           </div>
         </div>
-        <Link href="/admin/loan-applications" className="admin-btn admin-btn-secondary">
-          返回列表
-        </Link>
+        <div className="admin-btn-group">
+          <Link href="/admin/loan-applications" className="admin-btn admin-btn-secondary">
+            返回列表
+          </Link>
+          {!["DISBURSED", "CONTRACTED"].includes(data.status) ? (
+            <button
+              type="button"
+              onClick={() => void removeApplication()}
+              disabled={deleting}
+              className="admin-btn admin-btn-danger"
+            >
+              {deleting ? "删除中..." : "删除申请"}
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <section className="grid gap-4 md:grid-cols-2">

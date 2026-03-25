@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -100,5 +101,79 @@ export async function GET(
           })),
         }
       : null,
+  });
+}
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await requirePermission(["disbursement:create"]);
+  if (session instanceof Response) return session;
+
+  const { id } = await params;
+  const disbursement = await prisma.disbursement.findUnique({
+    where: { id },
+    include: {
+      application: {
+        select: {
+          id: true,
+          applicationNo: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  if (!disbursement) {
+    return NextResponse.json({ error: "放款单不存在" }, { status: 404 });
+  }
+
+  if (disbursement.status !== "PENDING") {
+    return NextResponse.json({ error: "只有待打款的放款单才允许删除" }, { status: 409 });
+  }
+
+  const repaymentPlan = await prisma.repaymentPlan.findFirst({
+    where: { applicationId: disbursement.applicationId },
+    select: { id: true },
+  });
+
+  if (repaymentPlan) {
+    return NextResponse.json({ error: "该放款单已关联还款计划，不能直接删除" }, { status: 409 });
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.disbursement.delete({
+      where: { id },
+    });
+
+    if (disbursement.application.status === "CONTRACTED") {
+      await tx.loanApplication.update({
+        where: { id: disbursement.applicationId },
+        data: { status: "APPROVED" },
+      });
+    }
+  });
+
+  await writeAuditLog({
+    userId: session.sub,
+    action: "delete",
+    entityType: "disbursement",
+    entityId: id,
+    oldValue: {
+      disbursementNo: disbursement.disbursementNo,
+      status: disbursement.status,
+      amount: Number(disbursement.amount),
+      applicationNo: disbursement.application.applicationNo,
+    },
+    newValue: {
+      applicationStatus: disbursement.application.status === "CONTRACTED" ? "APPROVED" : disbursement.application.status,
+    },
+    changeSummary: "删除待打款放款单",
+  }).catch(() => undefined);
+
+  return NextResponse.json({
+    success: true,
+    applicationStatus: disbursement.application.status === "CONTRACTED" ? "APPROVED" : disbursement.application.status,
   });
 }

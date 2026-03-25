@@ -25,6 +25,7 @@ export type AuditEntityType =
   | "repayment_confirmation"
   | "overdue_record"
   | "customer"
+  | "capital_inflow"
   | "pricing_rule"
   | "system_setting";
 

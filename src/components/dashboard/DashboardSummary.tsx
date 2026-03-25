@@ -15,6 +15,12 @@ type WorkbenchRow = {
   href: string;
 };
 
+type DashboardSummaryProps = {
+  initialSummary?: SummaryData | null;
+  initialSmart?: SmartData | null;
+  initialLoadedAt?: string | null;
+};
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error((await response.text()) || "加载失败");
@@ -52,13 +58,20 @@ function getToneClass(tone: Tone) {
   return "text-slate-900";
 }
 
-export function DashboardSummary() {
-  const [summary, setSummary] = useState<SummaryData | null>(null);
-  const [smart, setSmart] = useState<SmartData | null>(null);
-  const [loading, setLoading] = useState(true);
+export function DashboardSummary({
+  initialSummary = null,
+  initialSmart = null,
+  initialLoadedAt = null,
+}: DashboardSummaryProps) {
+  const hasInitialData = Boolean(initialSummary && initialSmart);
+  const [summary, setSummary] = useState<SummaryData | null>(initialSummary);
+  const [smart, setSmart] = useState<SmartData | null>(initialSmart);
+  const [loading, setLoading] = useState(!hasInitialData);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(
+    initialLoadedAt ? new Date(initialLoadedAt) : null,
+  );
 
   const loadData = async (mode: "initial" | "refresh" = "initial") => {
     if (mode === "refresh") setRefreshing(true);
@@ -83,8 +96,10 @@ export function DashboardSummary() {
   };
 
   useEffect(() => {
-    void loadData();
-  }, []);
+    if (!hasInitialData) {
+      void loadData();
+    }
+  }, [hasInitialData]);
 
   if (loading) {
     return (

@@ -66,6 +66,7 @@ export default function CustomerDetailPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [newPassword, setNewPassword] = useState("");
   const [pwdSaving, setPwdSaving] = useState(false);
   const [pwdMsg, setPwdMsg] = useState("");
@@ -236,6 +237,21 @@ export default function CustomerDetailPage() {
 
   const uploadedCount = DOC_TYPES.filter((t) => getDocByType(t)).length;
 
+  async function removeCustomer() {
+    if (!data) return;
+    if (!window.confirm(`确认删除客户“${data.name}”吗？`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/customers/${id}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "删除失败");
+      router.push("/admin/customers");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "删除失败");
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* 顶部头部 */}
@@ -248,6 +264,15 @@ export default function CustomerDetailPage() {
         <div className="admin-toolbar-group">
           <button onClick={() => router.back()} className="admin-btn admin-btn-secondary">返回</button>
           {!editing && <button onClick={startEdit} className="admin-btn admin-btn-primary">编辑</button>}
+          {!editing && (
+            <button
+              onClick={() => void removeCustomer()}
+              disabled={deleting}
+              className="admin-btn admin-btn-danger"
+            >
+              {deleting ? "删除中..." : "删除客户"}
+            </button>
+          )}
         </div>
       </header>
 
