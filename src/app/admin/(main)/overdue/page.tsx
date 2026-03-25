@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type OverdueItem = {
   id: string;
@@ -27,7 +27,7 @@ export default function OverduePage() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "20" });
@@ -39,11 +39,11 @@ export default function OverduePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, status]);
 
   useEffect(() => {
     void load();
-  }, [page, status]);
+  }, [load]);
 
   async function runScan() {
     try {

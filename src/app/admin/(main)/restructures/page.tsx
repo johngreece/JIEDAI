@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Restructure = {
   id: string;
@@ -31,7 +31,7 @@ export default function RestructuresPage() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "20" });
@@ -43,11 +43,11 @@ export default function RestructuresPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [page, status]);
 
   useEffect(() => {
     void load();
-  }, [page, status]);
+  }, [load]);
 
   async function approve(id: string, action: "APPROVE" | "REJECT") {
     setActing(id);

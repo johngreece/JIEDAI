@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CustomerListItem } from "@/lib/admin-prefetch";
 
@@ -34,7 +34,7 @@ export function CustomersPageClient({
   const [error, setError] = useState("");
   const didMountRef = useRef(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -50,7 +50,7 @@ export function CustomersPageClient({
     } finally {
       setLoading(false);
     }
-  }
+  }, [keyword, page]);
 
   async function removeCustomer(customer: CustomerListItem) {
     if (!window.confirm(`确认删除客户“${customer.name}”吗？`)) return;
@@ -73,7 +73,7 @@ export function CustomersPageClient({
       return;
     }
     void load();
-  }, [page, keyword]);
+  }, [load]);
 
   function doSearch() {
     setPage(1);

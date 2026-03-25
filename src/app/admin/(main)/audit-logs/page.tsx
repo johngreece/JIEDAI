@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type AuditItem = {
   id: string;
@@ -33,7 +33,7 @@ export default function AuditLogsPage() {
   const [error, setError] = useState("");
   const [entityType, setEntityType] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -49,11 +49,11 @@ export default function AuditLogsPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [entityType, page]);
 
   useEffect(() => {
     void load();
-  }, [page, entityType]);
+  }, [load]);
 
   const totalPages = Math.ceil(total / 30);
 

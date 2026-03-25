@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { LoanApplicationListItem } from "@/lib/admin-prefetch";
 
@@ -43,7 +43,7 @@ export function LoanApplicationsPageClient({
   const [actingId, setActingId] = useState<string | null>(null);
   const didMountRef = useRef(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -57,7 +57,7 @@ export function LoanApplicationsPageClient({
     } finally {
       setLoading(false);
     }
-  }
+  }, [status]);
 
   useEffect(() => {
     if (!didMountRef.current) {
@@ -65,7 +65,7 @@ export function LoanApplicationsPageClient({
       return;
     }
     void load();
-  }, [status]);
+  }, [load]);
 
   const stats = useMemo(
     () => ({

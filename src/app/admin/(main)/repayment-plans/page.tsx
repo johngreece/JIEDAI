@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type ScheduleRow = {
   id: string;
@@ -52,7 +52,7 @@ export default function RepaymentPlansPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [scheduleLoading, setScheduleLoading] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "20" });
@@ -63,11 +63,11 @@ export default function RepaymentPlansPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [page]);
 
   useEffect(() => {
     void load();
-  }, [page]);
+  }, [load]);
 
   async function toggleSchedule(planId: string) {
     if (expandedId === planId) {

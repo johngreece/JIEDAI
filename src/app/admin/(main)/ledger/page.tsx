@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type LedgerItem = {
   id: string;
@@ -36,7 +36,7 @@ export default function LedgerPage() {
   const [direction, setDirection] = useState("");
   const [loading, setLoading] = useState(true);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: "30" });
@@ -49,11 +49,11 @@ export default function LedgerPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [direction, page, type]);
 
   useEffect(() => {
     void load();
-  }, [page, type, direction]);
+  }, [load]);
 
   const totalPages = Math.ceil(total / 30);
 
