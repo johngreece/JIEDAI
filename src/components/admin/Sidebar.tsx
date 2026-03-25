@@ -151,6 +151,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
                       <Link
                         key={item.href}
                         href={item.href}
+                        prefetch={false}
                         onClick={onClose}
                         className={`group flex items-center gap-3 rounded-[1.15rem] px-2.5 py-2.5 text-sm font-medium transition ${
                           active

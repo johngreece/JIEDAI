@@ -73,7 +73,7 @@ export function DashboardHeader({ username }: { username: string }) {
 
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
           {QUICK_ACTIONS.map((action) => (
-            <Link key={action.href} href={action.href} className="dashboard-action-chip hover:no-underline">
+            <Link key={action.href} href={action.href} prefetch={false} className="dashboard-action-chip hover:no-underline">
               {action.label}
             </Link>
           ))}

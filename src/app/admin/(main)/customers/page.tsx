@@ -1,6 +1,15 @@
-import { CustomersPageClient } from "@/components/admin/pages/CustomersPageClient";
+import dynamic from "next/dynamic";
+
+import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { getAdminSession } from "@/lib/auth";
 import { getCustomersList } from "@/lib/admin-prefetch";
+
+const CustomersPageClient = dynamic(
+  () => import("@/components/admin/pages/CustomersPageClient").then((module) => module.CustomersPageClient),
+  {
+    loading: () => <AdminPageSkeleton />,
+  },
+);
 
 export default async function CustomersPage() {
   const session = await getAdminSession();

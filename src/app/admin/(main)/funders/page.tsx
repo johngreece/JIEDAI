@@ -1,6 +1,15 @@
-import { FundersPageClient } from "@/components/admin/pages/FundersPageClient";
+import dynamic from "next/dynamic";
+
+import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { getAdminSession, isSuperAdmin } from "@/lib/auth";
 import { getFundersList } from "@/lib/admin-prefetch";
+
+const FundersPageClient = dynamic(
+  () => import("@/components/admin/pages/FundersPageClient").then((module) => module.FundersPageClient),
+  {
+    loading: () => <AdminPageSkeleton />,
+  },
+);
 
 export default async function FundersPage() {
   const session = await getAdminSession();

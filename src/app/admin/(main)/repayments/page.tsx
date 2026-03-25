@@ -1,6 +1,15 @@
-import { RepaymentsPageClient } from "@/components/admin/pages/RepaymentsPageClient";
+import dynamic from "next/dynamic";
+
+import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { requirePermission } from "@/lib/rbac";
 import { getActiveRepaymentPlans, getPendingConfirmRepayments, getRepaymentsList } from "@/lib/admin-prefetch";
+
+const RepaymentsPageClient = dynamic(
+  () => import("@/components/admin/pages/RepaymentsPageClient").then((module) => module.RepaymentsPageClient),
+  {
+    loading: () => <AdminPageSkeleton />,
+  },
+);
 
 export default async function AdminRepaymentsPage() {
   const permission = await requirePermission(["repayment:view"]);

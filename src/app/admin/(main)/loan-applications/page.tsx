@@ -1,6 +1,15 @@
-import { LoanApplicationsPageClient } from "@/components/admin/pages/LoanApplicationsPageClient";
+import dynamic from "next/dynamic";
+
+import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { getAdminSession } from "@/lib/auth";
 import { getLoanApplicationsList } from "@/lib/admin-prefetch";
+
+const LoanApplicationsPageClient = dynamic(
+  () => import("@/components/admin/pages/LoanApplicationsPageClient").then((module) => module.LoanApplicationsPageClient),
+  {
+    loading: () => <AdminPageSkeleton />,
+  },
+);
 
 export default async function LoanApplicationsPage() {
   const session = await getAdminSession();

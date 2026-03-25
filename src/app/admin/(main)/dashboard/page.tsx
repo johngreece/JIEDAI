@@ -1,7 +1,16 @@
+import dynamic from "next/dynamic";
+
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
-import { DashboardSummary } from "@/components/dashboard/DashboardSummary";
+import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
 import { getAdminSession } from "@/lib/auth";
 import { getDashboardSummaryData, getSmartDashboardData } from "@/lib/dashboard-data";
+
+const DashboardSummary = dynamic(
+  () => import("@/components/dashboard/DashboardSummary").then((module) => module.DashboardSummary),
+  {
+    loading: () => <AdminPageSkeleton mode="dashboard" />,
+  },
+);
 
 export default async function AdminDashboardPage() {
   const session = await getAdminSession();

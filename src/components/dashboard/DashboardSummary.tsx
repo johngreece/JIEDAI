@@ -302,7 +302,7 @@ export function DashboardSummary({
             工作台已切换为宽屏模式，桌面端优先展示横向信息流。
           </div>
         </div>
-        <div className="mt-5 grid gap-4 xl:grid-cols-3">
+        <div className="mt-5 space-y-3">
           <WorkbenchLane
             title="今日借款申请"
             count={smart.workbench?.summary?.loanApplicationsToday}
@@ -447,6 +447,7 @@ export function DashboardSummary({
               <Link
                 key={`${item.type}-${item.href}`}
                 href={item.href}
+                prefetch={false}
                 className={`dashboard-tone-card px-4 py-3 hover:no-underline ${
                   item.urgency === "critical"
                     ? "dashboard-tone-card--critical"
@@ -698,40 +699,43 @@ function WorkbenchLane({
             {formatNumber(count)}
           </span>
         </div>
-        <Link href={actionHref} className="whitespace-nowrap text-sm font-medium text-blue-600 hover:underline">
+        <Link href={actionHref} prefetch={false} className="whitespace-nowrap text-sm font-medium text-blue-600 hover:underline">
           {actionLabel}
         </Link>
       </div>
 
-      <div className="mt-4 space-y-2">
+      <div className="mt-4">
         {items.length === 0 ? (
           <EmptyState text={emptyText} />
         ) : (
-          items.map((raw) => {
-            const item = mapItem(raw);
-            return (
-              <Link
-                key={`${item.title}-${item.subtitle}-${item.primary}`}
-                href={item.href}
-                className="dashboard-list-link px-4 py-3 hover:no-underline"
-              >
-                <div className="grid gap-3 xl:grid-cols-[minmax(0,1.15fr)_auto] xl:items-center">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-900">{item.title}</div>
-                    <div className="mt-1 truncate text-xs text-slate-500">{item.subtitle}</div>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {items.map((raw) => {
+              const item = mapItem(raw);
+              return (
+                <Link
+                  key={`${item.title}-${item.subtitle}-${item.primary}`}
+                  href={item.href}
+                  prefetch={false}
+                  className="dashboard-list-link min-w-[280px] flex-1 px-4 py-3 hover:no-underline md:min-w-[320px] xl:min-w-[360px]"
+                >
+                  <div className="space-y-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-900">{item.title}</div>
+                      <div className="mt-1 truncate text-xs text-slate-500">{item.subtitle}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className="dashboard-chip">
+                        {item.primary}
+                      </span>
+                      <span className="dashboard-chip">
+                        {item.secondary}
+                      </span>
+                    </div>
                   </div>
-                  <div className="grid gap-2 text-right sm:grid-cols-2 xl:min-w-[220px] xl:text-left">
-                    <span className="dashboard-chip">
-                      {item.primary}
-                    </span>
-                    <span className="dashboard-chip">
-                      {item.secondary}
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            );
-          })
+                </Link>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
@@ -855,6 +859,7 @@ function ActionChip({
   return (
     <Link
       href={href}
+      prefetch={false}
       className={`dashboard-action-chip hover:no-underline ${
         primary
           ? "dashboard-action-chip--primary"
