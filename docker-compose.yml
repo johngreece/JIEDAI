@@ -1,0 +1,36 @@
+version: "3.9"
+
+# 本地开发 Postgres 备选方案（当 Supabase 不可达时）
+#
+# 用法：
+#   1. docker compose up -d
+#   2. 在 .env 中把 DATABASE_URL / DIRECT_URL 临时切到：
+#        postgresql://daikuan:daikuan@localhost:5432/daikuan
+#   3. npm run db:push       同步 schema
+#   4. npm run db:seed       写入默认数据
+#   5. npm run dev
+#
+# 停用：docker compose down（数据保留在 daikuan-pgdata 卷中）
+# 完全清空：docker compose down -v
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: daikuan-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: daikuan
+      POSTGRES_PASSWORD: daikuan
+      POSTGRES_DB: daikuan
+    ports:
+      - "5432:5432"
+    volumes:
+      - daikuan-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U daikuan -d daikuan"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  daikuan-pgdata:
