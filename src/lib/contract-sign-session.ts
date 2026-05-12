@@ -1,8 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
+import { JWT_SECRET_BYTES as JWT_SECRET } from "./jwt-secret";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET ?? "loan-system-secret-change-in-production"
-);
 
 export type ContractSignAccessPayload = {
   purpose: "contract_sign_access";

@@ -1,16 +1,13 @@
 import { NextResponse } from "next/server";
 import { ClientNotificationService } from "@/services/client-notification.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
+import { ensureCronAuthorized } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = ensureCronAuthorized(req);
+  if (denied) return denied;
 
   try {
     const [clientResult, funderResult] = await Promise.all([

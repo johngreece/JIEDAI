@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import Decimal from "decimal.js";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { recordDisbursementLedger } from "@/services/ledger.service";
@@ -77,7 +78,11 @@ export async function POST(
     const { tiers, overdueConfig, upfrontFeeRate, channel } = pricingConfig;
     const principal = Number(pendingDisbursement.amount);
     const netAmount = calcNetDisbursement(principal, upfrontFeeRate, channel);
-    const upfrontFeeAmount = Number((principal - netAmount).toFixed(2));
+    // 使用 Decimal 计算费用，避免 JS 浮点 + toFixed 截断导致与 schema Decimal(18,4) 不一致
+    const upfrontFeeAmount = new Decimal(principal)
+      .minus(netAmount)
+      .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+      .toNumber();
     const sortedTiers = [...tiers].sort(
       (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
     );
@@ -85,7 +90,10 @@ export async function POST(
     const dueHours = dueTier ? (dueTier.maxHours ?? dueTier.maxDays * 24) : 7 * 24;
     const dueDate = new Date(now.getTime() + dueHours * 60 * 60 * 1000);
     const dueRepaymentAmount = calcRepaymentAmount(principal, dueTier?.ratePercent ?? 0, channel);
-    const deferredFeeAmount = Number((dueRepaymentAmount - principal).toFixed(2));
+    const deferredFeeAmount = new Decimal(dueRepaymentAmount)
+      .minus(principal)
+      .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+      .toNumber();
 
     const disbursement = await tx.disbursement.update({
       where: { id },

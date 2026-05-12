@@ -1,9 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { JWT_SECRET_BYTES as JWT_SECRET } from "./jwt-secret";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET ?? "loan-system-secret-change-in-production"
-);
 const ADMIN_COOKIE = "admin_session";
 const CLIENT_COOKIE = "client_session";
 const FUNDER_COOKIE = "funder_session";

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
-  const rl = loginLimiter.check(`funder:${ip}`);
+  const rl = await loginLimiter.check(`funder:${ip}`);
   if (!rl.allowed) return rateLimitResponse(rl.resetAt);
 
   const body = await req.json().catch(() => ({}));

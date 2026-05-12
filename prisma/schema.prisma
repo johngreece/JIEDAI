@@ -940,3 +940,27 @@ model SystemSetting {
   @@index([group])
   @@map("system_settings")
 }
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  N — 基础设施（限流 / 幂等键，serverless 多实例可用）                  ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+model RateLimitBucket {
+  key       String   @id
+  count     Int      @default(0)
+  resetAt   DateTime @map("reset_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([resetAt])
+  @@map("rate_limit_buckets")
+}
+
+model IdempotencyKey {
+  key        String   @id
+  resultJson String   @map("result_json")
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}

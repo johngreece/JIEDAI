@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { scanOverdueItems } from "@/services/overdue.service";
+import { ensureCronAuthorized } from "@/lib/cron-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,16 +10,11 @@ export const dynamic = "force-dynamic";
  * vercel.json 中配置:
  * { "crons": [{ "path": "/api/cron/overdue", "schedule": "0 0 * * *" }] }
  *
- * 本地测试可直接 GET 调用（需带 CRON_SECRET 头）
+ * 本地测试需携带：Authorization: Bearer ${CRON_SECRET}
  */
 export async function GET(req: Request) {
-  // 验证 cron 密钥（防止外部恶意调用）
-  const authHeader = req.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const denied = ensureCronAuthorized(req);
+  if (denied) return denied;
 
   try {
     const result = await scanOverdueItems();
