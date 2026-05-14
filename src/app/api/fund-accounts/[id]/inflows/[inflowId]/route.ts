@@ -14,12 +14,12 @@ async function requireSuperAdminSession() {
 
 export async function DELETE(
   _req: Request,
-  { params }: { params: Promise<{ accountId: string; inflowId: string }> }
+  { params }: { params: Promise<{ id: string; inflowId: string }> }
 ) {
   const session = await requireSuperAdminSession();
   if (session instanceof Response) return session;
 
-  const { accountId, inflowId } = await params;
+  const { id: accountId, inflowId } = await params;
 
   const [account, inflow] = await Promise.all([
     prisma.fundAccount.findUnique({
