@@ -12,6 +12,7 @@ import { prisma } from "./prisma";
 import { recordRepaymentLedger } from "@/services/ledger.service";
 import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
 import { resolveOverdue } from "@/services/overdue.service";
+import { InAppNotificationService } from "@/services/in-app-notification.service";
 import {
   calculateLiveOutstandingFromSnapshot,
   extractPaidDates,
@@ -207,6 +208,16 @@ export async function settleRepaymentReceipt(params: {
       oldValue: { status: repayment.status },
       newValue: { status: rejected.status, rejectReason: params.rejectReason || null },
       changeSummary: "管理端确认未收到该笔还款",
+    }).catch(() => undefined);
+
+    await InAppNotificationService.notifyCustomer({
+      customerId: application.customerId,
+      type: "REPAYMENT_REJECTED",
+      title: "还款被标记为未收到",
+      content: `还款单 ${repayment.repaymentNo} 经管理端核对未收到款项，本金按原规则继续计息。${
+        params.rejectReason ? "驳回原因：" + params.rejectReason : ""
+      }`,
+      templateCode: `CLIENT_REPAYMENT_REJECTED_${params.repaymentId}`,
     }).catch(() => undefined);
 
     return rejected;

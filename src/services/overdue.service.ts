@@ -129,26 +129,49 @@ export async function scanOverdueItems(): Promise<OverdueScanResult> {
         });
         result.updatedOverdue += 1;
       } else {
-        await prisma.overdueRecord.create({
-          data: {
-            customerId,
-            applicationId,
-            scheduleItemId: item.id,
-            overdueAmount: breakdown.totalOutstanding,
-            penaltyAmount: breakdown.outstandingPenalty,
-            overdueDays,
-            gracePeriodDays: Math.ceil(overdueConfig.graceHours / 24),
-            overdueFeeDetail: detail,
-            status: "OVERDUE",
-          },
-        });
+        try {
+          await prisma.overdueRecord.create({
+            data: {
+              customerId,
+              applicationId,
+              scheduleItemId: item.id,
+              overdueAmount: breakdown.totalOutstanding,
+              penaltyAmount: breakdown.outstandingPenalty,
+              overdueDays,
+              gracePeriodDays: Math.ceil(overdueConfig.graceHours / 24),
+              overdueFeeDetail: detail,
+              status: "OVERDUE",
+            },
+          });
 
-        await prisma.repaymentScheduleItem.update({
-          where: { id: item.id },
-          data: { status: "OVERDUE" },
-        });
+          await prisma.repaymentScheduleItem.update({
+            where: { id: item.id },
+            data: { status: "OVERDUE" },
+          });
 
-        result.newOverdue += 1;
+          result.newOverdue += 1;
+        } catch (error) {
+          // 并发扫描可能让两个 worker 同时进到这里，依赖 @@unique([scheduleItemId, status]) 兜底
+          if ((error as { code?: string }).code === "P2002") {
+            const racedRow = await prisma.overdueRecord.findFirst({
+              where: { scheduleItemId: item.id, status: "OVERDUE" },
+            });
+            if (racedRow) {
+              await prisma.overdueRecord.update({
+                where: { id: racedRow.id },
+                data: {
+                  overdueDays,
+                  penaltyAmount: breakdown.outstandingPenalty,
+                  overdueAmount: breakdown.totalOutstanding,
+                  overdueFeeDetail: detail,
+                },
+              });
+              result.updatedOverdue += 1;
+            }
+          } else {
+            throw error;
+          }
+        }
       }
     } catch (error) {
       result.errors.push(`Item ${item.id}: ${(error as Error).message}`);

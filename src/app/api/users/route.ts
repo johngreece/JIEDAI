@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { hashPassword } from "@/lib/password";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
+import { writeAuditLog } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,22 @@ export async function POST(req: Request) {
     },
     select: { id: true, username: true, realName: true },
   });
+
+  await writeAuditLog({
+    userId: session.sub,
+    action: "create",
+    entityType: "user",
+    entityId: user.id,
+    newValue: {
+      username: user.username,
+      realName: user.realName,
+      roleId,
+      roleName: role.name,
+      phone: phone ?? null,
+      email: email || null,
+    },
+    changeSummary: `创建用户 ${user.username}（角色：${role.name}）`,
+  }).catch(() => undefined);
 
   return NextResponse.json(user, { status: 201 });
 }

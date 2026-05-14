@@ -120,7 +120,11 @@ export default async function ClientRepaymentsPage() {
           feePart: true,
           penaltyPart: true,
           remark: true,
+          matchComment: true,
           createdAt: true,
+          confirmation: {
+            select: { rejectReason: true },
+          },
         },
       })
     : [];
@@ -128,6 +132,7 @@ export default async function ClientRepaymentsPage() {
   const waitingForCustomer = repayments.filter((item) => item.status === "PENDING_CONFIRM");
   const waitingForReceipt = repayments.filter((item) => item.status === "CUSTOMER_CONFIRMED");
   const waitingForAdminReview = repayments.filter((item) => item.status === "MANUAL_REVIEW");
+  const rejectedRepayments = repayments.filter((item) => item.status === "REJECTED");
   let outstandingAmount = plan
     ? plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining), 0)
     : 0;
@@ -248,6 +253,36 @@ export default async function ClientRepaymentsPage() {
                 >
                   去确认付款
                 </Link>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {rejectedRepayments.length > 0 ? (
+        <section className="rounded-2xl border border-red-200 bg-red-50 p-5">
+          <h2 className="text-lg font-semibold text-slate-900">被驳回的还款申请</h2>
+          <p className="mt-1 text-xs text-slate-600">管理端核对后未匹配到以下款项，本金将按原规则继续计息。如有异议可联系业务员复核，或重新发起新一次还款申请。</p>
+          <div className="mt-3 space-y-3">
+            {rejectedRepayments.map((item) => (
+              <div key={item.id} className="rounded-xl border border-red-100 bg-white px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{item.repaymentNo}</p>
+                    <p className="mt-1 text-xs text-slate-500">{money(Number(item.amount))} · {new Date(item.createdAt).toLocaleString("zh-CN")}</p>
+                  </div>
+                  <Link
+                    href={`/client/sign/repayment/${item.id}`}
+                    className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 hover:no-underline"
+                  >
+                    查看驳回详情
+                  </Link>
+                </div>
+                {item.confirmation?.rejectReason || item.matchComment ? (
+                  <p className="mt-2 whitespace-pre-line text-xs text-slate-600">
+                    驳回原因：{item.confirmation?.rejectReason || item.matchComment}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>

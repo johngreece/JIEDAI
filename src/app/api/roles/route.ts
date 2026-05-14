@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { clearPermissionCache } from "@/lib/rbac";
+import { writeAuditLog } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -74,6 +75,22 @@ export async function POST(req: Request) {
       },
     },
   });
+
+  clearPermissionCache();
+
+  await writeAuditLog({
+    userId: session.sub,
+    action: "create",
+    entityType: "role",
+    entityId: role.id,
+    newValue: {
+      name: role.name,
+      code: role.code,
+      description: role.description,
+      permissionIds,
+    },
+    changeSummary: `创建角色 ${role.name} (${role.code})，授予 ${permissionIds.length} 项权限`,
+  }).catch(() => undefined);
 
   return NextResponse.json({ id: role.id, name: role.name, code: role.code }, { status: 201 });
 }

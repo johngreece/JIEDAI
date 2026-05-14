@@ -22,6 +22,15 @@ export async function GET(
       repaymentNo: true,
       amount: true,
       status: true,
+      matchComment: true,
+      updatedAt: true,
+      confirmation: {
+        select: {
+          status: true,
+          rejectReason: true,
+          confirmedAt: true,
+        },
+      },
     },
   });
   if (!repayment) {
@@ -32,6 +41,9 @@ export async function GET(
     repaymentNo: repayment.repaymentNo,
     amount: Number(repayment.amount),
     status: repayment.status,
+    matchComment: repayment.matchComment,
+    rejectReason: repayment.confirmation?.rejectReason ?? null,
+    updatedAt: repayment.updatedAt,
   });
 }
 

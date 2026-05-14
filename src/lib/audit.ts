@@ -15,7 +15,9 @@ export type AuditAction =
   | "disburse"
   | "repay_register"
   | "repay_confirm"
-  | "pay_overdue_interest";
+  | "pay_overdue_interest"
+  | "settlement_persist"
+  | "settlement_settle";
 
 export type AuditEntityType =
   | "loan_application"
@@ -27,7 +29,10 @@ export type AuditEntityType =
   | "customer"
   | "capital_inflow"
   | "pricing_rule"
-  | "system_setting";
+  | "system_setting"
+  | "role"
+  | "user"
+  | "fund_profit_share";
 
 export async function writeAuditLog(params: {
   userId: string;

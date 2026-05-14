@@ -706,6 +706,7 @@ model OverdueRecord {
 
   customer Customer @relation(fields: [customerId], references: [id])
 
+  @@unique([scheduleItemId, status])
   @@index([customerId])
   @@index([applicationId])
   @@index([status])

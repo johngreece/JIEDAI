@@ -12,6 +12,8 @@ export default function ClientRepaymentSignPage() {
     repaymentNo: string;
     amount: number;
     status: string;
+    rejectReason?: string | null;
+    matchComment?: string | null;
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -108,6 +110,47 @@ export default function ClientRepaymentSignPage() {
         <div className="flex justify-center">
           <Link href="/client/repayments" className="text-blue-600 hover:underline">
             返回当前还款页
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (repayment.status === "REJECTED") {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4 p-4">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
+          <p className="text-lg font-semibold text-slate-900">这笔还款被标记为未收到</p>
+          <p className="mt-2 text-sm text-slate-700">
+            管理端核对后没有匹配到这笔款项，本金将按原规则继续计息。
+          </p>
+          {repayment.rejectReason ? (
+            <div className="mt-3 rounded-lg border border-red-100 bg-white p-3 text-sm text-slate-700">
+              <p className="font-medium text-slate-900">驳回原因</p>
+              <p className="mt-1 whitespace-pre-line">{repayment.rejectReason}</p>
+            </div>
+          ) : repayment.matchComment ? (
+            <div className="mt-3 rounded-lg border border-red-100 bg-white p-3 text-sm text-slate-700">
+              <p className="font-medium text-slate-900">管理端备注</p>
+              <p className="mt-1 whitespace-pre-line">{repayment.matchComment}</p>
+            </div>
+          ) : null}
+          <p className="mt-3 text-xs text-slate-500">
+            如对处理结果有异议，请联系业务员复核；你也可以重新提交一笔新的还款申请。
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/client/repayments"
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 hover:no-underline"
+          >
+            返回并重新发起还款
+          </Link>
+          <Link
+            href="/client/notifications"
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:no-underline"
+          >
+            查看消息中心
           </Link>
         </div>
       </div>

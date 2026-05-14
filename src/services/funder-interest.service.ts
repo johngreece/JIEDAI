@@ -469,6 +469,27 @@ export class FunderInterestService {
       throw new Error("This withdrawal request has already been processed");
     }
 
+    if (withdrawal.funder.withdrawalCooldownDays > 0) {
+      const lastApproved = await prisma.funderWithdrawal.findFirst({
+        where: {
+          funderId: withdrawal.funderId,
+          status: "APPROVED",
+          id: { not: withdrawal.id },
+        },
+        orderBy: { approvedAt: "desc" },
+      });
+
+      if (lastApproved?.approvedAt) {
+        const cooldownEnd = addDays(lastApproved.approvedAt, withdrawal.funder.withdrawalCooldownDays);
+        if (new Date() < cooldownEnd) {
+          const remainDays = Math.ceil((cooldownEnd.getTime() - Date.now()) / DAY_MS);
+          throw new Error(
+            `Cannot approve: funder is still within withdrawal cooldown (${remainDays} day(s) remaining)`,
+          );
+        }
+      }
+    }
+
     return prisma.$transaction(async (tx) => {
       const accounts = await tx.fundAccount.findMany({
         where: {

@@ -670,6 +670,92 @@ export class SettlementService {
     }));
   }
 
+  /**
+   * Persist computed funder profit shares for a period into FundProfitShare rows.
+   * Idempotent: if a row for (funderId, periodStart, periodEnd) already exists
+   * AND is still PENDING, update the amounts. SETTLED rows are never touched.
+   */
+  static async persistFunderProfitShares(period: SettlementPeriod) {
+    const rows = await calculateFunderShareRows(period);
+
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      if (row.existingSettlement?.status === "SETTLED") {
+        skipped += 1;
+        continue;
+      }
+
+      if (row.shareAmountNumber <= 0 && row.periodIncomeNumber <= 0) {
+        skipped += 1;
+        continue;
+      }
+
+      if (row.existingSettlement?.id) {
+        await prisma.fundProfitShare.update({
+          where: { id: row.existingSettlement.id },
+          data: {
+            totalInterest: row.periodIncomeNumber,
+            shareRatio: row.shareRatioNumber,
+            shareAmount: row.shareAmountNumber,
+            status: "PENDING",
+          },
+        });
+        updated += 1;
+      } else {
+        await prisma.fundProfitShare.create({
+          data: {
+            funderId: row.funderId,
+            periodStart: period.start,
+            periodEnd: period.end,
+            totalInterest: row.periodIncomeNumber,
+            shareRatio: row.shareRatioNumber,
+            shareAmount: row.shareAmountNumber,
+            status: "PENDING",
+          },
+        });
+        created += 1;
+      }
+    }
+
+    return { created, updated, skipped, total: rows.length };
+  }
+
+  /**
+   * Transition a single FundProfitShare from PENDING to SETTLED.
+   * Records settledAt and an optional remark. Caller is expected to have already
+   * disbursed cash (e.g. via FunderWithdrawal). This call does NOT move money;
+   * it only marks the analytical row as closed for the period.
+   */
+  static async markFunderProfitShareSettled(profitShareId: string, remark?: string) {
+    const existing = await prisma.fundProfitShare.findUnique({
+      where: { id: profitShareId },
+    });
+
+    if (!existing) {
+      throw new Error("Profit share record not found");
+    }
+
+    if (existing.status === "SETTLED") {
+      return existing;
+    }
+
+    if (existing.status !== "PENDING") {
+      throw new Error(`Cannot settle profit share with status ${existing.status}`);
+    }
+
+    return prisma.fundProfitShare.update({
+      where: { id: profitShareId },
+      data: {
+        status: "SETTLED",
+        settledAt: new Date(),
+        remark: remark ?? existing.remark,
+      },
+    });
+  }
+
   static async profitMaximizationAnalysis() {
     const [allDisbursements, outstandingAgg] = await Promise.all([
       prisma.disbursement.findMany({
