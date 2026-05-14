@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type ReadinessData = {
@@ -154,14 +155,14 @@ export function LaunchReadinessPageClient() {
             <div className="text-sm text-slate-500">上线巡检 · QA / 验收专用</div>
             <h1 className="text-2xl font-bold text-slate-900">智能链路验收台</h1>
             <p className="mt-1 text-sm text-slate-600">
-              这页是用来"拿一个真实在途的客户去验证整条通知 / 风控 / 资金链路是否打通"的。
+              这页是用来&ldquo;拿一个真实在途的客户去验证整条通知 / 风控 / 资金链路是否打通&rdquo;的。
               系统会自动挑一笔在途借款（CONTRACTED / DISBURSED 等），把这位客户看到的所有通知样本、智能仪表盘里推送给他的预警都铺在这一屏，方便上线前一次性看完。
             </p>
             <p className="mt-2 text-xs text-slate-500">
               如果整页都是空的，说明系统里还没有任何在途借款 — 不是 bug。先在
-              <a href="/admin/customers" className="mx-1 underline">客户管理</a>
+              <Link href="/admin/customers" className="mx-1 underline">客户管理</Link>
               建客户、在
-              <a href="/admin/loan-applications" className="mx-1 underline">借款申请</a>
+              <Link href="/admin/loan-applications" className="mx-1 underline">借款申请</Link>
               发起一笔；或者直接跑一次 <code className="rounded bg-slate-100 px-1 py-0.5">npm run db:seed-demo</code> 注入演示数据。
             </p>
           </div>
@@ -196,14 +197,14 @@ export function LaunchReadinessPageClient() {
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
               <p className="text-base font-semibold">当前系统没有任何在途借款，验收台暂时没东西可看。</p>
               <p className="mt-2 leading-7">
-                这页面需要至少一笔状态在 CONTRACTED / DISBURSED / PENDING_DISBURSEMENT / CONTRACT_SIGNED 的真实借款作为"演练对象"。两种快速注入方式：
+                这页面需要至少一笔状态在 CONTRACTED / DISBURSED / PENDING_DISBURSEMENT / CONTRACT_SIGNED 的真实借款作为&ldquo;演练对象&rdquo;。两种快速注入方式：
               </p>
               <ol className="mt-2 list-decimal pl-5 leading-7">
                 <li>
                   在终端运行 <code className="rounded bg-white px-1 py-0.5 font-mono">npm run db:seed-demo</code>，会自动建 1 个资金方 + 3 个客户 + 3 笔不同状态的借款。
                 </li>
                 <li>
-                  或者手动：到 <a href="/admin/register" className="underline">客户登记</a> 建客户 → <a href="/admin/loan-applications" className="underline">借款申请</a> 创建一笔 → 走完风控、审批、合同、放款。
+                  或者手动：到 <Link href="/admin/register" className="underline">客户登记</Link> 建客户 → <Link href="/admin/loan-applications" className="underline">借款申请</Link> 创建一笔 → 走完风控、审批、合同、放款。
                 </li>
               </ol>
             </div>
