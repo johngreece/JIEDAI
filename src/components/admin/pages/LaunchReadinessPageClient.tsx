@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 type ReadinessData = {
-  testClient: {
+  testClient: null | {
     id: string;
     name: string;
     phone: string;
@@ -151,10 +151,18 @@ export function LaunchReadinessPageClient() {
       <section className="panel-soft rounded-2xl px-5 py-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-sm text-slate-500">上线巡检</div>
+            <div className="text-sm text-slate-500">上线巡检 · QA / 验收专用</div>
             <h1 className="text-2xl font-bold text-slate-900">智能链路验收台</h1>
             <p className="mt-1 text-sm text-slate-600">
-              一页看通知、风险、异常、资金预测是否都打通，并可一键生成通知测试场景。
+              这页是用来"拿一个真实在途的客户去验证整条通知 / 风控 / 资金链路是否打通"的。
+              系统会自动挑一笔在途借款（CONTRACTED / DISBURSED 等），把这位客户看到的所有通知样本、智能仪表盘里推送给他的预警都铺在这一屏，方便上线前一次性看完。
+            </p>
+            <p className="mt-2 text-xs text-slate-500">
+              如果整页都是空的，说明系统里还没有任何在途借款 — 不是 bug。先在
+              <a href="/admin/customers" className="mx-1 underline">客户管理</a>
+              建客户、在
+              <a href="/admin/loan-applications" className="mx-1 underline">借款申请</a>
+              发起一笔；或者直接跑一次 <code className="rounded bg-slate-100 px-1 py-0.5">npm run db:seed-demo</code> 注入演示数据。
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -184,14 +192,34 @@ export function LaunchReadinessPageClient() {
 
       {data ? (
         <>
+          {!data.testClient ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+              <p className="text-base font-semibold">当前系统没有任何在途借款，验收台暂时没东西可看。</p>
+              <p className="mt-2 leading-7">
+                这页面需要至少一笔状态在 CONTRACTED / DISBURSED / PENDING_DISBURSEMENT / CONTRACT_SIGNED 的真实借款作为"演练对象"。两种快速注入方式：
+              </p>
+              <ol className="mt-2 list-decimal pl-5 leading-7">
+                <li>
+                  在终端运行 <code className="rounded bg-white px-1 py-0.5 font-mono">npm run db:seed-demo</code>，会自动建 1 个资金方 + 3 个客户 + 3 笔不同状态的借款。
+                </li>
+                <li>
+                  或者手动：到 <a href="/admin/register" className="underline">客户登记</a> 建客户 → <a href="/admin/loan-applications" className="underline">借款申请</a> 创建一笔 → 走完风控、审批、合同、放款。
+                </li>
+              </ol>
+            </div>
+          ) : null}
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <ReadinessCard title="业务健康度" value={`${data.smartSummary.healthScore}`} note="来自智能仪表盘" />
             <ReadinessCard title="异常总数" value={`${data.smartSummary.anomalyCount}`} note="同设备/频改资料/异常提现" />
             <ReadinessCard title="30天净利润" value={formatMoney(data.smartSummary.realNetProfit30d)} note="已计入资金方收益预测" />
             <ReadinessCard
               title="测试客户"
-              value={data.testClient.phone}
-              note={`${data.testClient.name} · ${data.activeApplication?.applicationNo || "无在途借款"}`}
+              value={data.testClient?.phone ?? "—"}
+              note={
+                data.testClient
+                  ? `${data.testClient.name} · ${data.activeApplication?.applicationNo || "无在途借款"}`
+                  : "暂无在途借款客户可用"
+              }
             />
           </section>
 
@@ -200,7 +228,7 @@ export function LaunchReadinessPageClient() {
               <div className="stat-tile rounded-2xl p-5">
                 <h2 className="text-lg font-semibold text-slate-900">通知场景准备状态</h2>
                 <div className="mt-4 space-y-3 text-sm text-slate-600">
-                  <div>当前测试客户：{data.testClient.name} / {data.testClient.phone}</div>
+                  <div>当前测试客户：{data.testClient ? `${data.testClient.name} / ${data.testClient.phone}` : "—"}</div>
                   <div>在途借款：{data.activeApplication?.applicationNo || "无"}</div>
                   <div>借款状态：{data.activeApplication?.status || "-"}</div>
                   <div>下一期状态：{data.activeApplication?.nextScheduleItem?.status || "-"}</div>
