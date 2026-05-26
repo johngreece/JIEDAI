@@ -14,6 +14,12 @@ const ACTIONS = [
     note: "适合日结、周结和异常复核。",
   },
   {
+    title: "收益结算",
+    href: "/admin/funder-interest-settlements",
+    description: "按周息/月息规则生成资金方应付利息，平台打款后由资金方确认到账。",
+    note: "适合处理资金方收益应付、已付和到账确认。",
+  },
+  {
     title: "提现审批",
     href: "/admin/funder-withdrawals",
     description: "处理资金方提现申请，审批后自动扣减账户余额并生成资金流水。",

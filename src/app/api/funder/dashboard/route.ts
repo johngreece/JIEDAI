@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireActiveFunderSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { FunderInterestService } from "@/services/funder-interest.service";
+import { FunderInterestSettlementService } from "@/services/funder-interest-settlement.service";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,7 @@ export async function GET() {
   }
 
   const earnings = await FunderInterestService.getEarnings(session.sub);
+  const interestSettlements = await FunderInterestSettlementService.listForFunder(session.sub);
 
   const withdrawals = await prisma.funderWithdrawal.findMany({
     where: { funderId: session.sub },
@@ -99,6 +101,8 @@ export async function GET() {
       })),
     },
     earnings,
+    interestSettlements: interestSettlements.slice(0, 8),
+    interestSettlementSummary: FunderInterestSettlementService.summarize(interestSettlements),
     ruleGuide,
     withdrawals: withdrawals.map((item) => ({
       id: item.id,

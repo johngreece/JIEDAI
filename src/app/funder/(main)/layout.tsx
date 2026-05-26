@@ -36,6 +36,7 @@ export default async function FunderLayout({
           { href: "/funder/dashboard", label: "概览", shortLabel: "概览" },
           { href: "/funder/inflows", label: "入金", shortLabel: "入金" },
           { href: "/funder/disbursements", label: "放款", shortLabel: "放款" },
+          { href: "/funder/interest-settlements", label: "收益", shortLabel: "收益" },
           { href: "/funder/withdrawals", label: "提现", shortLabel: "提现" },
           { href: "/funder/notifications", label: "消息", shortLabel: "消息" },
         ]}

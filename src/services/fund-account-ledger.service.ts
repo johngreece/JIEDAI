@@ -5,6 +5,7 @@ export type FundAccountLedgerType =
   | "CAPITAL_INFLOW"
   | "DISBURSEMENT"
   | "REPAYMENT"
+  | "INTEREST_SETTLEMENT"
   | "WITHDRAWAL"
   | "ADJUSTMENT";
 

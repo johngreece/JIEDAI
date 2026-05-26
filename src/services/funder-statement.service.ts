@@ -106,6 +106,8 @@ export class FunderStatementService {
         type = "放款出账";
       } else if (entry.type === "REPAYMENT") {
         type = "回款入账";
+      } else if (entry.type === "INTEREST_SETTLEMENT") {
+        type = "收益确认入账";
       } else if (entry.type === "WITHDRAWAL") {
         type = "资金方提现";
         const interestAmount = interestByWithdrawalId.get(entry.referenceId) || 0;
@@ -129,7 +131,11 @@ export class FunderStatementService {
     const totalWithdrawn = rows
       .filter((row) => row.type === "资金方提现")
       .reduce((sum, row) => sum + row.debit, 0);
-    const totalInterest = withdrawals.reduce((sum, item) => sum + Number(item.interestAmount), 0);
+    const totalInterest =
+      withdrawals.reduce((sum, item) => sum + Number(item.interestAmount), 0) +
+      rows
+        .filter((row) => row.type === "收益确认入账")
+        .reduce((sum, row) => sum + row.credit, 0);
 
     const openingBalanceByAccount = new Map<string, number>();
     for (const accountId of accountIds) {

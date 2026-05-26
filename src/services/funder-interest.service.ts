@@ -100,6 +100,16 @@ export class FunderInterestService {
     const pendingInterestAmount = funder.withdrawalRequests
       .filter((item) => item.status === "PENDING")
       .reduce((sum, item) => sum + toNumber(item.interestAmount), 0);
+    const reservedSettlementAmount = await prisma.funderInterestSettlement
+      .aggregate({
+        where: {
+          funderId: funder.id,
+          status: { in: ["DUE", "PAID_BY_PLATFORM", "CONFIRMED_BY_FUNDER"] },
+        },
+        _sum: { interestAmount: true },
+      })
+      .then((result) => toNumber(result._sum.interestAmount))
+      .catch(() => 0);
 
     const accountIds = funder.accounts.map((account) => account.id);
     if (accountIds.length === 0) {
@@ -326,7 +336,7 @@ export class FunderInterestService {
 
     let withdrawableInterest = Math.max(
       0,
-      round2(accruedInterest - approvedInterestWithdrawn - pendingInterestAmount - riskDeduction),
+      round2(accruedInterest - approvedInterestWithdrawn - pendingInterestAmount - reservedSettlementAmount - riskDeduction),
     );
     withdrawableInterest = Math.min(withdrawableInterest, cashAvailable);
 

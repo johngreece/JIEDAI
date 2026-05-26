@@ -34,6 +34,7 @@ export type AuditEntityType =
   | "contract_template"
   | "fund_account"
   | "funder"
+  | "funder_interest_settlement"
   | "loan_product"
   | "pricing_rule"
   | "system_setting"

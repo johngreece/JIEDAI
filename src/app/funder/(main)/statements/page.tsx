@@ -13,8 +13,8 @@ interface StatementRow {
   date: string;
   type: string;
   description: string;
-  inflow: number;
-  outflow: number;
+  credit: number;
+  debit: number;
   balance: number;
 }
 interface StatementData {
@@ -91,7 +91,7 @@ export default function StatementsPage() {
             <SummaryCard label="期初余额" value={fmt(data.openingBalance)} />
             <SummaryCard label="期末余额" value={fmt(data.closingBalance)} />
             <SummaryCard label="总入账" value={fmt(data.totalInflow)} color="emerald" />
-            <SummaryCard label="总出账" value={fmt(data.totalOutflow + data.totalWithdrawn)} color="amber" />
+            <SummaryCard label="总出账" value={fmt(data.totalOutflow)} color="amber" />
           </div>
 
           {/* Rows */}
@@ -119,8 +119,8 @@ export default function StatementsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-700">{r.description}</td>
-                    <td className="px-4 py-3 text-right font-medium text-emerald-600">{r.inflow > 0 ? fmt(r.inflow) : "-"}</td>
-                    <td className="px-4 py-3 text-right font-medium text-red-500">{r.outflow > 0 ? fmt(r.outflow) : "-"}</td>
+                    <td className="px-4 py-3 text-right font-medium text-emerald-600">{r.credit > 0 ? fmt(r.credit) : "-"}</td>
+                    <td className="px-4 py-3 text-right font-medium text-red-500">{r.debit > 0 ? fmt(r.debit) : "-"}</td>
                     <td className="px-4 py-3 text-right font-medium">{fmt(r.balance)}</td>
                   </tr>
                 ))}

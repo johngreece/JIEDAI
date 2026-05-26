@@ -62,6 +62,21 @@ interface DashboardData {
       status: "accruing" | "withdrawable";
     }>;
   };
+  interestSettlementSummary: {
+    dueAmount: number;
+    paidPendingConfirmAmount: number;
+    confirmedAmount: number;
+    rejectedAmount: number;
+  };
+  interestSettlements: Array<{
+    id: string;
+    settlementNo: string;
+    customerName: string;
+    disbursementNo: string;
+    dueDate: string;
+    interestAmount: number;
+    status: string;
+  }>;
   withdrawals: Array<{
     id: string;
     amount: number;
@@ -131,7 +146,7 @@ export default function FunderDashboardPage() {
     return <div className="py-12 text-center text-slate-500">加载失败，请稍后重试。</div>;
   }
 
-  const { funder, earnings, withdrawals, recentDisbursements, ruleGuide } = data;
+  const { funder, earnings, withdrawals, recentDisbursements, ruleGuide, interestSettlementSummary, interestSettlements } = data;
   const isMonthly = funder.cooperationMode === "FIXED_MONTHLY";
 
   return (
@@ -151,6 +166,12 @@ export default function FunderDashboardPage() {
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 hover:no-underline"
             >
               提交入金
+            </Link>
+            <Link
+              href="/funder/interest-settlements"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 hover:no-underline"
+            >
+              确认收益
             </Link>
             <Link
               href="/funder/withdrawals"
@@ -184,6 +205,12 @@ export default function FunderDashboardPage() {
         <KpiCard label="30天预计收益" value={formatMoney(earnings.forecast30dInterest)} />
         <KpiCard label="7天预计回款" value={formatMoney(earnings.forecast7dCollection)} />
         <KpiCard label="30天预计回款" value={formatMoney(earnings.forecast30dCollection)} />
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <KpiCard label="待确认到账收益" value={formatMoney(interestSettlementSummary.paidPendingConfirmAmount)} />
+        <KpiCard label="已确认收益" value={formatMoney(interestSettlementSummary.confirmedAmount)} />
+        <KpiCard label="平台待打款收益" value={formatMoney(interestSettlementSummary.dueAmount)} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
@@ -298,6 +325,45 @@ export default function FunderDashboardPage() {
             >
               管理提现
             </Link>
+          </div>
+
+          <div className="stat-tile rounded-2xl p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold text-slate-900">收益到账确认</h2>
+              <Link href="/funder/interest-settlements" className="text-sm font-medium text-blue-600 hover:underline">
+                查看全部
+              </Link>
+            </div>
+            <div className="mt-4 space-y-3">
+              {interestSettlements.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
+                  暂无收益结算单。
+                </div>
+              ) : (
+                interestSettlements.slice(0, 5).map((item) => (
+                  <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-slate-900">{item.customerName}</div>
+                        <div className="mt-1 text-xs text-slate-500">{item.disbursementNo} · {formatDate(item.dueDate)}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-semibold text-amber-600">{formatMoney(item.interestAmount)}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {item.status === "PAID_BY_PLATFORM"
+                            ? "待确认"
+                            : item.status === "CONFIRMED_BY_FUNDER"
+                              ? "已确认"
+                              : item.status === "DUE"
+                                ? "待平台打款"
+                                : item.status}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
           <div className="stat-tile rounded-2xl p-5">

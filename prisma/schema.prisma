@@ -187,11 +187,12 @@ model Funder {
   updatedAt              DateTime  @updatedAt @map("updated_at")
   deletedAt              DateTime? @map("deleted_at")
 
-  accounts           FundAccount[]
-  profitShares       FundProfitShare[]
-  withdrawalRequests FunderWithdrawal[]
-  notifications      FunderNotification[]
-  contracts          FunderContract[]
+  accounts            FundAccount[]
+  profitShares        FundProfitShare[]
+  withdrawalRequests  FunderWithdrawal[]
+  interestSettlements FunderInterestSettlement[]
+  notifications       FunderNotification[]
+  contracts           FunderContract[]
 
   @@index([deletedAt])
   @@index([priority])
@@ -212,10 +213,11 @@ model FundAccount {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  funder         Funder               @relation(fields: [funderId], references: [id])
-  inflows        CapitalInflow[]
-  disbursements  Disbursement[]
-  journalEntries FundAccountJournal[]
+  funder              Funder                     @relation(fields: [funderId], references: [id])
+  inflows             CapitalInflow[]
+  disbursements       Disbursement[]
+  journalEntries      FundAccountJournal[]
+  interestSettlements FunderInterestSettlement[]
 
   @@index([funderId])
   @@map("fund_accounts")
@@ -311,6 +313,44 @@ model FunderWithdrawal {
   @@index([funderId])
   @@index([status])
   @@map("funder_withdrawals")
+}
+
+model FunderInterestSettlement {
+  id             String    @id @default(uuid())
+  settlementNo   String    @unique @map("settlement_no")
+  funderId       String    @map("funder_id")
+  fundAccountId  String    @map("fund_account_id")
+  disbursementId String?   @map("disbursement_id")
+  applicationId  String?   @map("application_id")
+  ruleMode       String    @map("rule_mode")
+  cycleIndex     Int       @default(1) @map("cycle_index")
+  cycleStart     DateTime  @map("cycle_start")
+  cycleEnd       DateTime  @map("cycle_end")
+  dueDate        DateTime  @map("due_date")
+  principal      Decimal   @db.Decimal(18, 4)
+  rate           Decimal   @db.Decimal(10, 6)
+  interestAmount Decimal   @map("interest_amount") @db.Decimal(18, 4)
+  status         String    @default("DUE")
+  paidAt         DateTime? @map("paid_at")
+  paidById       String?   @map("paid_by_id")
+  confirmedAt    DateTime? @map("confirmed_at")
+  rejectedAt     DateTime? @map("rejected_at")
+  rejectReason   String?   @map("reject_reason")
+  remark         String?
+  metadataJson   String?   @map("metadata_json")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  funder       Funder        @relation(fields: [funderId], references: [id])
+  fundAccount  FundAccount   @relation(fields: [fundAccountId], references: [id])
+  disbursement Disbursement? @relation(fields: [disbursementId], references: [id])
+
+  @@unique([disbursementId, cycleStart, cycleEnd])
+  @@index([funderId, status])
+  @@index([fundAccountId, dueDate])
+  @@index([status, dueDate])
+  @@index([applicationId])
+  @@map("funder_interest_settlements")
 }
 
 model FunderNotification {
@@ -546,19 +586,19 @@ model Signature {
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 model Disbursement {
-  id                String    @id @default(uuid())
-  disbursementNo    String    @unique @map("disbursement_no")
-  applicationId     String    @unique @map("application_id")
-  fundAccountId     String    @map("fund_account_id")
-  amount            Decimal   @db.Decimal(18, 4)
-  feeAmount         Decimal   @default(0) @map("fee_amount") @db.Decimal(18, 4)
-  netAmount         Decimal   @map("net_amount") @db.Decimal(18, 4)
-  batchNo           String?   @map("batch_no")
-  feeDetailJson     String?   @map("fee_detail_json")
-  payerAccount      String?   @map("payer_account")
-  payerBank         String?   @map("payer_bank")
-  status            String    @default("PENDING")
-  disbursedAt       DateTime? @map("disbursed_at")
+  id                          String    @id @default(uuid())
+  disbursementNo              String    @unique @map("disbursement_no")
+  applicationId               String    @unique @map("application_id")
+  fundAccountId               String    @map("fund_account_id")
+  amount                      Decimal   @db.Decimal(18, 4)
+  feeAmount                   Decimal   @default(0) @map("fee_amount") @db.Decimal(18, 4)
+  netAmount                   Decimal   @map("net_amount") @db.Decimal(18, 4)
+  batchNo                     String?   @map("batch_no")
+  feeDetailJson               String?   @map("fee_detail_json")
+  payerAccount                String?   @map("payer_account")
+  payerBank                   String?   @map("payer_bank")
+  status                      String    @default("PENDING")
+  disbursedAt                 DateTime? @map("disbursed_at")
   customerConfirmIp           String?   @map("customer_confirm_ip")
   customerConfirmedAt         DateTime? @map("customer_confirmed_at")
   customerConfirmUserAgent    String?   @map("customer_confirm_user_agent")
@@ -568,9 +608,10 @@ model Disbursement {
   createdAt                   DateTime  @default(now()) @map("created_at")
   updatedAt                   DateTime  @updatedAt @map("updated_at")
 
-  application LoanApplication @relation(fields: [applicationId], references: [id])
-  fundAccount FundAccount     @relation(fields: [fundAccountId], references: [id])
-  operator    User            @relation("DisbursementOperator", fields: [operatorId], references: [id])
+  application         LoanApplication            @relation(fields: [applicationId], references: [id])
+  fundAccount         FundAccount                @relation(fields: [fundAccountId], references: [id])
+  operator            User                       @relation("DisbursementOperator", fields: [operatorId], references: [id])
+  interestSettlements FunderInterestSettlement[]
 
   @@index([fundAccountId])
   @@index([status])
@@ -630,24 +671,24 @@ model RepaymentScheduleItem {
 }
 
 model Repayment {
-  id            String    @id @default(uuid())
-  repaymentNo   String    @unique @map("repayment_no")
-  planId        String    @map("plan_id")
-  amount        Decimal   @db.Decimal(18, 4)
-  principalPart Decimal   @map("principal_part") @db.Decimal(18, 4)
-  interestPart  Decimal   @map("interest_part") @db.Decimal(18, 4)
-  feePart       Decimal   @default(0) @map("fee_part") @db.Decimal(18, 4)
-  penaltyPart   Decimal   @default(0) @map("penalty_part") @db.Decimal(18, 4)
-  paymentMethod String    @map("payment_method")
-  status        String    @default("PENDING")
-  matchComment  String?   @map("match_comment")
-  receivedAt    DateTime? @map("received_at")
-  interestFrozenAt DateTime? @map("interest_frozen_at")
-  frozenPayableAmount Decimal? @map("frozen_payable_amount") @db.Decimal(18, 4)
-  operatorId    String    @map("operator_id")
-  remark        String?
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id                  String    @id @default(uuid())
+  repaymentNo         String    @unique @map("repayment_no")
+  planId              String    @map("plan_id")
+  amount              Decimal   @db.Decimal(18, 4)
+  principalPart       Decimal   @map("principal_part") @db.Decimal(18, 4)
+  interestPart        Decimal   @map("interest_part") @db.Decimal(18, 4)
+  feePart             Decimal   @default(0) @map("fee_part") @db.Decimal(18, 4)
+  penaltyPart         Decimal   @default(0) @map("penalty_part") @db.Decimal(18, 4)
+  paymentMethod       String    @map("payment_method")
+  status              String    @default("PENDING")
+  matchComment        String?   @map("match_comment")
+  receivedAt          DateTime? @map("received_at")
+  interestFrozenAt    DateTime? @map("interest_frozen_at")
+  frozenPayableAmount Decimal?  @map("frozen_payable_amount") @db.Decimal(18, 4)
+  operatorId          String    @map("operator_id")
+  remark              String?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   plan         RepaymentPlan          @relation(fields: [planId], references: [id])
   operator     User                   @relation("RepaymentOperator", fields: [operatorId], references: [id])

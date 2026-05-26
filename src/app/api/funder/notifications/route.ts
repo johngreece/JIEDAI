@@ -7,8 +7,15 @@ export const dynamic = "force-dynamic";
 function toFunderAction(type: string) {
   if (type === "WITHDRAWABLE_INTEREST") {
     return {
-      actionUrl: "/funder/withdrawals?open=1&type=INTEREST&prefill=withdrawable-interest",
-      actionLabel: "去提现",
+      actionUrl: "/funder/interest-settlements",
+      actionLabel: "查看收益",
+    };
+  }
+
+  if (type === "FUNDER_INTEREST_PAID") {
+    return {
+      actionUrl: "/funder/interest-settlements",
+      actionLabel: "确认到账",
     };
   }
 

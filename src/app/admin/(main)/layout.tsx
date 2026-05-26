@@ -29,6 +29,7 @@ export default function AdminMainLayout({ children }: AdminMainLayoutProps) {
       settlement: "结算中心",
       ledger: "资金台账",
       funders: "资金方",
+      "funder-interest-settlements": "收益结算",
       "funder-withdrawals": "资金方提现",
       users: "用户管理",
       roles: "角色管理",
