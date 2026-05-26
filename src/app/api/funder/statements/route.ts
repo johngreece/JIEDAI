@@ -6,6 +6,23 @@ import { FunderStatementService } from "@/services/funder-statement.service";
 
 export const dynamic = "force-dynamic";
 
+function parseDateBoundary(value: string, boundary: "start" | "end") {
+  const rawValue = value.trim();
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(rawValue);
+  const date = new Date(isDateOnly ? `${rawValue}T00:00:00` : rawValue);
+  if (Number.isNaN(date.getTime())) return null;
+
+  if (isDateOnly) {
+    if (boundary === "start") {
+      date.setHours(0, 0, 0, 0);
+    } else {
+      date.setHours(23, 59, 59, 999);
+    }
+  }
+
+  return date;
+}
+
 /**
  * GET /api/funder/statements?start=2026-01-01&end=2026-03-31&format=json|csv
  * 资金方对账单导出（资金方端 或 管理端用 funderId 参数）
@@ -36,12 +53,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "请提供 start 和 end 日期参数" }, { status: 400 });
   }
 
-  const startDate = new Date(startStr);
-  const endDate = new Date(endStr);
-  endDate.setHours(23, 59, 59, 999);
-
-  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+  const startDate = parseDateBoundary(startStr, "start");
+  const endDate = parseDateBoundary(endStr, "end");
+  if (!startDate || !endDate) {
     return NextResponse.json({ error: "日期格式无效" }, { status: 400 });
+  }
+  if (startDate > endDate) {
+    return NextResponse.json({ error: "开始日期不能晚于结束日期" }, { status: 400 });
   }
 
   const statement = await FunderStatementService.generate(funderId, startDate, endDate);

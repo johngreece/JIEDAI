@@ -19,15 +19,36 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const status = url.searchParams.get("status");
   const normalizedStatus = status && status !== "all" ? status : null;
-  const items = await FunderInterestSettlementService.listForFunder(session.sub, normalizedStatus);
+  const format = url.searchParams.get("format") ?? "json";
+  const filters = {
+    startDate: url.searchParams.get("startDate") ?? url.searchParams.get("start"),
+    endDate: url.searchParams.get("endDate") ?? url.searchParams.get("end"),
+    take: format === "csv" ? 5000 : 200,
+  };
+  const items = await FunderInterestSettlementService.listForFunder(session.sub, normalizedStatus, filters);
   const summaryItems = normalizedStatus
-    ? await FunderInterestSettlementService.listForFunder(session.sub, null)
+    ? await FunderInterestSettlementService.listForFunder(session.sub, null, filters)
     : items;
-
-  return NextResponse.json({
+  const payload = {
     items,
     summary: FunderInterestSettlementService.summarize(summaryItems),
-  });
+    filters: FunderInterestSettlementService.describeListFilters(filters),
+  };
+
+  if (format === "csv") {
+    const csv = FunderInterestSettlementService.toCSV({
+      ...payload,
+      funderName: session.name,
+    });
+    return new NextResponse(csv, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="funder_interest_settlements_${new Date().toISOString().slice(0, 10)}.csv"`,
+      },
+    });
+  }
+
+  return NextResponse.json(payload);
 }
 
 export async function POST(req: NextRequest) {

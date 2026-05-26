@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 function fmt(n: number) {
   return "€" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -15,6 +15,13 @@ function fmtDateTime(d: string) {
     second: "2-digit",
     hour12: false,
   });
+}
+
+function dateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 interface StatementRow {
@@ -42,27 +49,43 @@ interface StatementData {
 export default function StatementsPage() {
   const now = new Date();
   const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-  const [start, setStart] = useState(firstDay.toISOString().slice(0, 10));
-  const [end, setEnd] = useState(now.toISOString().slice(0, 10));
+  const [start, setStart] = useState(dateInput(firstDay));
+  const [end, setEnd] = useState(dateInput(now));
   const [data, setData] = useState<StatementData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
+    setError("");
     try {
       const res = await fetch(`/api/funder/statements?start=${start}&end=${end}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       setData(json);
-    } catch {
+    } catch (err) {
       setData(null);
+      setError(err instanceof Error ? err.message : "对账单加载失败");
     } finally {
       setLoading(false);
     }
-  }
+  }, [end, start]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   function downloadCSV() {
     window.open(`/api/funder/statements?start=${start}&end=${end}&format=csv`, "_blank");
+  }
+
+  function setRange(range: "month" | "30d") {
+    const today = new Date();
+    const nextStart = range === "month"
+      ? new Date(today.getFullYear(), today.getMonth(), 1)
+      : new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+    setStart(dateInput(nextStart));
+    setEnd(dateInput(today));
   }
 
   return (
@@ -83,14 +106,28 @@ export default function StatementsPage() {
           <span className="text-sm text-slate-600">结束日期</span>
           <input type="date" className="mt-1 block w-44 rounded-lg border border-slate-300 px-3 py-2 text-sm" value={end} onChange={(e) => setEnd(e.target.value)} />
         </label>
+        <button onClick={() => setRange("month")} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+          本月
+        </button>
+        <button onClick={() => setRange("30d")} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+          近30天
+        </button>
         <button onClick={load} disabled={loading} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm text-white hover:bg-emerald-700 disabled:opacity-50">
           {loading ? "查询中..." : "查询"}
         </button>
-        {data && (
-          <button onClick={downloadCSV} className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-100">
-            导出 CSV
-          </button>
-        )}
+        <button onClick={downloadCSV} disabled={loading} className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
+          导出 CSV
+        </button>
+      </div>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        当前期间：{data ? `${data.periodStart} 至 ${data.periodEnd}` : `${start} 至 ${end}`}
       </div>
 
       {/* Summary */}

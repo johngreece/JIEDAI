@@ -20,6 +20,42 @@ type SettlementStatus =
 const DAY_MS = 24 * 60 * 60 * 1000;
 const EPSILON = 0.0001;
 
+type SettlementListFilters = {
+  startDate?: Date | string | null;
+  endDate?: Date | string | null;
+  take?: number;
+};
+
+type SettlementResponseFilters = {
+  startDate: string | null;
+  endDate: string | null;
+  periodLabel: string;
+};
+
+type SerializedSettlement = {
+  settlementNo: string;
+  funderName: string;
+  accountName: string;
+  bankName: string;
+  disbursementNo: string;
+  applicationNo: string;
+  customerName: string;
+  ruleMode: string;
+  cycleIndex: number;
+  cycleStart: Date | string;
+  cycleEnd: Date | string;
+  dueDate: Date | string;
+  principal: number;
+  rate: number;
+  interestAmount: number;
+  status: string;
+  paidAt: Date | string | null;
+  confirmedAt: Date | string | null;
+  rejectedAt: Date | string | null;
+  rejectReason: string | null;
+  remark: string | null;
+};
+
 type GeneratedSettlementNotice = {
   settlementNo: string;
   funderId: string;
@@ -59,7 +95,95 @@ function money(value: number) {
 }
 
 function dateOnly(value: Date) {
-  return value.toISOString().slice(0, 10);
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+const statusLabel: Record<string, string> = {
+  DUE: "待平台打款",
+  PAID_BY_PLATFORM: "待资金方确认",
+  CONFIRMED_BY_FUNDER: "资金方已确认",
+  FUNDER_REJECTED: "资金方反馈未收到",
+  CANCELLED: "已取消",
+};
+
+const modeLabel: Record<string, string> = {
+  FIXED_MONTHLY: "固定月息",
+  VOLUME_BASED: "固定周息",
+  PROFIT_SHARE: "按实际收益分润",
+};
+
+function csvCell(value: string | number | null | undefined) {
+  return `"${String(value ?? "").replace(/"/g, '""')}"`;
+}
+
+function formatDateTime(value: Date | string | null | undefined) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function normalizeDateBoundary(value: Date | string | null | undefined, boundary: "start" | "end") {
+  if (!value) return null;
+
+  const rawValue = value instanceof Date ? value : String(value).trim();
+  if (!rawValue) return null;
+
+  const isDateOnly = typeof rawValue === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawValue);
+  const date = value instanceof Date
+    ? new Date(value.getTime())
+    : new Date(isDateOnly ? `${rawValue}T00:00:00` : rawValue);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  if (isDateOnly) {
+    if (boundary === "start") {
+      date.setHours(0, 0, 0, 0);
+    } else {
+      date.setHours(23, 59, 59, 999);
+    }
+  }
+
+  return date;
+}
+
+function buildDueDateRange(filters: SettlementListFilters) {
+  const startAt = normalizeDateBoundary(filters.startDate, "start");
+  const endAt = normalizeDateBoundary(filters.endDate, "end");
+  const dueDate: Prisma.DateTimeFilter = {};
+
+  if (startAt) dueDate.gte = startAt;
+  if (endAt) dueDate.lte = endAt;
+
+  const startLabel = startAt ? dateOnly(startAt) : null;
+  const endLabel = endAt ? dateOnly(endAt) : null;
+  const periodLabel = startLabel && endLabel
+    ? `${startLabel} 至 ${endLabel}`
+    : startLabel
+      ? `${startLabel} 起`
+      : endLabel
+        ? `截至 ${endLabel}`
+        : "全部到期时间";
+
+  return {
+    dueDate: Object.keys(dueDate).length ? dueDate : undefined,
+    response: {
+      startDate: startLabel,
+      endDate: endLabel,
+      periodLabel,
+    } satisfies SettlementResponseFilters,
+  };
 }
 
 function serializeSettlement<T extends {
@@ -309,11 +433,19 @@ export class FunderInterestSettlementService {
     };
   }
 
-  static async listForAdmin(status?: string | null) {
+  static describeListFilters(filters: SettlementListFilters = {}) {
+    return buildDueDateRange(filters).response;
+  }
+
+  static async listForAdmin(status?: string | null, filters: SettlementListFilters = {}) {
+    const dateRange = buildDueDateRange(filters);
     const items = await prisma.funderInterestSettlement.findMany({
-      where: status ? { status } : {},
+      where: {
+        ...(status ? { status } : {}),
+        ...(dateRange.dueDate ? { dueDate: dateRange.dueDate } : {}),
+      },
       orderBy: [{ dueDate: "desc" }, { createdAt: "desc" }],
-      take: 300,
+      take: filters.take ?? 300,
       include: {
         funder: { select: { name: true } },
         fundAccount: { select: { accountName: true, bankName: true } },
@@ -334,11 +466,16 @@ export class FunderInterestSettlementService {
     return items.map(serializeSettlement);
   }
 
-  static async listForFunder(funderId: string, status?: string | null) {
+  static async listForFunder(funderId: string, status?: string | null, filters: SettlementListFilters = {}) {
+    const dateRange = buildDueDateRange(filters);
     const items = await prisma.funderInterestSettlement.findMany({
-      where: { funderId, ...(status ? { status } : {}) },
+      where: {
+        funderId,
+        ...(status ? { status } : {}),
+        ...(dateRange.dueDate ? { dueDate: dateRange.dueDate } : {}),
+      },
       orderBy: [{ dueDate: "desc" }, { createdAt: "desc" }],
-      take: 200,
+      take: filters.take ?? 200,
       include: {
         funder: { select: { name: true } },
         fundAccount: { select: { accountName: true, bankName: true } },
@@ -536,5 +673,54 @@ export class FunderInterestSettlementService {
         .filter((item) => item.status === FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED)
         .reduce((sum, item) => sum + item.interestAmount, 0),
     };
+  }
+
+  static toCSV(payload: {
+    funderName?: string;
+    filters: SettlementResponseFilters;
+    items: SerializedSettlement[];
+    summary: ReturnType<typeof FunderInterestSettlementService.summarize>;
+  }) {
+    const BOM = "\uFEFF";
+    const summary = payload.summary;
+    const title = payload.funderName ? `资金方收益结算 - ${payload.funderName}` : "资金方收益结算";
+    const header = [
+      title,
+      `导出时间: ${formatDateTime(new Date())}`,
+      `到期时间: ${payload.filters.periodLabel}`,
+      `记录数: ${payload.items.length}`,
+      `待平台打款: €${summary.dueAmount.toFixed(2)}`,
+      `待资金方确认: €${summary.paidPendingConfirmAmount.toFixed(2)}`,
+      `资金方已确认: €${summary.confirmedAmount.toFixed(2)}`,
+      `反馈未收到: €${summary.rejectedAmount.toFixed(2)}`,
+      "",
+      "结算单号,资金方,账户,客户,放款单,规则,期数,周期开始,周期结束,到期时间,本金(€),利率(%),利息(€),状态,平台打款时间,资金方确认时间,反馈未收到时间,打款备注,拒绝原因",
+    ].join("\n");
+
+    const rows = payload.items.map((item) =>
+      [
+        csvCell(item.settlementNo),
+        csvCell(item.funderName),
+        csvCell(item.accountName),
+        csvCell(item.customerName),
+        csvCell(item.disbursementNo),
+        csvCell(modeLabel[item.ruleMode] ?? item.ruleMode),
+        item.cycleIndex,
+        csvCell(formatDateTime(item.cycleStart)),
+        csvCell(formatDateTime(item.cycleEnd)),
+        csvCell(formatDateTime(item.dueDate)),
+        item.principal.toFixed(2),
+        item.rate.toFixed(4),
+        item.interestAmount.toFixed(2),
+        csvCell(statusLabel[item.status] ?? item.status),
+        csvCell(formatDateTime(item.paidAt)),
+        csvCell(formatDateTime(item.confirmedAt)),
+        csvCell(formatDateTime(item.rejectedAt)),
+        csvCell(item.remark ?? ""),
+        csvCell(item.rejectReason ?? ""),
+      ].join(","),
+    );
+
+    return `${BOM}${header}\n${rows.join("\n")}`;
   }
 }

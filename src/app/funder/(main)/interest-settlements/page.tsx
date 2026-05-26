@@ -35,6 +35,11 @@ type Payload = {
     confirmedAmount: number;
     rejectedAmount: number;
   };
+  filters?: {
+    startDate: string | null;
+    endDate: string | null;
+    periodLabel: string;
+  };
 };
 
 const statusLabel: Record<string, string> = {
@@ -91,6 +96,13 @@ function dateTime(value: string | null) {
   });
 }
 
+function dateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export default function FunderInterestSettlementsPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,23 +110,40 @@ export default function FunderInterestSettlementsPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [error, setError] = useState("");
   const actionKeyRef = useRef<{ scope: string; key: string } | null>(null);
 
   const load = useCallback(async (nextStatus = statusFilter ?? "all") => {
     setLoading(true);
+    setError("");
     try {
-      const query = nextStatus === "all" ? "" : `?status=${encodeURIComponent(nextStatus)}`;
-      const response = await fetch(`/api/funder/interest-settlements${query}`);
+      const params = new URLSearchParams();
+      if (nextStatus !== "all") params.set("status", nextStatus);
+      if (startDate) params.set("startDate", startDate);
+      if (endDate) params.set("endDate", endDate);
+      const query = params.toString();
+      const response = await fetch(`/api/funder/interest-settlements${query ? `?${query}` : ""}`);
       const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "收益结算加载失败");
+      }
       setData(payload);
+    } catch (err) {
+      setData(null);
+      setError(err instanceof Error ? err.message : "收益结算加载失败");
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [endDate, startDate, statusFilter]);
 
   useEffect(() => {
-    const initialStatus = new URLSearchParams(window.location.search).get("status");
+    const params = new URLSearchParams(window.location.search);
+    const initialStatus = params.get("status");
     setStatusFilter(isKnownStatusFilter(initialStatus) ? initialStatus : "all");
+    setStartDate(params.get("startDate") ?? params.get("start") ?? "");
+    setEndDate(params.get("endDate") ?? params.get("end") ?? "");
   }, []);
 
   useEffect(() => {
@@ -131,6 +160,32 @@ export default function FunderInterestSettlementsPage() {
       url.searchParams.set("status", nextStatus);
     }
     window.history.replaceState(null, "", url.toString());
+  }
+
+  function setDueRange(range: "month" | "30d" | "all") {
+    actionKeyRef.current = null;
+    if (range === "all") {
+      setStartDate("");
+      setEndDate("");
+      return;
+    }
+
+    const today = new Date();
+    const start = range === "month"
+      ? new Date(today.getFullYear(), today.getMonth(), 1)
+      : new Date(today.getTime() - 29 * 24 * 60 * 60 * 1000);
+    setStartDate(dateInput(start));
+    setEndDate(dateInput(today));
+  }
+
+  function downloadCsv() {
+    const params = new URLSearchParams();
+    const currentStatus = statusFilter ?? "all";
+    if (currentStatus !== "all") params.set("status", currentStatus);
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    params.set("format", "csv");
+    window.open(`/api/funder/interest-settlements?${params}`, "_blank");
   }
 
   function getActionKey(scope: string) {
@@ -172,6 +227,15 @@ export default function FunderInterestSettlementsPage() {
 
   const items = data?.items ?? [];
   const pendingConfirm = items.filter((item) => item.status === "PAID_BY_PLATFORM");
+  const periodLabel = data?.filters?.periodLabel ?? (
+    startDate && endDate
+      ? `${startDate} 至 ${endDate}`
+      : startDate
+        ? `${startDate} 起`
+        : endDate
+          ? `截至 ${endDate}`
+          : "全部到期时间"
+  );
 
   return (
     <div className="space-y-6">
@@ -183,11 +247,67 @@ export default function FunderInterestSettlementsPage() {
               这里显示按周/月规则生成的利息结算单。平台标记已打款后，你需要确认是否收到。
             </p>
           </div>
-          <button type="button" onClick={() => void load()} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
-            刷新
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void load()} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              刷新
+            </button>
+            <button type="button" onClick={downloadCsv} disabled={loading} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60">
+              导出 CSV
+            </button>
+          </div>
         </div>
       </header>
+
+      {error ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {error}
+        </div>
+      ) : null}
+
+      <section className="stat-tile rounded-2xl p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-slate-900">到期时间筛选</div>
+            <p className="mt-1 text-xs text-slate-500">按结算单到期时间核对收益，应收、待确认、已确认金额会同步重算。</p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">起</span>
+              <input
+                type="date"
+                className="mt-1 block w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={startDate}
+                onChange={(event) => {
+                  actionKeyRef.current = null;
+                  setStartDate(event.target.value);
+                }}
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">止</span>
+              <input
+                type="date"
+                className="mt-1 block w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={endDate}
+                onChange={(event) => {
+                  actionKeyRef.current = null;
+                  setEndDate(event.target.value);
+                }}
+              />
+            </label>
+            <button type="button" onClick={() => setDueRange("month")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              本月
+            </button>
+            <button type="button" onClick={() => setDueRange("30d")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              近30天
+            </button>
+            <button type="button" onClick={() => setDueRange("all")} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              全部
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 text-xs font-medium text-slate-500">当前口径：{periodLabel}</div>
+      </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="待平台打款" value={money(data?.summary.dueAmount ?? 0)} />
@@ -304,7 +424,10 @@ export default function FunderInterestSettlementsPage() {
       ) : null}
 
       <section className="stat-tile rounded-2xl p-5">
-        <h2 className="text-lg font-semibold text-slate-900">全部结算单</h2>
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">全部结算单</h2>
+          <div className="text-xs font-medium text-slate-500">{periodLabel}</div>
+        </div>
         {items.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
             暂无收益结算单。

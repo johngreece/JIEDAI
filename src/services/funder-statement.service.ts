@@ -29,6 +29,15 @@ function round2(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function dateOnly(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function parseMetadata(value: string | null): Record<string, unknown> {
   if (!value) return {};
   try {
@@ -107,10 +116,8 @@ export class FunderStatementService {
         name: true,
         cooperationMode: true,
         accounts: {
-          where: { isActive: true },
           select: {
             id: true,
-            balance: true,
           },
         },
       },
@@ -122,8 +129,8 @@ export class FunderStatementService {
         funderId: funder.id,
         funderName: funder.name,
         cooperationMode: funder.cooperationMode,
-        periodStart: startDate.toISOString().split("T")[0],
-        periodEnd: endDate.toISOString().split("T")[0],
+        periodStart: dateOnly(startDate),
+        periodEnd: dateOnly(endDate),
         openingBalance: 0,
         closingBalance: 0,
         totalInflow: 0,
@@ -184,7 +191,7 @@ export class FunderStatementService {
       }
 
       return {
-        date: entry.createdAt.toISOString().split("T")[0],
+        date: dateOnly(entry.createdAt),
         occurredAt: entry.createdAt.toISOString(),
         type,
         description,
@@ -203,35 +210,60 @@ export class FunderStatementService {
       .filter((row) => row.type === "收益确认入账")
       .reduce((sum, row) => sum + row.credit, 0);
 
-    const openingBalanceByAccount = new Map<string, number>();
-    for (const accountId of accountIds) {
-      const firstEntry = journalRows.find((entry) => entry.fundAccountId === accountId);
-      if (firstEntry) {
-        openingBalanceByAccount.set(accountId, Number(firstEntry.balanceBefore));
-        continue;
-      }
-
-      const latestBefore = await prisma.fundAccountJournal.findFirst({
-        where: {
-          fundAccountId: accountId,
-          createdAt: { lt: startDate },
-        },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        select: { balanceAfter: true },
-      });
-
-      openingBalanceByAccount.set(accountId, Number(latestBefore?.balanceAfter || 0));
+    const rowsByAccount = new Map<string, typeof journalRows>();
+    for (const entry of journalRows) {
+      const accountRows = rowsByAccount.get(entry.fundAccountId) ?? [];
+      accountRows.push(entry);
+      rowsByAccount.set(entry.fundAccountId, accountRows);
     }
 
-    const openingBalance = Array.from(openingBalanceByAccount.values()).reduce((sum, value) => sum + value, 0);
-    const closingBalance = funder.accounts.reduce((sum, account) => sum + Number(account.balance), 0);
+    const balanceSnapshots = await Promise.all(
+      accountIds.map(async (accountId) => {
+        const accountRows = rowsByAccount.get(accountId) ?? [];
+        const firstEntry = accountRows[0];
+        const lastEntry = accountRows[accountRows.length - 1];
+
+        if (firstEntry && lastEntry) {
+          return {
+            openingBalance: Number(firstEntry.balanceBefore),
+            closingBalance: Number(lastEntry.balanceAfter),
+          };
+        }
+
+        const latestBeforeStart = await prisma.fundAccountJournal.findFirst({
+          where: {
+            fundAccountId: accountId,
+            createdAt: { lt: startDate },
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { balanceAfter: true },
+        });
+
+        const latestAtPeriodEnd = await prisma.fundAccountJournal.findFirst({
+          where: {
+            fundAccountId: accountId,
+            createdAt: { lte: endDate },
+          },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: { balanceAfter: true },
+        });
+
+        return {
+          openingBalance: Number(latestBeforeStart?.balanceAfter || 0),
+          closingBalance: Number(latestAtPeriodEnd?.balanceAfter || 0),
+        };
+      }),
+    );
+
+    const openingBalance = balanceSnapshots.reduce((sum, snapshot) => sum + snapshot.openingBalance, 0);
+    const closingBalance = balanceSnapshots.reduce((sum, snapshot) => sum + snapshot.closingBalance, 0);
 
     return {
       funderId: funder.id,
       funderName: funder.name,
       cooperationMode: funder.cooperationMode,
-      periodStart: startDate.toISOString().split("T")[0],
-      periodEnd: endDate.toISOString().split("T")[0],
+      periodStart: dateOnly(startDate),
+      periodEnd: dateOnly(endDate),
       openingBalance: round2(openingBalance),
       closingBalance: round2(closingBalance),
       totalInflow: round2(totalInflow),
