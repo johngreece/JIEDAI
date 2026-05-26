@@ -58,6 +58,10 @@ function money(value: number) {
   }).format(value);
 }
 
+function dateOnly(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
 function serializeSettlement<T extends {
   interestAmount: unknown;
   principal: unknown;
@@ -440,13 +444,21 @@ export class FunderInterestSettlementService {
           amount: Number(settlement.interestAmount),
           referenceType: "funder_interest_settlement",
           referenceId: settlement.id,
-          description: "Funder confirmed interest settlement received",
+          description: `收益结算入账：${settlement.settlementNo}，周期 ${dateOnly(settlement.cycleStart)} 至 ${dateOnly(settlement.cycleEnd)}`,
           metadata: {
             funderId,
             settlementNo: settlement.settlementNo,
             disbursementId: settlement.disbursementId,
+            applicationId: settlement.applicationId,
+            ruleMode: settlement.ruleMode,
+            rate: Number(settlement.rate),
+            principal: Number(settlement.principal),
+            interestAmount: Number(settlement.interestAmount),
+            dueDate: settlement.dueDate.toISOString(),
             cycleStart: settlement.cycleStart.toISOString(),
             cycleEnd: settlement.cycleEnd.toISOString(),
+            paidAt: settlement.paidAt?.toISOString() ?? null,
+            paymentRemark: settlement.remark ?? null,
           },
         });
 

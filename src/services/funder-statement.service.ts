@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 interface StatementRow {
   date: string;
+  occurredAt: string;
   type: string;
   description: string;
   debit: number;
@@ -26,6 +27,71 @@ interface StatementSummary {
 
 function round2(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function parseMetadata(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function text(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function formatDate(value: unknown) {
+  const raw = text(value);
+  if (!raw) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+}
+
+function formatDateTime(value: unknown) {
+  const raw = text(value);
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function describeInterestSettlement(
+  fallbackDescription: string,
+  metadataJson: string | null,
+  amount: number,
+) {
+  const metadata = parseMetadata(metadataJson);
+  const settlementNo = text(metadata.settlementNo);
+  if (!settlementNo) return fallbackDescription;
+
+  const parts = [`收益结算入账：${settlementNo}`];
+  const cycleStart = formatDate(metadata.cycleStart);
+  const cycleEnd = formatDate(metadata.cycleEnd);
+  if (cycleStart && cycleEnd) parts.push(`周期 ${cycleStart} 至 ${cycleEnd}`);
+  parts.push(`利息 €${amount.toFixed(2)}`);
+
+  const paidAt = formatDateTime(metadata.paidAt);
+  if (paidAt) parts.push(`平台打款 ${paidAt}`);
+
+  const paymentRemark = text(metadata.paymentRemark);
+  if (paymentRemark) parts.push(`打款备注 ${paymentRemark}`);
+
+  return parts.join("，");
+}
+
+function csvCell(value: string | number) {
+  return `"${String(value).replace(/"/g, '""')}"`;
 }
 
 export class FunderStatementService {
@@ -108,6 +174,7 @@ export class FunderStatementService {
         type = "回款入账";
       } else if (entry.type === "INTEREST_SETTLEMENT") {
         type = "收益确认入账";
+        description = describeInterestSettlement(description, entry.metadataJson, amount);
       } else if (entry.type === "WITHDRAWAL") {
         type = "资金方提现";
         const interestAmount = interestByWithdrawalId.get(entry.referenceId) || 0;
@@ -118,6 +185,7 @@ export class FunderStatementService {
 
       return {
         date: entry.createdAt.toISOString().split("T")[0],
+        occurredAt: entry.createdAt.toISOString(),
         type,
         description,
         debit: entry.direction === "DEBIT" ? amount : 0,
@@ -131,11 +199,9 @@ export class FunderStatementService {
     const totalWithdrawn = rows
       .filter((row) => row.type === "资金方提现")
       .reduce((sum, row) => sum + row.debit, 0);
-    const totalInterest =
-      withdrawals.reduce((sum, item) => sum + Number(item.interestAmount), 0) +
-      rows
-        .filter((row) => row.type === "收益确认入账")
-        .reduce((sum, row) => sum + row.credit, 0);
+    const totalInterest = rows
+      .filter((row) => row.type === "收益确认入账")
+      .reduce((sum, row) => sum + row.credit, 0);
 
     const openingBalanceByAccount = new Map<string, number>();
     for (const accountId of accountIds) {
@@ -184,16 +250,16 @@ export class FunderStatementService {
       `合作模式: ${statement.cooperationMode}`,
       `期初余额: €${statement.openingBalance.toFixed(2)}`,
       `期末余额: €${statement.closingBalance.toFixed(2)}`,
-      `总入账: €${statement.totalInflow.toFixed(2)}  总出账: €${statement.totalOutflow.toFixed(2)}  总提现: €${statement.totalWithdrawn.toFixed(2)}`,
+      `总入账: €${statement.totalInflow.toFixed(2)}  总出账: €${statement.totalOutflow.toFixed(2)}  本期收益入账: €${statement.totalInterest.toFixed(2)}  总提现: €${statement.totalWithdrawn.toFixed(2)}`,
       "",
-      "日期,类型,描述,出账(€),入账(€),余额(€)",
+      "时间,类型,描述,出账(€),入账(€),余额(€)",
     ].join("\n");
 
     const dataRows = statement.rows.map((row) =>
       [
-        row.date,
-        row.type,
-        `"${row.description}"`,
+        csvCell(formatDateTime(row.occurredAt) ?? row.date),
+        csvCell(row.type),
+        csvCell(row.description),
         row.debit.toFixed(2),
         row.credit.toFixed(2),
         row.balance.toFixed(2),

@@ -5,12 +5,21 @@ import { useState } from "react";
 function fmt(n: number) {
   return "€" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
+function fmtDateTime(d: string) {
+  return new Date(d).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 }
 
 interface StatementRow {
   date: string;
+  occurredAt: string;
   type: string;
   description: string;
   credit: number;
@@ -87,11 +96,13 @@ export default function StatementsPage() {
       {/* Summary */}
       {data && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <SummaryCard label="期初余额" value={fmt(data.openingBalance)} />
             <SummaryCard label="期末余额" value={fmt(data.closingBalance)} />
             <SummaryCard label="总入账" value={fmt(data.totalInflow)} color="emerald" />
             <SummaryCard label="总出账" value={fmt(data.totalOutflow)} color="amber" />
+            <SummaryCard label="收益入账" value={fmt(data.totalInterest)} color="emerald" />
+            <SummaryCard label="本期提现" value={fmt(data.totalWithdrawn)} color="red" />
           </div>
 
           {/* Rows */}
@@ -99,7 +110,7 @@ export default function StatementsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-slate-50 text-left text-xs text-slate-500">
-                  <th className="px-4 py-3">日期</th>
+                  <th className="px-4 py-3">时间</th>
                   <th className="px-4 py-3">类型</th>
                   <th className="px-4 py-3">说明</th>
                   <th className="px-4 py-3 text-right">入账</th>
@@ -112,7 +123,7 @@ export default function StatementsPage() {
                   <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">该时间段内无交易记录</td></tr>
                 ) : data.rows.map((r, i) => (
                   <tr key={i} className="border-b border-slate-100 hover:bg-slate-50/50">
-                    <td className="px-4 py-3 text-slate-500">{fmtDate(r.date)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-500">{fmtDateTime(r.occurredAt ?? r.date)}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${r.type === "入账" ? "bg-emerald-100 text-emerald-700" : r.type === "放款出账" ? "bg-blue-100 text-blue-700" : "bg-amber-100 text-amber-700"}`}>
                         {r.type}
@@ -134,7 +145,14 @@ export default function StatementsPage() {
 }
 
 function SummaryCard({ label, value, color }: { label: string; value: string; color?: string }) {
-  const cls = color === "emerald" ? "text-emerald-600" : color === "amber" ? "text-amber-600" : "text-slate-900";
+  const cls =
+    color === "emerald"
+      ? "text-emerald-600"
+      : color === "amber"
+        ? "text-amber-600"
+        : color === "red"
+          ? "text-red-600"
+          : "text-slate-900";
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
       <div className="text-sm text-slate-500">{label}</div>
