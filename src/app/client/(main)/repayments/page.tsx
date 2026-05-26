@@ -3,6 +3,7 @@ import { getActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 import { RepaymentRequestForm } from "@/components/client/RepaymentRequestForm";
+import RealtimeTimer from "@/components/RealtimeTimer";
 import {
   DEFAULT_OVERDUE,
   DEFAULT_TIERS,
@@ -130,6 +131,8 @@ export default async function ClientRepaymentsPage() {
           status: true,
           paymentMethod: true,
           receivedAt: true,
+          interestFrozenAt: true,
+          frozenPayableAmount: true,
           principalPart: true,
           interestPart: true,
           feePart: true,
@@ -148,6 +151,8 @@ export default async function ClientRepaymentsPage() {
   const waitingForReceipt = repayments.filter((item) => item.status === "CUSTOMER_CONFIRMED");
   const waitingForAdminReview = repayments.filter((item) => item.status === "MANUAL_REVIEW");
   const rejectedRepayments = repayments.filter((item) => item.status === "REJECTED");
+  const activeInterestFreeze =
+    waitingForAdminReview[0] || waitingForCustomer[0] || waitingForReceipt[0] || null;
   let outstandingAmount = plan
     ? plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining), 0)
     : 0;
@@ -219,6 +224,9 @@ export default async function ClientRepaymentsPage() {
       currentTime: new Date(),
     }).totalRepayment;
   }
+  if (activeInterestFreeze) {
+    outstandingAmount = Number(activeInterestFreeze.frozenPayableAmount ?? activeInterestFreeze.amount);
+  }
   const blocked = waitingForAdminReview.length > 0 || waitingForCustomer.length > 0 || waitingForReceipt.length > 0;
   const blockedReason = waitingForAdminReview.length > 0
     ? "你已有待后台处理的还款申请，请等待管理端先完成分配。"
@@ -237,10 +245,24 @@ export default async function ClientRepaymentsPage() {
 
       <section className="grid gap-4 md:grid-cols-4">
         <StatCard title="当前借款" value={application.applicationNo} note={application.product.name} />
-        <StatCard title="当前待还" value={plan ? money(outstandingAmount) : "待生成"} note={plan ? `${plan.scheduleItems.length} 个待处理账期` : "暂无可用计划"} />
+        <StatCard
+          title={activeInterestFreeze ? "已锁定应还" : "当前待还"}
+          value={plan ? money(outstandingAmount) : "待生成"}
+          note={
+            activeInterestFreeze
+              ? "客户已提交还款，新增利息暂停"
+              : plan
+                ? `${plan.scheduleItems.length} 个待处理账期`
+                : "暂无可用计划"
+          }
+        />
         <StatCard title="待后台分配" value={`${waitingForAdminReview.length} 笔`} note="客户已提交申请，等待管理端处理" />
         <StatCard title="待到账确认" value={`${waitingForReceipt.length} 笔`} note="客户已报备付款，等待管理端确认到账" />
       </section>
+
+      {application.disbursement?.status === "PAID" && application.disbursement.disbursedAt ? (
+        <RealtimeTimer applicationId={application.id} />
+      ) : null}
 
       {plan ? (
         <RepaymentRequestForm
@@ -356,7 +378,14 @@ export default async function ClientRepaymentsPage() {
                 repayments.map((item) => (
                   <tr key={item.id} className="border-t border-slate-100">
                     <td className="px-4 py-3 font-medium text-slate-900">{item.repaymentNo}</td>
-                    <td className="px-4 py-3">{money(Number(item.amount))}</td>
+                    <td className="px-4 py-3">
+                      <div>{money(Number(item.amount))}</div>
+                      {item.frozenPayableAmount ? (
+                        <div className="mt-1 text-xs text-emerald-600">
+                          锁定 {money(Number(item.frozenPayableAmount))}
+                        </div>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-3 text-slate-500">{item.paymentMethod}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">
                       <div>本金 {money(Number(item.principalPart))}</div>
@@ -369,7 +398,12 @@ export default async function ClientRepaymentsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-slate-500">
-                      {new Date(item.createdAt).toLocaleString("zh-CN")}
+                      <div>{new Date(item.createdAt).toLocaleString("zh-CN")}</div>
+                      {item.interestFrozenAt ? (
+                        <div className="mt-1 text-xs text-emerald-600">
+                          计息暂停 {new Date(item.interestFrozenAt).toLocaleString("zh-CN")}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       {item.status === "PENDING_CONFIRM" ? (

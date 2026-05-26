@@ -88,7 +88,7 @@ export default function ClientRepaymentSignPage() {
           <p className="text-lg font-semibold text-slate-900">已提交付款报备</p>
           <p className="mt-2 text-sm text-slate-600">
             系统会先按你今天已付款处理，等待管理端确认到账。
-            如果管理端标记未收款，这笔借款会恢复按原规则继续计息。
+            如果管理端标记未收款，暂停期间会补算，这笔借款会恢复按原规则继续计息。
           </p>
         </div>
         <div className="flex justify-center">
@@ -168,8 +168,8 @@ export default function ClientRepaymentSignPage() {
 
       <div className="panel-soft rounded-xl p-4">
         <p className="mb-3 text-sm text-slate-600">
-          你点击“确认还款”后，系统会默认先停止当日计息，等待管理端确认到账。
-          如果后台标记未收款，这笔本金会继续按之前规则计息。
+          你点击“确认还款”后，系统会默认先临时停止当日计息，等待管理端确认到账。
+          如果后台标记未收款，暂停期间会补算，这笔本金会继续按之前规则计息。
         </p>
         <label className="block text-sm font-medium text-slate-700">
           本次付款金额

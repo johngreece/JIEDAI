@@ -22,6 +22,11 @@ import {
   type OverdueConfig,
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
+import {
+  INTEREST_FREEZE_REPAYMENT_STATUSES,
+  getFrozenPayableAmount,
+  getInterestFrozenAt,
+} from "@/lib/repayment-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -89,8 +94,27 @@ export async function GET(
   // 尝试从还款计划快照中获取配置
   const plan = await prisma.repaymentPlan.findFirst({
     where: { applicationId: id, status: "ACTIVE" },
-    select: { rulesSnapshotJson: true },
+    select: { id: true, rulesSnapshotJson: true },
   });
+  const repaymentFreeze = plan
+    ? await prisma.repayment.findFirst({
+        where: {
+          planId: plan.id,
+          status: { in: [...INTEREST_FREEZE_REPAYMENT_STATUSES] },
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          repaymentNo: true,
+          status: true,
+          amount: true,
+          frozenPayableAmount: true,
+          interestFrozenAt: true,
+          receivedAt: true,
+          createdAt: true,
+        },
+      })
+    : null;
   const overdueRecord = await prisma.overdueRecord.findFirst({
     where: { applicationId: id, status: "OVERDUE" },
     orderBy: { createdAt: "desc" },
@@ -173,6 +197,11 @@ export async function GET(
     currentTime: now,
     paidDates,
   });
+  const frozenPayableAmount = getFrozenPayableAmount(repaymentFreeze);
+  const frozenAt = getInterestFrozenAt(repaymentFreeze);
+  const interestPaused = Boolean(repaymentFreeze && frozenPayableAmount != null);
+  const displayRepaymentAmount = interestPaused ? frozenPayableAmount! : result.repaymentAmount;
+  const displayTotalRepayment = interestPaused ? frozenPayableAmount! : result.totalRepayment;
 
   return NextResponse.json({
     applicationId: id,
@@ -189,20 +218,28 @@ export async function GET(
     principal: result.principal,
     netDisbursement: result.netDisbursement,
     startTime: result.startTime.toISOString(),
+    dueDate: dueDate.toISOString(),
     currentTime: result.currentTime.toISOString(),
+    remainingToDueMs: dueDate.getTime() - now.getTime(),
     elapsedMs: result.elapsedMs,
     elapsedDays: result.elapsedDays,
     elapsedFormatted: result.elapsedFormatted,
     currentTier: result.currentTier,
     tierIndex: result.tierIndex,
     tiers: result.tiers,
-    repaymentAmount: result.repaymentAmount,
+    repaymentAmount: displayRepaymentAmount,
     feeAmount: result.feeAmount,
     isOverdue: result.isOverdue,
     overdueDays: result.overdueDays,
     overduePenalty: result.overduePenalty,
     todayInterest: result.todayInterest,
-    totalRepayment: result.totalRepayment,
+    totalRepayment: displayTotalRepayment,
+    liveTotalRepayment: result.totalRepayment,
+    interestPaused,
+    frozenPayableAmount,
+    frozenAt: frozenAt?.toISOString() ?? null,
+    frozenRepaymentNo: repaymentFreeze?.repaymentNo ?? null,
+    frozenRepaymentStatus: repaymentFreeze?.status ?? null,
     dailyRecords: result.dailyRecords,
   });
 }

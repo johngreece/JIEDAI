@@ -10,6 +10,11 @@ type CustomerDetail = {
   phone: string;
   idType: string;
   idNumber: string;
+  taxNumber: string | null;
+  passportNumber: string | null;
+  residencePermitNumber: string | null;
+  residencePermitExpiry: string | null;
+  profileCompletedAt: string | null;
   email: string | null;
   address: string | null;
   emergencyContact: string | null;
@@ -47,8 +52,12 @@ type DocItem = {
 
 const RISK_OPTIONS = ["LOW", "NORMAL", "HIGH", "BLACKLIST"];
 const RISK_LABELS: Record<string, string> = { LOW: "低风险", NORMAL: "正常", HIGH: "高风险", BLACKLIST: "黑名单" };
-const KYC_TYPE_LABELS: Record<string, string> = { PASSPORT: "护照", CHINA_ID: "国内身份证", GREEK_RESIDENCE_PERMIT: "希腊居留卡" };
-const DOC_TYPES = ["PASSPORT", "CHINA_ID", "GREEK_RESIDENCE_PERMIT"] as const;
+const KYC_TYPE_LABELS: Record<string, string> = {
+  CHINA_ID: "身份证复印件",
+  PASSPORT: "护照复印件",
+  GREEK_RESIDENCE_PERMIT: "居留卡复印件",
+};
+const DOC_TYPES = ["CHINA_ID", "PASSPORT", "GREEK_RESIDENCE_PERMIT"] as const;
 const STATUS_STYLES: Record<string, string> = {
   UPLOADED: "bg-blue-50 text-blue-600",
   VERIFIED: "bg-emerald-50 text-emerald-600",
@@ -156,6 +165,11 @@ export default function CustomerDetailPage() {
     setForm({
       name: data.name,
       phone: data.phone,
+      idNumber: data.idNumber ?? "",
+      taxNumber: data.taxNumber ?? "",
+      passportNumber: data.passportNumber ?? "",
+      residencePermitNumber: data.residencePermitNumber ?? "",
+      residencePermitExpiry: data.residencePermitExpiry ? data.residencePermitExpiry.slice(0, 10) : "",
       email: data.email ?? "",
       address: data.address ?? "",
       emergencyContact: data.emergencyContact ?? "",
@@ -319,12 +333,27 @@ export default function CustomerDetailPage() {
           <div className="admin-section-card__title">编辑客户信息</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {([
-              ["name", "姓名"], ["phone", "手机号"], ["email", "邮箱"], ["address", "地址"],
-              ["emergencyContact", "紧急联系人"], ["emergencyContactPhone", "紧急联系人电话"],
-              ["bankAccount", "银行账号"], ["bankName", "开户行"],
+              ["name", "姓名"],
+              ["phone", "手机号"],
+              ["idNumber", "身份证号"],
+              ["taxNumber", "税号"],
+              ["passportNumber", "护照号"],
+              ["residencePermitNumber", "居留卡号"],
+              ["residencePermitExpiry", "居留有效期"],
+              ["email", "邮箱"],
+              ["address", "地址"],
+              ["emergencyContact", "紧急联系人"],
+              ["emergencyContactPhone", "紧急联系人电话"],
+              ["bankAccount", "银行账号"],
+              ["bankName", "开户行"],
             ] as const).map(([key, label]) => (
               <label key={key} className="block"><span className="text-sm text-slate-600">{label}</span>
-                <input className="admin-field mt-1 text-sm" value={form[key] ?? ""} onChange={(e) => setForm({ ...form, [key]: e.target.value })} />
+                <input
+                  type={key === "residencePermitExpiry" ? "date" : "text"}
+                  className="admin-field mt-1 text-sm"
+                  value={form[key] ?? ""}
+                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                />
               </label>
             ))}
             <label className="block"><span className="text-sm text-slate-600">风险等级</span>
@@ -353,7 +382,11 @@ export default function CustomerDetailPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-y-3 gap-x-6 text-sm">
               {([
                 ["姓名", data.name], ["手机号", data.phone], ["证件类型", data.idType === "ID_CARD" ? "身份证" : data.idType],
-                ["证件号", data.idNumber], ["邮箱", data.email ?? "-"], ["地址", data.address ?? "-"],
+                ["身份证号", data.idNumber], ["税号", data.taxNumber ?? "-"], ["护照号", data.passportNumber ?? "-"],
+                ["居留卡号", data.residencePermitNumber ?? "-"],
+                ["居留有效期", data.residencePermitExpiry ? new Date(data.residencePermitExpiry).toLocaleDateString() : "-"],
+                ["资料认证", data.profileCompletedAt ? "已完成" : "未完成"],
+                ["邮箱", data.email ?? "-"], ["地址", data.address ?? "-"],
                 ["紧急联系人", data.emergencyContact ?? "-"], ["联系人电话", data.emergencyContactPhone ?? "-"],
                 ["银行账号", data.bankAccount ?? "-"], ["开户行", data.bankName ?? "-"],
                 ["风险等级", RISK_LABELS[data.riskLevel] ?? data.riskLevel], ["来源", data.source ?? "-"],

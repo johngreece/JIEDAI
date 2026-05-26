@@ -6,6 +6,7 @@ import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 import { isPublicClientProductCode } from "@/lib/public-loan-products";
+import { getClientProfileCompletion } from "@/lib/client-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,6 @@ const createSchema = z.object({
   purpose: z.string().trim().max(200).optional(),
   remark: z.string().trim().max(500).optional(),
 });
-
-const REQUIRED_DOC_TYPES = ["PASSPORT", "CHINA_ID", "GREEK_RESIDENCE_PERMIT"] as const;
 
 function genApplicationNo() {
   return `LA${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -55,6 +54,13 @@ export async function POST(req: NextRequest) {
         id: true,
         name: true,
         phone: true,
+        address: true,
+        taxNumber: true,
+        idNumber: true,
+        passportNumber: true,
+        residencePermitNumber: true,
+        residencePermitExpiry: true,
+        profileCompletedAt: true,
         creditLimit: true,
         creditLimitOverride: true,
         riskLevel: true,
@@ -114,21 +120,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "当前客户风险状态不允许自助申请借款" }, { status: 403 });
   }
 
-  const now = new Date();
-  const validDocTypes = new Set(
-    customer.kyc
-      .filter((item) => {
-        const expired = item.expiresAt ? item.expiresAt < now : false;
-        return !!item.documentUrl && item.status !== "REJECTED" && !expired;
-      })
-      .map((item) => item.kycType),
-  );
-  const missingDocTypes = REQUIRED_DOC_TYPES.filter((type) => !validDocTypes.has(type));
-  if (missingDocTypes.length > 0) {
+  const profileCompletion = getClientProfileCompletion(customer);
+  if (!profileCompletion.profileComplete) {
     return NextResponse.json(
       {
-        error: "请先补齐有效身份资料后再申请借款",
-        missingDocTypes,
+        error: "请先补齐客户资料和证件复印件后再申请借款",
+        missingFields: profileCompletion.missingFields,
+        missingDocTypes: profileCompletion.missingDocTypes,
       },
       { status: 428 },
     );

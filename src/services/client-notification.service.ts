@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { INTEREST_FREEZE_REPAYMENT_STATUSES } from "@/lib/repayment-runtime";
 import { MessageDeliveryService } from "@/services/message-delivery.service";
 
 function startOfDay(date = new Date()) {
@@ -51,6 +52,13 @@ function buildCustomerAction(type: string, actionOverride?: { actionUrl?: string
     return {
       actionUrl: buildAppUrl("/client/repayments?focus=pending-receipt"),
       actionLabel: "查看确认状态",
+    };
+  }
+
+  if (type === "REPAYMENT_RECEIVED_CONFIRMED") {
+    return {
+      actionUrl: buildAppUrl("/client/repayments?focus=confirmed"),
+      actionLabel: "查看还款记录",
     };
   }
 
@@ -210,23 +218,24 @@ export class ClientNotificationService {
       },
     });
 
-    const customerConfirmedRepayment = plan
+    const activeFrozenRepayment = plan
       ? await prisma.repayment.findFirst({
           where: {
             planId: plan.id,
-            status: "CUSTOMER_CONFIRMED",
+            status: { in: [...INTEREST_FREEZE_REPAYMENT_STATUSES] },
           },
           orderBy: { updatedAt: "desc" },
           select: {
             id: true,
             amount: true,
             repaymentNo: true,
+            status: true,
           },
         })
       : null;
 
     const nextItem = plan?.scheduleItems[0];
-    if (nextItem && !customerConfirmedRepayment) {
+    if (nextItem && !activeFrozenRepayment) {
       const remaining = Number(nextItem.remaining || nextItem.totalDue || 0);
       const daysUntilDue = diffDays(now, nextItem.dueDate);
 
@@ -273,7 +282,7 @@ export class ClientNotificationService {
       }
     }
 
-    const overdueRecords = customerConfirmedRepayment
+    const overdueRecords = activeFrozenRepayment
       ? []
       : await prisma.overdueRecord.findMany({
           where: {
@@ -347,19 +356,22 @@ export class ClientNotificationService {
       if (result) created += 1;
     }
 
-    if (customerConfirmedRepayment) {
+    if (activeFrozenRepayment) {
       const result = await createCustomerNotification({
         customerId,
-        templateCode: `CLIENT_PENDING_RECEIPT_${customerConfirmedRepayment.id}`,
+        templateCode: `CLIENT_PENDING_RECEIPT_${activeFrozenRepayment.id}`,
         type: "REPAYMENT_PENDING_RECEIPT",
-        title: "后台正在确认到账",
-        content: `你已报备付款 ${customerConfirmedRepayment.repaymentNo}，金额 ${money(
-          Number(customerConfirmedRepayment.amount)
-        )}。如果后台标记未收款，本金会恢复继续计息。`,
+        title:
+          activeFrozenRepayment.status === "CUSTOMER_CONFIRMED"
+            ? "后台正在确认到账"
+            : "还款申请正在处理",
+        content: `你的还款 ${activeFrozenRepayment.repaymentNo} 正在处理中，金额 ${money(
+          Number(activeFrozenRepayment.amount)
+        )}。系统已按提交时刻临时暂停新增利息；如果后台标记未收款，暂停期间会补算，本金会恢复继续计息。`,
         meta: {
           severity: "info",
           stage: "pending_receipt",
-          amount: Number(customerConfirmedRepayment.amount),
+          amount: Number(activeFrozenRepayment.amount),
         },
         deliverExternal: options?.deliverExternal,
       });

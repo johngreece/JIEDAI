@@ -29,6 +29,15 @@ export type RepaymentStatus =
 
 const EPSILON = 0.0001;
 
+function money(value: number) {
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 const ALLOWED_TRANSITIONS: Record<RepaymentStatus, RepaymentStatus[]> = {
   PENDING: ["MATCHED", "MANUAL_REVIEW"],
   MATCHED: ["PENDING_CONFIRM"],
@@ -115,6 +124,12 @@ export async function confirmRepayment(params: {
       where: { id: params.repaymentId },
       data: {
         status: targetStatus,
+        interestFrozenAt:
+          targetStatus === "CUSTOMER_CONFIRMED" ? repayment.interestFrozenAt ?? now : repayment.interestFrozenAt,
+        frozenPayableAmount:
+          targetStatus === "CUSTOMER_CONFIRMED"
+            ? repayment.frozenPayableAmount ?? repayment.amount
+            : repayment.frozenPayableAmount,
         matchComment:
           targetStatus === "CUSTOMER_CONFIRMED"
             ? "客户已确认付款，等待管理端确认到账"
@@ -174,7 +189,9 @@ export async function settleRepaymentReceipt(params: {
         where: { id: params.repaymentId, status: repayment.status },
         data: {
           status: "REJECTED",
-          matchComment: params.rejectReason || "管理端确认未收到款项，本笔还款无效",
+          matchComment:
+            params.rejectReason ||
+            "管理端确认未收到款项，本次暂停计息取消，暂停期间按原规则补算",
         },
       });
       if (claimed.count !== 1) {
@@ -206,7 +223,7 @@ export async function settleRepaymentReceipt(params: {
       customerId: application.customerId,
       type: "REPAYMENT_REJECTED",
       title: "还款被标记为未收到",
-      content: `还款单 ${repayment.repaymentNo} 经管理端核对未收到款项，本金按原规则继续计息。${
+      content: `还款单 ${repayment.repaymentNo} 经管理端核对未收到款项，本次暂停计息已取消；暂停期间也会按原规则计入，客户端金额将继续实时更新。${
         params.rejectReason ? "驳回原因：" + params.rejectReason : ""
       }`,
       templateCode: `CLIENT_REPAYMENT_REJECTED_${params.repaymentId}`,
@@ -396,6 +413,16 @@ export async function settleRepaymentReceipt(params: {
       penaltyPart: Number(repayment.penaltyPart),
     },
     changeSummary: "管理端确认该笔还款已经到账",
+  }).catch(() => undefined);
+
+  await InAppNotificationService.notifyCustomer({
+    customerId: application.customerId,
+    type: "REPAYMENT_RECEIVED_CONFIRMED",
+    title: "还款已确认收款",
+    content: `还款单 ${repayment.repaymentNo} 已由管理端确认收款，金额 ${money(
+      Number(repayment.amount)
+    )}。本次还款已完成确认，客户端记录已同步更新。`,
+    templateCode: `CLIENT_REPAYMENT_RECEIVED_CONFIRMED_${params.repaymentId}`,
   }).catch(() => undefined);
 
   return updated;

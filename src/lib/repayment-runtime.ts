@@ -8,6 +8,31 @@ import {
   type RepaymentTier,
 } from "@/lib/interest-engine";
 
+export const INTEREST_FREEZE_REPAYMENT_STATUSES = [
+  "MANUAL_REVIEW",
+  "PENDING_CONFIRM",
+  "CUSTOMER_CONFIRMED",
+] as const;
+
+export function getInterestFrozenAt(repayment: {
+  interestFrozenAt?: Date | null;
+  receivedAt?: Date | null;
+  createdAt?: Date | null;
+} | null | undefined): Date | null {
+  if (!repayment) return null;
+  return repayment.interestFrozenAt ?? repayment.receivedAt ?? repayment.createdAt ?? null;
+}
+
+export function getFrozenPayableAmount(repayment: {
+  amount: unknown;
+  frozenPayableAmount?: unknown | null;
+} | null | undefined): number | null {
+  if (!repayment) return null;
+  const value = repayment.frozenPayableAmount ?? repayment.amount;
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 export function extractPaidDates(detail: string | null | undefined): string[] {
   if (!detail) return [];
 

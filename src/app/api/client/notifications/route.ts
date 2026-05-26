@@ -32,6 +32,13 @@ function toClientAction(notification: {
     };
   }
 
+  if (notification.type === "REPAYMENT_RECEIVED_CONFIRMED") {
+    return {
+      actionUrl: "/client/repayments?focus=confirmed",
+      actionLabel: "查看还款记录",
+    };
+  }
+
   if (notification.type === "DISBURSEMENT_RECEIVED") {
     return {
       actionUrl: "/client/dashboard",

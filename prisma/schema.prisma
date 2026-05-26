@@ -103,6 +103,11 @@ model Customer {
   passwordHash               String?   @map("password_hash")
   idType                     String    @default("ID_CARD") @map("id_type")
   idNumber                   String    @unique @map("id_number")
+  taxNumber                  String?   @map("tax_number")
+  passportNumber             String?   @map("passport_number")
+  residencePermitNumber      String?   @map("residence_permit_number")
+  residencePermitExpiry      DateTime? @map("residence_permit_expiry")
+  profileCompletedAt         DateTime? @map("profile_completed_at")
   email                      String?
   address                    String?
   emergencyContact           String?   @map("emergency_contact")
@@ -637,6 +642,8 @@ model Repayment {
   status        String    @default("PENDING")
   matchComment  String?   @map("match_comment")
   receivedAt    DateTime? @map("received_at")
+  interestFrozenAt DateTime? @map("interest_frozen_at")
+  frozenPayableAmount Decimal? @map("frozen_payable_amount") @db.Decimal(18, 4)
   operatorId    String    @map("operator_id")
   remark        String?
   createdAt     DateTime  @default(now()) @map("created_at")

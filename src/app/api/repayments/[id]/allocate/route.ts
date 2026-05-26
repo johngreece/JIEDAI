@@ -220,6 +220,7 @@ export async function POST(
   const penaltyPart = allocations
     .filter((item) => item.type === "PENALTY")
     .reduce((sum, item) => sum + item.amount, 0);
+  const freezeAt = repayment.interestFrozenAt ?? repayment.receivedAt ?? new Date();
 
   let updated;
   try {
@@ -246,6 +247,8 @@ export async function POST(
             feePart,
             penaltyPart,
             status: "PENDING_CONFIRM",
+            interestFrozenAt: freezeAt,
+            frozenPayableAmount: repayment.frozenPayableAmount ?? repayment.amount,
             matchComment: input.comment ?? "系统分配完成，等待客户确认付款",
           },
         });

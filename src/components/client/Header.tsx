@@ -23,6 +23,13 @@ const LogoutIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
+const navigation = [
+  { name: "我的借款", href: "/client/dashboard" },
+  { name: "我的还款", href: "/client/repayments" },
+  { name: "还款计划", href: "/client/repayment-plans" },
+  { name: "资料认证", href: "/client/profile" },
+];
+
 export function ClientHeader({ username }: { username: string }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -34,13 +41,6 @@ export function ClientHeader({ username }: { username: string }) {
       .then((data) => setUnread(data.unread ?? 0))
       .catch(() => {});
   }, [pathname]);
-
-  const navigation = [
-    { name: "我的借款", href: "/client/dashboard" },
-    { name: "我的还款", href: "/client/repayments" },
-    { name: "还款计划", href: "/client/repayment-plans" },
-    { name: "我的证件", href: "/client/documents" },
-  ];
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/70 backdrop-blur-xl">
@@ -58,7 +58,7 @@ export function ClientHeader({ username }: { username: string }) {
             className="-m-2.5 inline-flex items-center justify-center rounded-md p-2.5 text-slate-200 hover:bg-white/10"
             onClick={() => setMobileMenuOpen(true)}
           >
-            <span className="sr-only">Open main menu</span>
+            <span className="sr-only">打开菜单</span>
             <MenuIcon className="h-6 w-6" />
           </button>
         </div>
@@ -75,19 +75,7 @@ export function ClientHeader({ username }: { username: string }) {
               {item.name}
             </Link>
           ))}
-          <Link
-            href="/client/notifications"
-            className={`relative text-sm font-semibold leading-6 transition-colors ${
-              pathname === "/client/notifications" ? "text-cyan-200" : "text-slate-100 hover:text-cyan-200"
-            }`}
-          >
-            消息提醒
-            {unread > 0 ? (
-              <span className="absolute -right-3 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                {unread > 99 ? "99+" : unread}
-              </span>
-            ) : null}
-          </Link>
+          <NotificationLink pathname={pathname} unread={unread} />
         </div>
 
         <div className="hidden items-center gap-4 lg:flex lg:flex-1 lg:justify-end">
@@ -102,7 +90,7 @@ export function ClientHeader({ username }: { username: string }) {
       {mobileMenuOpen ? (
         <div className="lg:hidden" role="dialog" aria-modal="true">
           <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
-          <div className="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-white/10 bg-slate-950/90 px-6 py-6 text-slate-100 backdrop-blur-xl sm:max-w-sm sm:ring-1 sm:ring-white/10 shadow-xl">
+          <div className="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto border-l border-white/10 bg-slate-950/90 px-6 py-6 text-slate-100 shadow-xl backdrop-blur-xl sm:max-w-sm sm:ring-1 sm:ring-white/10">
             <div className="flex items-center justify-between">
               <Link href="/client/dashboard" className="-m-1.5 flex items-center gap-2 p-1.5">
                 <CompanyLogo size={32} />
@@ -113,7 +101,7 @@ export function ClientHeader({ username }: { username: string }) {
                 className="-m-2.5 rounded-md p-2.5 text-slate-200 hover:bg-white/10"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <span className="sr-only">Close menu</span>
+                <span className="sr-only">关闭菜单</span>
                 <CloseIcon className="h-6 w-6" />
               </button>
             </div>
@@ -164,5 +152,23 @@ export function ClientHeader({ username }: { username: string }) {
         </div>
       ) : null}
     </header>
+  );
+}
+
+function NotificationLink({ pathname, unread }: { pathname: string; unread: number }) {
+  return (
+    <Link
+      href="/client/notifications"
+      className={`relative text-sm font-semibold leading-6 transition-colors ${
+        pathname === "/client/notifications" ? "text-cyan-200" : "text-slate-100 hover:text-cyan-200"
+      }`}
+    >
+      消息提醒
+      {unread > 0 ? (
+        <span className="absolute -right-3 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+          {unread > 99 ? "99+" : unread}
+        </span>
+      ) : null}
+    </Link>
   );
 }

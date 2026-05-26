@@ -5,12 +5,18 @@ import { ACTIVE_LOAN_STATUSES } from "@/lib/business-status";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requirePermission } from "@/lib/rbac";
+import { getClientProfileCompletion, resolveProfileCompletedAt } from "@/lib/client-profile";
 
 export const dynamic = "force-dynamic";
 
 const updateSchema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().min(1).optional(),
+  idNumber: z.string().min(1).optional(),
+  taxNumber: z.string().nullable().optional(),
+  passportNumber: z.string().nullable().optional(),
+  residencePermitNumber: z.string().nullable().optional(),
+  residencePermitExpiry: z.string().nullable().optional(),
   email: z.string().email().optional().or(z.literal("")),
   address: z.string().optional(),
   emergencyContact: z.string().optional(),
@@ -96,8 +102,27 @@ export async function PUT(
     if (dup) return NextResponse.json({ error: "手机号已被使用" }, { status: 409 });
   }
 
+  if (parsed.data.idNumber && parsed.data.idNumber !== existing.idNumber) {
+    const dup = await prisma.customer.findFirst({
+      where: { idNumber: parsed.data.idNumber, deletedAt: null, id: { not: id } },
+    });
+    if (dup) return NextResponse.json({ error: "身份证号已被使用" }, { status: 409 });
+  }
+
   const { newPassword, ...updateData } = parsed.data;
   const dataToWrite: Record<string, unknown> = { ...updateData };
+  if (typeof dataToWrite.residencePermitExpiry === "string") {
+    const value = dataToWrite.residencePermitExpiry.trim();
+    if (value) {
+      const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+      if (Number.isNaN(date.getTime())) {
+        return NextResponse.json({ error: "居留有效期格式不正确" }, { status: 400 });
+      }
+      dataToWrite.residencePermitExpiry = date;
+    } else {
+      dataToWrite.residencePermitExpiry = null;
+    }
+  }
   if (newPassword) {
     dataToWrite.passwordHash = await hashPassword(newPassword);
   }
@@ -105,7 +130,32 @@ export async function PUT(
   const updated = await prisma.customer.update({
     where: { id },
     data: dataToWrite,
+    include: {
+      kyc: {
+        select: {
+          kycType: true,
+          documentUrl: true,
+          status: true,
+          expiresAt: true,
+        },
+      },
+    },
   });
+
+  const completion = getClientProfileCompletion(updated);
+  const profileCompletedAt = resolveProfileCompletedAt(updated, completion.profileComplete);
+  const updatedWithProfileStatus = await prisma.customer.update({
+    where: { id },
+    data: {
+      profileCompletedAt,
+      ...(completion.documentsComplete ? { creditLimit: 30000 } : {}),
+    },
+  });
+  const finalCustomer = {
+    ...updated,
+    profileCompletedAt: updatedWithProfileStatus.profileCompletedAt,
+    creditLimit: updatedWithProfileStatus.creditLimit,
+  };
 
   await writeAuditLog({
     userId: session.sub,
@@ -115,6 +165,11 @@ export async function PUT(
     oldValue: {
       name: existing.name,
       phone: existing.phone,
+      idNumber: existing.idNumber,
+      taxNumber: existing.taxNumber,
+      passportNumber: existing.passportNumber,
+      residencePermitNumber: existing.residencePermitNumber,
+      residencePermitExpiry: existing.residencePermitExpiry,
       email: existing.email,
       address: existing.address,
       emergencyContact: existing.emergencyContact,
@@ -130,6 +185,12 @@ export async function PUT(
     newValue: {
       name: updated.name,
       phone: updated.phone,
+      idNumber: updated.idNumber,
+      taxNumber: updated.taxNumber,
+      passportNumber: updated.passportNumber,
+      residencePermitNumber: updated.residencePermitNumber,
+      residencePermitExpiry: updated.residencePermitExpiry,
+      profileCompletedAt: finalCustomer.profileCompletedAt,
       email: updated.email,
       address: updated.address,
       emergencyContact: updated.emergencyContact,
@@ -148,10 +209,10 @@ export async function PUT(
     userAgent: req.headers.get("user-agent") || null,
   }).catch(() => undefined);
 
-  const { passwordHash, ...rest } = updated;
+  const { passwordHash, ...rest } = finalCustomer;
   return NextResponse.json({
     ...rest,
-    weeklyInterestRateOverride: updated.weeklyInterestRateOverride != null ? Number(updated.weeklyInterestRateOverride) : null,
+    weeklyInterestRateOverride: finalCustomer.weeklyInterestRateOverride != null ? Number(finalCustomer.weeklyInterestRateOverride) : null,
   });
 }
 

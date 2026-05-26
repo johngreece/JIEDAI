@@ -1,72 +1,105 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  CLIENT_DOCUMENT_TYPE_LABELS,
+  REQUIRED_CLIENT_DOCUMENT_TYPES,
+  getClientProfileCompletion,
+  resolveProfileCompletedAt,
+} from "@/lib/client-profile";
 import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-const VALID_DOC_TYPES = ["PASSPORT", "CHINA_ID", "GREEK_RESIDENCE_PERMIT"] as const;
-const DOC_TYPE_LABELS: Record<string, string> = {
-  PASSPORT: "护照",
-  CHINA_ID: "国内身份证",
-  GREEK_RESIDENCE_PERMIT: "希腊居留卡",
-};
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
-/* GET — 获取当前客户的所有证件 */
+const customerSelect = {
+  id: true,
+  phone: true,
+  address: true,
+  taxNumber: true,
+  idNumber: true,
+  passportNumber: true,
+  residencePermitNumber: true,
+  residencePermitExpiry: true,
+  profileCompletedAt: true,
+  creditLimit: true,
+  creditLimitOverride: true,
+  kyc: {
+    select: {
+      id: true,
+      kycType: true,
+      documentUrl: true,
+      status: true,
+      verifiedAt: true,
+      expiresAt: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: "desc" as const },
+  },
+} as const;
+
+async function loadCustomer(customerId: string) {
+  return prisma.customer.findFirst({
+    where: { id: customerId, deletedAt: null },
+    select: customerSelect,
+  });
+}
+
+function serializeDocuments(customer: NonNullable<Awaited<ReturnType<typeof loadCustomer>>>) {
+  const completion = getClientProfileCompletion(customer);
+  const baseLimit = completion.documentsComplete ? 30000 : 10000;
+  const effectiveLimit = customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : baseLimit;
+
+  return {
+    documents: customer.kyc.map((document) => ({
+      id: document.id,
+      kycType: document.kycType,
+      label: CLIENT_DOCUMENT_TYPE_LABELS[document.kycType] ?? document.kycType,
+      documentUrl: document.documentUrl,
+      status: document.status,
+      verifiedAt: document.verifiedAt?.toISOString() ?? null,
+      expiresAt: document.expiresAt?.toISOString() ?? null,
+      createdAt: document.createdAt.toISOString(),
+    })),
+    creditLimit: effectiveLimit,
+    allDocumentsUploaded: completion.documentsComplete,
+    profileComplete: completion.profileComplete,
+    profileFieldsComplete: completion.profileFieldsComplete,
+    documentsComplete: completion.documentsComplete,
+    missingFields: completion.missingFields,
+    missingDocTypes: completion.missingDocTypes,
+    docTypes: REQUIRED_CLIENT_DOCUMENT_TYPES.map((type) => ({
+      type,
+      label: CLIENT_DOCUMENT_TYPE_LABELS[type],
+      uploaded: completion.validDocumentTypes.has(type),
+    })),
+  };
+}
+
 export async function GET() {
   const session = await requireActiveClientSession();
   if (session instanceof Response) return session;
 
-  const docs = await prisma.customerKyc.findMany({
-    where: { customerId: session.sub },
-    orderBy: { createdAt: "desc" },
-  });
+  const customer = await loadCustomer(session.sub);
+  if (!customer) {
+    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+  }
 
-  // Calculate credit limit
-  const customer = await prisma.customer.findUnique({
-    where: { id: session.sub },
-    select: { creditLimit: true, creditLimitOverride: true },
-  });
-
-  const uploadedTypes = new Set(docs.map((d) => d.kycType));
-  const allUploaded = VALID_DOC_TYPES.every((t) => uploadedTypes.has(t));
-  const baseLimit = 10000;
-  const maxLimit = allUploaded ? 30000 : baseLimit;
-  const effectiveLimit = customer?.creditLimitOverride
-    ? Number(customer.creditLimitOverride)
-    : maxLimit;
-
-  return NextResponse.json({
-    documents: docs.map((d) => ({
-      id: d.id,
-      kycType: d.kycType,
-      label: DOC_TYPE_LABELS[d.kycType] || d.kycType,
-      documentUrl: d.documentUrl,
-      status: d.status,
-      createdAt: d.createdAt,
-    })),
-    creditLimit: effectiveLimit,
-    allDocumentsUploaded: allUploaded,
-    docTypes: VALID_DOC_TYPES.map((t) => ({
-      type: t,
-      label: DOC_TYPE_LABELS[t],
-      uploaded: uploadedTypes.has(t),
-    })),
-  });
+  return NextResponse.json(serializeDocuments(customer));
 }
 
-/* POST — 上传或更新证件 */
 export async function POST(req: NextRequest) {
   const session = await requireActiveClientSession();
   if (session instanceof Response) return session;
 
   const formData = await req.formData();
-  const kycType = formData.get("kycType") as string;
+  const kycType = String(formData.get("kycType") ?? "");
   const file = formData.get("file") as File | null;
 
-  if (!kycType || !VALID_DOC_TYPES.includes(kycType as typeof VALID_DOC_TYPES[number])) {
+  if (!REQUIRED_CLIENT_DOCUMENT_TYPES.includes(kycType as typeof REQUIRED_CLIENT_DOCUMENT_TYPES[number])) {
     return NextResponse.json(
-      { error: `无效证件类型，支持: ${VALID_DOC_TYPES.join(", ")}` },
+      { error: `无效证件类型，支持：${REQUIRED_CLIENT_DOCUMENT_TYPES.join(", ")}` },
       { status: 400 }
     );
   }
@@ -79,20 +112,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "文件大小不能超过5MB" }, { status: 400 });
   }
 
-  const allowedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-  if (!allowedTypes.includes(file.type)) {
-    return NextResponse.json(
-      { error: "仅支持 JPG/PNG/WebP/PDF 格式" },
-      { status: 400 }
-    );
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    return NextResponse.json({ error: "仅支持 JPG/PNG/WebP/PDF 格式" }, { status: 400 });
   }
 
-  // Convert file to base64 data URL for storage
   const buffer = Buffer.from(await file.arrayBuffer());
-  const base64 = buffer.toString("base64");
-  const dataUrl = `data:${file.type};base64,${base64}`;
+  const dataUrl = `data:${file.type};base64,${buffer.toString("base64")}`;
 
-  // Upsert: one document per type per customer
   const doc = await prisma.customerKyc.upsert({
     where: {
       customerId_kycType: {
@@ -113,28 +139,39 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Recalculate credit limit after upload
-  const allDocs = await prisma.customerKyc.findMany({
-    where: { customerId: session.sub },
-    select: { kycType: true },
-  });
-  const uploadedTypes = new Set(allDocs.map((d) => d.kycType));
-  const allUploaded = VALID_DOC_TYPES.every((t) => uploadedTypes.has(t));
+  const customer = await loadCustomer(session.sub);
+  if (!customer) {
+    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+  }
 
-  // Update base credit limit if all docs uploaded
-  if (allUploaded) {
+  const completion = getClientProfileCompletion(customer);
+  const profileCompletedAt = resolveProfileCompletedAt(customer, completion.profileComplete);
+  const effectiveLimit = customer.creditLimitOverride != null
+    ? Number(customer.creditLimitOverride)
+    : completion.documentsComplete
+      ? 30000
+      : 10000;
+  if (completion.documentsComplete || customer.profileCompletedAt !== profileCompletedAt) {
     await prisma.customer.update({
       where: { id: session.sub },
-      data: { creditLimit: 30000 },
+      data: {
+        ...(completion.documentsComplete ? { creditLimit: 30000 } : {}),
+        profileCompletedAt,
+      },
     });
   }
 
   return NextResponse.json({
     id: doc.id,
     kycType: doc.kycType,
-    label: DOC_TYPE_LABELS[kycType] || kycType,
+    label: CLIENT_DOCUMENT_TYPE_LABELS[kycType] ?? kycType,
     status: doc.status,
-    allDocumentsUploaded: allUploaded,
-    creditLimit: allUploaded ? 30000 : 10000,
+    allDocumentsUploaded: completion.documentsComplete,
+    profileComplete: completion.profileComplete,
+    profileFieldsComplete: completion.profileFieldsComplete,
+    documentsComplete: completion.documentsComplete,
+    missingFields: completion.missingFields,
+    missingDocTypes: completion.missingDocTypes,
+    creditLimit: effectiveLimit,
   });
 }

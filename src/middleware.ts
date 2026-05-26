@@ -9,7 +9,9 @@ import { NextRequest, NextResponse } from "next/server";
  * 必须用具体源串回显，否则跨域 fetch 会被拒。
  */
 export function middleware(req: NextRequest) {
-  const res = NextResponse.next();
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", req.nextUrl.pathname);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
 
   const origin = req.headers.get("origin") ?? "";
   const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
@@ -51,5 +53,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/api/:path*"],
+  matcher: ["/api/:path*", "/client/:path*"],
 };

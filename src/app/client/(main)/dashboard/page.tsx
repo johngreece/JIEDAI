@@ -206,12 +206,14 @@ export default async function ClientDashboardPage() {
     prisma.repayment.findFirst({
       where: {
         plan: { applicationId: application.id },
-        status: "CUSTOMER_CONFIRMED",
+        status: { in: ["MANUAL_REVIEW", "PENDING_CONFIRM", "CUSTOMER_CONFIRMED"] },
       },
       orderBy: { updatedAt: "desc" },
       select: {
         repaymentNo: true,
         amount: true,
+        frozenPayableAmount: true,
+        status: true,
       },
     }),
   ]);
@@ -295,6 +297,11 @@ export default async function ClientDashboardPage() {
       currentTime: new Date(),
     }).totalRepayment;
   }
+  if (pendingReceiptRepayment) {
+    displayOutstandingAmount = Number(
+      pendingReceiptRepayment.frozenPayableAmount ?? pendingReceiptRepayment.amount
+    );
+  }
 
   const reminders: string[] = [];
   if (customer?.weeklyInterestRateOverride != null) {
@@ -305,7 +312,11 @@ export default async function ClientDashboardPage() {
   if (application.status === "APPROVED") reminders.push("你的借款申请已审批通过，请留意合同生成和放款提醒。");
   if (application.disbursement?.status === "PAID") reminders.push("系统已显示放款成功，请尽快确认收款。");
   if (pendingReceiptRepayment) {
-    reminders.push(`你提交的还款 ${pendingReceiptRepayment.repaymentNo} 正在等待后台确认到账，金额 ${money(Number(pendingReceiptRepayment.amount))}。`);
+    reminders.push(
+      `你提交的还款 ${pendingReceiptRepayment.repaymentNo} 正在处理中，金额 ${money(
+        Number(pendingReceiptRepayment.amount)
+      )}。系统已按提交时刻临时暂停新增利息，后台确认收款后会实时通知你；如后台点未收款，暂停期间会补算。`
+    );
   }
   if (overdueRecord) {
     reminders.push(

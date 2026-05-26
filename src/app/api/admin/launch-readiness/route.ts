@@ -30,6 +30,13 @@ function toClientAction(type: string, templateCode: string | null) {
     };
   }
 
+  if (type === "REPAYMENT_RECEIVED_CONFIRMED") {
+    return {
+      actionUrl: "/client/repayments?focus=confirmed",
+      actionLabel: "查看还款记录",
+    };
+  }
+
   if (type === "DISBURSEMENT_RECEIVED") {
     return {
       actionUrl: "/client/dashboard",

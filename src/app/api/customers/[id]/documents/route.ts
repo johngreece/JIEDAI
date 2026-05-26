@@ -1,18 +1,37 @@
-/**
- * GET  /api/customers/:id/documents       — 获取客户所有证件
- * POST /api/customers/:id/documents       — 管理员为客户上传证件
- */
-
 import { NextRequest, NextResponse } from "next/server";
+import {
+  REQUIRED_CLIENT_DOCUMENT_TYPES,
+  getClientProfileCompletion,
+  resolveProfileCompletedAt,
+} from "@/lib/client-profile";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
-const VALID_DOC_TYPES = ["PASSPORT", "CHINA_ID", "GREEK_RESIDENCE_PERMIT"] as const;
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
 
-/* GET — 获取客户全部证件（含文件内容） */
+const customerProfileSelect = {
+  id: true,
+  phone: true,
+  address: true,
+  taxNumber: true,
+  idNumber: true,
+  passportNumber: true,
+  residencePermitNumber: true,
+  residencePermitExpiry: true,
+  profileCompletedAt: true,
+  kyc: {
+    select: {
+      kycType: true,
+      documentUrl: true,
+      status: true,
+      expiresAt: true,
+    },
+  },
+} as const;
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -21,9 +40,8 @@ export async function GET(
   if (session instanceof Response) return session;
 
   const { id } = await params;
-
-  const customer = await prisma.customer.findUnique({
-    where: { id },
+  const customer = await prisma.customer.findFirst({
+    where: { id, deletedAt: null },
     select: { id: true, name: true },
   });
   if (!customer) {
@@ -36,18 +54,17 @@ export async function GET(
   });
 
   return NextResponse.json({
-    documents: docs.map((d) => ({
-      id: d.id,
-      kycType: d.kycType,
-      documentUrl: d.documentUrl,
-      status: d.status,
-      verifiedAt: d.verifiedAt?.toISOString() ?? null,
-      createdAt: d.createdAt.toISOString(),
+    documents: docs.map((document) => ({
+      id: document.id,
+      kycType: document.kycType,
+      documentUrl: document.documentUrl,
+      status: document.status,
+      verifiedAt: document.verifiedAt?.toISOString() ?? null,
+      createdAt: document.createdAt.toISOString(),
     })),
   });
 }
 
-/* POST — 管理员上传证件 */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -56,9 +73,8 @@ export async function POST(
   if (session instanceof Response) return session;
 
   const { id } = await params;
-
-  const customer = await prisma.customer.findUnique({
-    where: { id },
+  const customer = await prisma.customer.findFirst({
+    where: { id, deletedAt: null },
     select: { id: true },
   });
   if (!customer) {
@@ -66,12 +82,12 @@ export async function POST(
   }
 
   const formData = await req.formData();
-  const kycType = formData.get("kycType") as string;
+  const kycType = String(formData.get("kycType") ?? "");
   const file = formData.get("file") as File | null;
 
-  if (!kycType || !VALID_DOC_TYPES.includes(kycType as typeof VALID_DOC_TYPES[number])) {
+  if (!REQUIRED_CLIENT_DOCUMENT_TYPES.includes(kycType as typeof REQUIRED_CLIENT_DOCUMENT_TYPES[number])) {
     return NextResponse.json(
-      { error: `无效证件类型，支持: ${VALID_DOC_TYPES.join(", ")}` },
+      { error: `无效证件类型，支持：${REQUIRED_CLIENT_DOCUMENT_TYPES.join(", ")}` },
       { status: 400 }
     );
   }
@@ -84,17 +100,12 @@ export async function POST(
     return NextResponse.json({ error: "文件大小不能超过5MB" }, { status: 400 });
   }
 
-  const allowedTypes = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-  if (!allowedTypes.includes(file.type)) {
-    return NextResponse.json(
-      { error: "仅支持 JPG/PNG/WebP/PDF 格式" },
-      { status: 400 }
-    );
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    return NextResponse.json({ error: "仅支持 JPG/PNG/WebP/PDF 格式" }, { status: 400 });
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const base64 = buffer.toString("base64");
-  const dataUrl = `data:${file.type};base64,${base64}`;
+  const dataUrl = `data:${file.type};base64,${buffer.toString("base64")}`;
 
   const doc = await prisma.customerKyc.upsert({
     where: {
@@ -113,18 +124,23 @@ export async function POST(
     },
   });
 
-  // 重算额度
-  const allDocs = await prisma.customerKyc.findMany({
-    where: { customerId: id },
-    select: { kycType: true },
+  const updatedCustomer = await prisma.customer.findFirst({
+    where: { id, deletedAt: null },
+    select: customerProfileSelect,
   });
-  const uploadedTypes = new Set(allDocs.map((d) => d.kycType));
-  const allUploaded = VALID_DOC_TYPES.every((t) => uploadedTypes.has(t));
+  if (!updatedCustomer) {
+    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+  }
 
-  if (allUploaded) {
+  const completion = getClientProfileCompletion(updatedCustomer);
+  const profileCompletedAt = resolveProfileCompletedAt(updatedCustomer, completion.profileComplete);
+  if (completion.documentsComplete || updatedCustomer.profileCompletedAt !== profileCompletedAt) {
     await prisma.customer.update({
       where: { id },
-      data: { creditLimit: 30000 },
+      data: {
+        ...(completion.documentsComplete ? { creditLimit: 30000 } : {}),
+        profileCompletedAt,
+      },
     });
   }
 
@@ -132,6 +148,9 @@ export async function POST(
     id: doc.id,
     kycType: doc.kycType,
     status: doc.status,
-    allDocumentsUploaded: allUploaded,
+    allDocumentsUploaded: completion.documentsComplete,
+    profileComplete: completion.profileComplete,
+    missingFields: completion.missingFields,
+    missingDocTypes: completion.missingDocTypes,
   });
 }

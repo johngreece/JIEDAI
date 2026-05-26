@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
+import { getClientProfileCompletion } from "@/lib/client-profile";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -19,9 +20,16 @@ export async function GET(
     select: {
       id: true,
       name: true,
+      phone: true,
+      address: true,
+      taxNumber: true,
+      idNumber: true,
+      passportNumber: true,
+      residencePermitNumber: true,
+      residencePermitExpiry: true,
       creditLimit: true,
       creditLimitOverride: true,
-      kyc: { select: { kycType: true, status: true, documentUrl: true, createdAt: true } },
+      kyc: { select: { kycType: true, status: true, documentUrl: true, expiresAt: true, createdAt: true } },
     },
   });
 
@@ -29,11 +37,10 @@ export async function GET(
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
   }
 
-  const VALID_DOC_TYPES = ["PASSPORT", "CHINA_ID", "GREEK_RESIDENCE_PERMIT"];
-  const uploadedTypes = new Set(customer.kyc.map((d) => d.kycType));
-  const allUploaded = VALID_DOC_TYPES.every((t) => uploadedTypes.has(t));
+  const completion = getClientProfileCompletion(customer);
+  const allUploaded = completion.documentsComplete;
   const baseLimit = allUploaded ? 30000 : 10000;
-  const effectiveLimit = customer.creditLimitOverride
+  const effectiveLimit = customer.creditLimitOverride != null
     ? Number(customer.creditLimitOverride)
     : baseLimit;
 
@@ -41,7 +48,7 @@ export async function GET(
     id: customer.id,
     name: customer.name,
     creditLimit: Number(customer.creditLimit),
-    creditLimitOverride: customer.creditLimitOverride ? Number(customer.creditLimitOverride) : null,
+    creditLimitOverride: customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : null,
     effectiveLimit,
     baseLimit,
     allDocumentsUploaded: allUploaded,
@@ -101,10 +108,10 @@ export async function PATCH(
     entityType: "customer",
     entityId: id,
     oldValue: {
-      creditLimitOverride: existing.creditLimitOverride ? Number(existing.creditLimitOverride) : null,
+      creditLimitOverride: existing.creditLimitOverride != null ? Number(existing.creditLimitOverride) : null,
     },
     newValue: {
-      creditLimitOverride: customer.creditLimitOverride ? Number(customer.creditLimitOverride) : null,
+      creditLimitOverride: customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : null,
     },
     changeSummary: "Update customer credit limit override",
   }).catch((error) => console.error("[AuditLog] customer-credit-limit", error));
@@ -113,6 +120,6 @@ export async function PATCH(
     id: customer.id,
     name: customer.name,
     creditLimit: Number(customer.creditLimit),
-    creditLimitOverride: customer.creditLimitOverride ? Number(customer.creditLimitOverride) : null,
+    creditLimitOverride: customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : null,
   });
 }

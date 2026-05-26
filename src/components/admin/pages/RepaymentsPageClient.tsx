@@ -183,10 +183,14 @@ export function RepaymentsPageClient({
   }
 
   async function reviewRepayment(id: string, action: "RECEIVED" | "NOT_RECEIVED") {
-    const rejectReason =
-      action === "NOT_RECEIVED"
-        ? window.prompt("请输入未收款原因，留空则使用默认说明。") || undefined
-        : undefined;
+    let rejectReason: string | undefined;
+    if (action === "NOT_RECEIVED") {
+      const input = window.prompt(
+        "请输入未收款原因。确认未收款后，客户端会恢复实时计息，并补算暂停期间。留空则使用默认说明。"
+      );
+      if (input === null) return;
+      rejectReason = input || undefined;
+    }
 
     setReviewingId(id);
     const response = await fetch(`/api/repayments/${id}/confirm`, {

@@ -103,6 +103,9 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
       if (!response.ok) {
         submitKeyRef.current = null;
         setError(data.error ?? "借款申请提交失败");
+        if (response.status === 428) {
+          router.push("/client/profile?required=1");
+        }
         return;
       }
 

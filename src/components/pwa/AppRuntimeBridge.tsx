@@ -13,6 +13,7 @@ type RuntimeProps = {
   notificationsEndpoint: string;
   notificationsPageHref: string;
   appName: string;
+  pollIntervalMs?: number;
 };
 
 type NotificationItem = {
@@ -32,6 +33,7 @@ export function AppRuntimeBridge({
   notificationsEndpoint,
   notificationsPageHref,
   appName,
+  pollIntervalMs = 60000,
 }: RuntimeProps) {
   const [deferredPrompt, setDeferredPrompt] = useState<InstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -159,7 +161,7 @@ export function AppRuntimeBridge({
     void pollNotifications();
     const timer = window.setInterval(() => {
       void pollNotifications();
-    }, 60000);
+    }, pollIntervalMs);
 
     return () => {
       cancelled = true;
@@ -170,6 +172,7 @@ export function AppRuntimeBridge({
     notificationSupported,
     notificationsEndpoint,
     notificationsPageHref,
+    pollIntervalMs,
     portal,
     seenStorageKey,
   ]);

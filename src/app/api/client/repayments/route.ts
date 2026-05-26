@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
   }
 
   const input = parsed.data;
+  const freezeAt = new Date();
 
   const [customer, activeApplication, operator] = await Promise.all([
     prisma.customer.findUnique({
@@ -205,7 +206,7 @@ export async function POST(req: NextRequest) {
       overdueConfig,
       startTime: new Date(activeApplication.disbursement.disbursedAt),
       dueDate,
-      currentTime: new Date(),
+      currentTime: freezeAt,
     });
     outstandingAmount = realtime.totalRepayment;
   }
@@ -250,15 +251,19 @@ export async function POST(req: NextRequest) {
       penaltyPart: 0,
       paymentMethod: input.paymentMethod,
       status: "MANUAL_REVIEW",
-      receivedAt: new Date(),
+      receivedAt: freezeAt,
+      interestFrozenAt: freezeAt,
+      frozenPayableAmount: outstandingAmount,
       operatorId: operator.id,
       remark: input.remark || "客户自助提交还款申请",
-      matchComment: "客户已发起还款申请，等待管理端分配并确认",
+      matchComment: "客户已发起还款申请，系统已按提交时刻临时暂停新增利息，等待管理端分配并确认",
     },
     select: {
       id: true,
       repaymentNo: true,
       status: true,
+      interestFrozenAt: true,
+      frozenPayableAmount: true,
     },
   });
 
@@ -269,14 +274,16 @@ export async function POST(req: NextRequest) {
       title: "有新的客户还款申请待处理",
       content: `${customer.name}（${customer.phone}）提交了还款申请 ${repayment.repaymentNo}，金额 ${money(
         input.amount
-      )}，请尽快进入管理端分配并核实到账。`,
+      )}。系统已按客户提交时刻 ${freezeAt.toLocaleString("zh-CN")} 临时暂停新增利息；若核实未收款，请点未收款，系统会恢复并补算暂停期间。`,
     }),
     InAppNotificationService.notifyCustomer({
       customerId: customer.id,
       type: "REPAYMENT_REQUEST_SUBMITTED",
       templateCode: `REPAYMENT_REQUEST_SUBMITTED_${repayment.id}`,
       title: "还款申请已提交",
-      content: `你的还款申请 ${repayment.repaymentNo} 已提交，后台会先核对并分配到对应账期，再继续到账确认。`,
+      content: `你的还款申请 ${repayment.repaymentNo} 已提交，系统已按提交时刻锁定当前应还 ${money(
+        outstandingAmount
+      )} 并临时暂停新增利息；已生成利息不变。若后台核实未收款，暂停期间会补算，金额继续实时更新。`,
     }),
   ]);
 
