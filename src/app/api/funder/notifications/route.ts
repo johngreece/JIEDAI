@@ -5,17 +5,31 @@ import { FunderNotificationService } from "@/services/funder-notification.servic
 export const dynamic = "force-dynamic";
 
 function toFunderAction(type: string) {
-  if (type === "WITHDRAWABLE_INTEREST" || type === "SETTLEMENT_UPCOMING" || type === "FUNDER_INTEREST_DUE") {
+  if (type === "FUNDER_INTEREST_DUE") {
+    return {
+      actionUrl: "/funder/interest-settlements?status=DUE",
+      actionLabel: "查看到期收益",
+    };
+  }
+
+  if (type === "FUNDER_INTEREST_PAID") {
+    return {
+      actionUrl: "/funder/interest-settlements?status=PAID_BY_PLATFORM",
+      actionLabel: "确认到账",
+    };
+  }
+
+  if (type === "WITHDRAWABLE_INTEREST") {
     return {
       actionUrl: "/funder/interest-settlements",
       actionLabel: "查看收益",
     };
   }
 
-  if (type === "FUNDER_INTEREST_PAID") {
+  if (type === "SETTLEMENT_UPCOMING") {
     return {
-      actionUrl: "/funder/interest-settlements",
-      actionLabel: "确认到账",
+      actionUrl: "/funder/dashboard?focus=settlement",
+      actionLabel: "查看预计收益",
     };
   }
 

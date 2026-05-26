@@ -18,11 +18,15 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const status = url.searchParams.get("status");
-  const items = await FunderInterestSettlementService.listForFunder(session.sub, status);
+  const normalizedStatus = status && status !== "all" ? status : null;
+  const items = await FunderInterestSettlementService.listForFunder(session.sub, normalizedStatus);
+  const summaryItems = normalizedStatus
+    ? await FunderInterestSettlementService.listForFunder(session.sub, null)
+    : items;
 
   return NextResponse.json({
     items,
-    summary: FunderInterestSettlementService.summarize(items),
+    summary: FunderInterestSettlementService.summarize(summaryItems),
   });
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
 type Settlement = {
@@ -58,6 +58,18 @@ const modeLabel: Record<string, string> = {
   PROFIT_SHARE: "按实际收益分润",
 };
 
+const statusFilters = [
+  { value: "all", label: "全部" },
+  { value: "DUE", label: "待平台打款" },
+  { value: "PAID_BY_PLATFORM", label: "待我确认" },
+  { value: "CONFIRMED_BY_FUNDER", label: "已确认入账" },
+  { value: "FUNDER_REJECTED", label: "已反馈未收到" },
+] as const;
+
+function isKnownStatusFilter(value: string | null) {
+  return statusFilters.some((item) => item.value === value);
+}
+
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -84,22 +96,41 @@ export default function FunderInterestSettlementsPage() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const actionKeyRef = useRef<{ scope: string; key: string } | null>(null);
 
-  async function load() {
+  const load = useCallback(async (nextStatus = statusFilter ?? "all") => {
     setLoading(true);
     try {
-      const response = await fetch("/api/funder/interest-settlements");
+      const query = nextStatus === "all" ? "" : `?status=${encodeURIComponent(nextStatus)}`;
+      const response = await fetch(`/api/funder/interest-settlements${query}`);
       const payload = await response.json();
       setData(payload);
     } finally {
       setLoading(false);
     }
-  }
+  }, [statusFilter]);
 
   useEffect(() => {
-    void load();
+    const initialStatus = new URLSearchParams(window.location.search).get("status");
+    setStatusFilter(isKnownStatusFilter(initialStatus) ? initialStatus : "all");
   }, []);
+
+  useEffect(() => {
+    if (statusFilter) void load(statusFilter);
+  }, [load, statusFilter]);
+
+  function selectStatus(nextStatus: string) {
+    setStatusFilter(nextStatus);
+    actionKeyRef.current = null;
+    const url = new URL(window.location.href);
+    if (nextStatus === "all") {
+      url.searchParams.delete("status");
+    } else {
+      url.searchParams.set("status", nextStatus);
+    }
+    window.history.replaceState(null, "", url.toString());
+  }
 
   function getActionKey(scope: string) {
     if (actionKeyRef.current?.scope !== scope) {
@@ -132,7 +163,7 @@ export default function FunderInterestSettlementsPage() {
       actionKeyRef.current = null;
       setRejectingId(null);
       setReason("");
-      await load();
+      await load(statusFilter ?? "all");
     } finally {
       setProcessingId(null);
     }
@@ -151,7 +182,7 @@ export default function FunderInterestSettlementsPage() {
               这里显示按周/月规则生成的利息结算单。平台标记已打款后，你需要确认是否收到。
             </p>
           </div>
-          <button type="button" onClick={load} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={() => void load()} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
             刷新
           </button>
         </div>
@@ -162,6 +193,26 @@ export default function FunderInterestSettlementsPage() {
         <Metric label="待我确认" value={money(data?.summary.paidPendingConfirmAmount ?? 0)} tone="blue" />
         <Metric label="已确认收益" value={money(data?.summary.confirmedAmount ?? 0)} tone="emerald" />
         <Metric label="未收到反馈" value={money(data?.summary.rejectedAmount ?? 0)} tone="red" />
+      </section>
+
+      <section className="flex flex-wrap gap-2">
+        {statusFilters.map((item) => {
+          const active = (statusFilter ?? "all") === item.value;
+          return (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => selectStatus(item.value)}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                active
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
       </section>
 
       {loading ? (
