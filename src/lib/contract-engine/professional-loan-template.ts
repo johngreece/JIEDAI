@@ -7,6 +7,7 @@ export const PROFESSIONAL_LOAN_TEMPLATE_VARIABLES = [
   "sign_date",
   "sign_time",
   "sign_location",
+  "customer_signature_image",
   "customer_name",
   "customer_id_number",
   "customer_phone",
@@ -214,7 +215,7 @@ export const PROFESSIONAL_LOAN_TEMPLATE_HTML = `
         <div>
           <div>乙方（借款人）：{{ customer_name }}</div>
           <div style="margin-top: 18px;">电子签名位置：</div>
-          <div style="height: 96px; border: 1px dashed #94a3b8; margin-top: 10px;"></div>
+          <div style="height: 96px; border: 1px dashed #94a3b8; margin-top: 10px;">{{ customer_signature_image }}</div>
         </div>
       </div>
     </div>

@@ -30,8 +30,8 @@ export async function GET(
     return NextResponse.json({ error: "无权访问该合同" }, { status: 403 });
   }
 
-  if (contract.status === "SIGNED") {
-    return NextResponse.json({ error: "合同已签署" }, { status: 400 });
+  if (contract.status !== "DRAFT" && contract.status !== "PENDING_SIGN") {
+    return NextResponse.json({ error: "合同已签署或已失效" }, { status: 400 });
   }
 
   const token = await createContractSignAccessToken({

@@ -28,7 +28,14 @@ type Detail = {
   };
   totalApprovedAmount: number | null;
   rejectedReason: string | null;
-  customer: { id: string; name: string; phone: string; idNumber: string; weeklyInterestRateOverride: number | null };
+  customer: {
+    id: string;
+    name: string;
+    phone: string;
+    idNumber: string;
+    weeklyInterestRateOverride: number | null;
+    profileCompletion: ProfileCompletion;
+  };
   product: { id: string; name: string };
   pricingQuote: {
     source: "product_default" | "customer_override";
@@ -61,6 +68,15 @@ type ContractPreview = {
   contractNo: string;
   content: string;
   variableData: string;
+};
+
+type ProfileCompletion = {
+  profileFieldsComplete: boolean;
+  documentsComplete: boolean;
+  profileComplete: boolean;
+  missingFields: Array<{ key: string; label: string }>;
+  missingDocTypes: Array<{ type: string; label: string }>;
+  issueLabels: string[];
 };
 
 function formatMoney(value: number) {
@@ -164,6 +180,7 @@ export default function LoanApplicationDetailPage() {
     !Number.isFinite(parsedContractPrincipal) ||
     parsedContractPrincipal <= 0 ||
     contractForm.contractDisplayInterestRate.trim().length === 0;
+  const profileComplete = data?.customer.profileCompletion.profileComplete ?? false;
 
   async function save() {
     setSaving(true);
@@ -273,7 +290,7 @@ export default function LoanApplicationDetailPage() {
   }
 
   const canGenerateContract = data.status === "APPROVED" && !data.mainContract;
-  const canSubmitContractActions = canGenerateContract && !contractFieldsInvalid;
+  const canSubmitContractActions = canGenerateContract && !contractFieldsInvalid && profileComplete;
 
   async function removeApplication() {
     if (!data) return;
@@ -395,6 +412,30 @@ export default function LoanApplicationDetailPage() {
           <p className="text-sm text-slate-700">客户：{data.customer.name}（{data.customer.phone}）</p>
           <p className="text-sm text-slate-700">证件号：{data.customer.idNumber}</p>
           <p className="text-sm text-slate-700">产品：{data.product.name}</p>
+          <div
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              data.customer.profileCompletion.profileComplete
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-amber-200 bg-amber-50 text-amber-800"
+            }`}
+          >
+            <div className="font-semibold">
+              客户资料：{data.customer.profileCompletion.profileComplete ? "完整，可进入审批放款" : "未完善，流程已拦截"}
+            </div>
+            {data.customer.profileCompletion.issueLabels.length > 0 ? (
+              <div className="mt-1 text-xs">
+                {data.customer.profileCompletion.issueLabels.join("；")}
+              </div>
+            ) : (
+              <div className="mt-1 text-xs">地址、电话、税号、身份证、护照、居留信息和复印件已齐备。</div>
+            )}
+            <Link
+              href={`/admin/customers/${data.customer.id}`}
+              className="mt-2 inline-flex text-xs font-semibold text-slate-900 hover:underline"
+            >
+              查看客户资料与复印件
+            </Link>
+          </div>
           {data.riskScore != null ? <p className="text-sm text-slate-700">风控分：{data.riskScore}</p> : null}
           {data.recommendedRisk ? (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
@@ -426,10 +467,15 @@ export default function LoanApplicationDetailPage() {
           </div>
         </div>
         <div className="admin-section-card__body">
+        {!profileComplete ? (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            客户资料未完善，不能提交风控、风控通过或审批通过。可拒绝申请，或先到客户资料页补齐后再继续。
+          </div>
+        ) : null}
         <div className="admin-btn-group">
           {(data.status === "DRAFT" || data.status === "REJECTED") && (
             <button
-              disabled={saving}
+              disabled={saving || !profileComplete}
               onClick={() => void postAction(`/api/loan-applications/${params.id}/submit`)}
                 className="admin-btn admin-btn-secondary admin-btn-sm"
             >
@@ -439,7 +485,7 @@ export default function LoanApplicationDetailPage() {
           {data.status === "PENDING_RISK" && (
             <>
               <button
-                disabled={saving}
+                disabled={saving || !profileComplete}
                 onClick={() =>
                   void postAction(`/api/loan-applications/${params.id}/risk`, {
                     action: "PASS",
@@ -467,7 +513,7 @@ export default function LoanApplicationDetailPage() {
           {data.status === "PENDING_APPROVAL" && (
             <>
               <button
-                disabled={saving}
+                disabled={saving || !profileComplete}
                 onClick={() =>
                   void postAction(`/api/loan-applications/${params.id}/approve`, {
                     action: "APPROVE",
@@ -607,6 +653,12 @@ export default function LoanApplicationDetailPage() {
           {contractFieldsInvalid ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               请先填写有效的合同参数：基础本金和合同本金必须大于 0，并入本金的正常利息不能小于 0，合同展示利率不能为空。
+            </div>
+          ) : null}
+
+          {canGenerateContract && !profileComplete ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              客户资料未完善，系统已禁止生成合同。请先补齐客户资料和复印件。
             </div>
           ) : null}
 

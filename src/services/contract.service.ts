@@ -12,6 +12,10 @@ import {
 } from "@/lib/contract-engine/professional-loan-template";
 import { applyCustomerPricingOverride, buildCustomerPricingQuote } from "@/lib/customer-pricing";
 import { parseTiersFromPricingRules } from "@/lib/interest-engine";
+import {
+  formatClientProfileCompletionError,
+  getClientProfileCompletion,
+} from "@/lib/client-profile";
 
 type ContractRecord = NonNullable<Awaited<ReturnType<typeof prisma.contract.findFirst>>>;
 
@@ -150,7 +154,29 @@ export class ContractService {
     const application = await prisma.loanApplication.findUnique({
       where: { id: applicationId },
       include: {
-        customer: true,
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            address: true,
+            taxNumber: true,
+            idNumber: true,
+            passportNumber: true,
+            residencePermitNumber: true,
+            residencePermitExpiry: true,
+            profileCompletedAt: true,
+            weeklyInterestRateOverride: true,
+            kyc: {
+              select: {
+                kycType: true,
+                documentUrl: true,
+                status: true,
+                expiresAt: true,
+              },
+            },
+          },
+        },
         product: {
           include: {
             pricingRules: {
@@ -168,6 +194,14 @@ export class ContractService {
 
     if (application.status !== "APPROVED") {
       return { success: false, error: "只有审批通过的申请才能生成合同" };
+    }
+
+    const profileCompletion = getClientProfileCompletion(application.customer);
+    if (!profileCompletion.profileComplete) {
+      return {
+        success: false,
+        error: formatClientProfileCompletionError(profileCompletion, "客户资料未完善，不能生成合同"),
+      };
     }
 
     if (mode === "create") {

@@ -70,6 +70,7 @@ export const CONTRACT_VARS = {
   sign_date: "sign_date",
   sign_time: "sign_time",
   sign_location: "sign_location",
+  customer_signature_image: "customer_signature_image",
   contract_no: "contract_no",
 } as const;
 
@@ -139,5 +140,6 @@ export function buildContractContext(params: {
     sign_date: params.signDate ?? "",
     sign_time: params.signTime ?? "",
     sign_location: params.signLocation ?? "",
+    customer_signature_image: "",
   };
 }

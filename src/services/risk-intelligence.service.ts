@@ -1,5 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import {
+  describeClientProfileMissing,
+  getClientProfileCompletion,
+} from "@/lib/client-profile";
+import {
   AnomalyDetectionService,
   type AnomalySignal,
 } from "@/services/anomaly-detection.service";
@@ -31,6 +35,7 @@ function buildReasons(params: {
   maxOverdueDays: number;
   hasExpiredKyc: boolean;
   pendingKyc: boolean;
+  profileIssues: string[];
   recentApplications7d: number;
   rejectedLoans: number;
   anomalySignals: AnomalySignal[];
@@ -49,7 +54,7 @@ function buildReasons(params: {
   if (params.hasExpiredKyc) {
     reasons.push("KYC 已过期");
   } else if (params.pendingKyc) {
-    reasons.push("KYC 仍待完善");
+    reasons.push(...(params.profileIssues.length > 0 ? params.profileIssues : ["KYC 仍待完善"]));
   }
   if (params.rejectedLoans > 0) {
     reasons.push(`历史被拒 ${params.rejectedLoans} 次`);
@@ -66,6 +71,13 @@ function buildProfileFromSnapshot(snapshot: {
   id: string;
   name: string;
   phone: string;
+  address: string | null;
+  taxNumber: string | null;
+  idNumber: string;
+  passportNumber: string | null;
+  residencePermitNumber: string | null;
+  residencePermitExpiry: Date | null;
+  profileCompletedAt: Date | null;
   riskLevel: string;
   createdAt: Date;
   loanApplications: Array<{
@@ -80,6 +92,8 @@ function buildProfileFromSnapshot(snapshot: {
     overdueAmount: unknown;
   }>;
   kyc: Array<{
+    kycType: string;
+    documentUrl: string | null;
     status: string;
     expiresAt: Date | null;
   }>;
@@ -103,7 +117,9 @@ function buildProfileFromSnapshot(snapshot: {
   const hasExpiredKyc = snapshot.kyc.some(
     (item) => item.status === "EXPIRED" || (item.expiresAt ? item.expiresAt < now : false)
   );
-  const pendingKyc = snapshot.kyc.some((item) => item.status === "PENDING");
+  const profileCompletion = getClientProfileCompletion(snapshot, now);
+  const profileIssues = describeClientProfileMissing(profileCompletion);
+  const pendingKyc = !profileCompletion.profileComplete || snapshot.kyc.some((item) => item.status === "PENDING");
   const anomalySignals = snapshot.anomalySignals ?? [];
   const anomalyPenalty = anomalySignals.reduce((sum, item) => {
     if (item.severity === "critical") return sum + 18;
@@ -171,6 +187,7 @@ function buildProfileFromSnapshot(snapshot: {
       maxOverdueDays,
       hasExpiredKyc,
       pendingKyc,
+      profileIssues,
       recentApplications7d,
       rejectedLoans,
       anomalySignals,
@@ -187,11 +204,20 @@ export class RiskIntelligenceService {
           id: true,
           name: true,
           phone: true,
+          address: true,
+          taxNumber: true,
+          idNumber: true,
+          passportNumber: true,
+          residencePermitNumber: true,
+          residencePermitExpiry: true,
+          profileCompletedAt: true,
           riskLevel: true,
           createdAt: true,
           kyc: {
             select: {
               status: true,
+              kycType: true,
+              documentUrl: true,
               expiresAt: true,
             },
           },
@@ -257,11 +283,20 @@ export class RiskIntelligenceService {
         id: true,
         name: true,
         phone: true,
+        address: true,
+        taxNumber: true,
+        idNumber: true,
+        passportNumber: true,
+        residencePermitNumber: true,
+        residencePermitExpiry: true,
+        profileCompletedAt: true,
         riskLevel: true,
         createdAt: true,
         kyc: {
           select: {
             status: true,
+            kycType: true,
+            documentUrl: true,
             expiresAt: true,
           },
         },

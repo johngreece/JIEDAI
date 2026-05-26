@@ -4,6 +4,10 @@ import Decimal from "decimal.js";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import {
+  formatClientProfileCompletionError,
+  getClientProfileCompletion,
+} from "@/lib/client-profile";
 import { recordDisbursementLedger } from "@/services/ledger.service";
 import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
 import {
@@ -57,7 +61,25 @@ export async function POST(
         application: {
           include: {
             customer: {
-              select: { weeklyInterestRateOverride: true },
+              select: {
+                phone: true,
+                address: true,
+                taxNumber: true,
+                idNumber: true,
+                passportNumber: true,
+                residencePermitNumber: true,
+                residencePermitExpiry: true,
+                profileCompletedAt: true,
+                weeklyInterestRateOverride: true,
+                kyc: {
+                  select: {
+                    kycType: true,
+                    documentUrl: true,
+                    status: true,
+                    expiresAt: true,
+                  },
+                },
+              },
             },
             product: {
               include: {
@@ -77,6 +99,10 @@ export async function POST(
     }
     if (pendingDisbursement.status !== "PENDING") {
       throw new Error("DISBURSEMENT_STATUS_CHANGED");
+    }
+    const profileCompletion = getClientProfileCompletion(pendingDisbursement.application.customer);
+    if (!profileCompletion.profileComplete) {
+      throw new Error(formatClientProfileCompletionError(profileCompletion, "客户资料未完善，不能确认打款"));
     }
 
     let pricingConfig;
@@ -214,6 +240,9 @@ export async function POST(
     const message = error instanceof Error ? error.message : "";
     if (message === "DISBURSEMENT_STATUS_CHANGED") {
       return NextResponse.json({ error: "当前放款单状态已变化，请刷新后重试" }, { status: 409 });
+    }
+    if (message.startsWith("客户资料未完善")) {
+      return NextResponse.json({ error: message }, { status: 409 });
     }
     console.error("[disbursement-confirm-paid]", error);
     return NextResponse.json({ error: "确认打款失败" }, { status: 500 });

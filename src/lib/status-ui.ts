@@ -19,6 +19,7 @@ export function getStatusLabel(status: string): string {
     PARTIAL: "部分已还",
     OVERDUE: "已逾期",
     CANCELLED: "已取消",
+    EXPIRED: "已失效",
   };
 
   return map[status] ?? status;
@@ -37,7 +38,7 @@ export function getStatusBadgeClass(status: string): string {
     return "bg-amber-50 text-amber-700 border-amber-200";
   }
 
-  if (["REJECTED", "OVERDUE", "CANCELLED"].includes(status)) {
+  if (["REJECTED", "OVERDUE", "CANCELLED", "EXPIRED"].includes(status)) {
     return "bg-red-50 text-red-700 border-red-200";
   }
 

@@ -5,6 +5,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import {
+  formatClientProfileCompletionError,
+  getClientProfileCompletion,
+} from "@/lib/client-profile";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import { requirePermission } from "@/lib/rbac";
 
@@ -135,9 +139,38 @@ export async function POST(req: Request) {
         // 1) 申请、合同状态校验（事务内重读以避免并发已变更）
         const app = await tx.loanApplication.findUnique({
           where: { id: input.applicationId },
+          include: {
+            customer: {
+              select: {
+                phone: true,
+                address: true,
+                taxNumber: true,
+                idNumber: true,
+                passportNumber: true,
+                residencePermitNumber: true,
+                residencePermitExpiry: true,
+                profileCompletedAt: true,
+                kyc: {
+                  select: {
+                    kycType: true,
+                    documentUrl: true,
+                    status: true,
+                    expiresAt: true,
+                  },
+                },
+              },
+            },
+          },
         });
         if (!app || app.deletedAt) {
           throw new HttpError(404, "借款申请不存在");
+        }
+        const profileCompletion = getClientProfileCompletion(app.customer);
+        if (!profileCompletion.profileComplete) {
+          throw new HttpError(
+            409,
+            formatClientProfileCompletionError(profileCompletion, "客户资料未完善，不能创建放款单")
+          );
         }
         if (app.status !== "CONTRACTED") {
           throw new HttpError(400, "仅已签署主合同的申请可创建放款单");

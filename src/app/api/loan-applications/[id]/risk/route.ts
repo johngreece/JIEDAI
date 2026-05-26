@@ -5,6 +5,11 @@ import { writeAuditLog } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
+import {
+  formatClientProfileCompletionError,
+  getClientProfileCompletion,
+  serializeClientProfileCompletion,
+} from "@/lib/client-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -30,12 +35,49 @@ export async function POST(
   const { id } = await params;
   const input = parsed.data;
 
-  const app = await prisma.loanApplication.findUnique({ where: { id } });
+  const app = await prisma.loanApplication.findUnique({
+    where: { id },
+    include: {
+      customer: {
+        select: {
+          phone: true,
+          address: true,
+          taxNumber: true,
+          idNumber: true,
+          passportNumber: true,
+          residencePermitNumber: true,
+          residencePermitExpiry: true,
+          profileCompletedAt: true,
+          kyc: {
+            select: {
+              kycType: true,
+              documentUrl: true,
+              status: true,
+              expiresAt: true,
+            },
+          },
+        },
+      },
+    },
+  });
   if (!app || app.deletedAt) {
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
   if (app.status !== "PENDING_RISK") {
     return NextResponse.json({ error: "当前状态不允许风控审核" }, { status: 400 });
+  }
+
+  if (input.action === "PASS") {
+    const profileCompletion = getClientProfileCompletion(app.customer);
+    if (!profileCompletion.profileComplete) {
+      return NextResponse.json(
+        {
+          error: formatClientProfileCompletionError(profileCompletion, "客户资料未完善，不能通过风控"),
+          profileCompletion: serializeClientProfileCompletion(profileCompletion),
+        },
+        { status: 409 }
+      );
+    }
   }
 
   const nextStatus = input.action === "PASS" ? "PENDING_APPROVAL" : "REJECTED";

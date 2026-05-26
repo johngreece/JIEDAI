@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, isAdmin, isClient } from "@/lib/auth";
 import { verifyContractSignAccessToken } from "@/lib/contract-sign-session";
+import { isValidSignatureDataUrl } from "@/lib/contract-signature";
 import { prisma } from "@/lib/prisma";
 import { ensureActiveClientSession } from "@/lib/portal-session";
 import { requirePermission } from "@/lib/rbac";
@@ -27,6 +28,7 @@ export async function GET(
       content: true,
       status: true,
       signedAt: true,
+      expiryDate: true,
       customerId: true,
     },
   });
@@ -64,5 +66,24 @@ export async function GET(
     }
   }
 
-  return NextResponse.json(contract);
+  const savedSignature = await prisma.signature.findFirst({
+    where: {
+      signerType: "customer",
+      contract: { customerId: session.sub },
+    },
+    orderBy: { signedAt: "desc" },
+    select: {
+      signerName: true,
+      signatureData: true,
+      signedAt: true,
+    },
+  });
+
+  return NextResponse.json({
+    ...contract,
+    savedSignature:
+      savedSignature && isValidSignatureDataUrl(savedSignature.signatureData)
+        ? savedSignature
+        : null,
+  });
 }

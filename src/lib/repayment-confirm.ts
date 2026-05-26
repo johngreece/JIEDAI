@@ -361,6 +361,19 @@ export async function settleRepaymentReceipt(params: {
         where: { id: application.id },
         data: { status: "SETTLED" },
       });
+
+      await tx.contract.updateMany({
+        where: {
+          applicationId: application.id,
+          contractType: "MAIN",
+          deletedAt: null,
+          status: { not: "EXPIRED" },
+        },
+        data: {
+          status: "EXPIRED",
+          expiryDate: now,
+        },
+      });
     }
 
     if (application.disbursement?.fundAccountId) {

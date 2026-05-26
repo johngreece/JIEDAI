@@ -108,6 +108,42 @@ export function getClientProfileCompletion(
   };
 }
 
+export type ClientProfileCompletion = ReturnType<typeof getClientProfileCompletion>;
+
+export function describeClientProfileMissing(completion: ClientProfileCompletion) {
+  const parts: string[] = [];
+
+  if (completion.missingFields.length > 0) {
+    parts.push(`缺少资料：${completion.missingFields.map((item) => item.label).join("、")}`);
+  }
+
+  if (completion.missingDocTypes.length > 0) {
+    parts.push(`缺少复印件：${completion.missingDocTypes.map((item) => item.label).join("、")}`);
+  }
+
+  return parts;
+}
+
+export function formatClientProfileCompletionError(
+  completion: ClientProfileCompletion,
+  prefix = "客户资料未完善"
+) {
+  const details = describeClientProfileMissing(completion);
+  return details.length > 0 ? `${prefix}：${details.join("；")}` : prefix;
+}
+
+export function serializeClientProfileCompletion(completion: ClientProfileCompletion) {
+  return {
+    profileFieldsComplete: completion.profileFieldsComplete,
+    documentsComplete: completion.documentsComplete,
+    profileComplete: completion.profileComplete,
+    missingFields: completion.missingFields,
+    missingDocTypes: completion.missingDocTypes,
+    validDocumentTypes: Array.from(completion.validDocumentTypes),
+    issueLabels: describeClientProfileMissing(completion),
+  };
+}
+
 export function resolveProfileCompletedAt(
   customer: ClientProfileRecord,
   profileComplete: boolean,

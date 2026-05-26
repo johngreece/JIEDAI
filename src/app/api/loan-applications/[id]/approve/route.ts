@@ -5,6 +5,11 @@ import { writeAuditLog } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
+import {
+  formatClientProfileCompletionError,
+  getClientProfileCompletion,
+  serializeClientProfileCompletion,
+} from "@/lib/client-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +48,26 @@ export async function POST(
     where: { id },
     include: {
       product: { select: { name: true } },
+      customer: {
+        select: {
+          phone: true,
+          address: true,
+          taxNumber: true,
+          idNumber: true,
+          passportNumber: true,
+          residencePermitNumber: true,
+          residencePermitExpiry: true,
+          profileCompletedAt: true,
+          kyc: {
+            select: {
+              kycType: true,
+              documentUrl: true,
+              status: true,
+              expiresAt: true,
+            },
+          },
+        },
+      },
     },
   });
   if (!app || app.deletedAt) {
@@ -50,6 +75,19 @@ export async function POST(
   }
   if (app.status !== "PENDING_APPROVAL") {
     return NextResponse.json({ error: "当前状态不允许审批" }, { status: 400 });
+  }
+
+  if (input.action === "APPROVE") {
+    const profileCompletion = getClientProfileCompletion(app.customer);
+    if (!profileCompletion.profileComplete) {
+      return NextResponse.json(
+        {
+          error: formatClientProfileCompletionError(profileCompletion, "客户资料未完善，不能审批通过"),
+          profileCompletion: serializeClientProfileCompletion(profileCompletion),
+        },
+        { status: 409 }
+      );
+    }
   }
 
   const approvedAmount = input.approvedAmount ?? Number(app.amount);

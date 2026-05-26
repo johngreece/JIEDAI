@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
 import { applyCustomerPricingOverride, buildCustomerPricingQuote } from "@/lib/customer-pricing";
+import { describeClientProfileMissing, getClientProfileCompletion } from "@/lib/client-profile";
 import { parseTiersFromPricingRules } from "@/lib/interest-engine";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -28,7 +29,29 @@ export async function GET(
   const data = await prisma.loanApplication.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true, phone: true, idNumber: true, weeklyInterestRateOverride: true } },
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          address: true,
+          taxNumber: true,
+          idNumber: true,
+          passportNumber: true,
+          residencePermitNumber: true,
+          residencePermitExpiry: true,
+          profileCompletedAt: true,
+          weeklyInterestRateOverride: true,
+          kyc: {
+            select: {
+              kycType: true,
+              documentUrl: true,
+              status: true,
+              expiresAt: true,
+            },
+          },
+        },
+      },
       product: {
         select: {
           id: true,
@@ -83,6 +106,7 @@ export async function GET(
     data.customer,
   );
   const pricingQuote = buildCustomerPricingQuote(Number(data.amount), effectivePricing);
+  const profileCompletion = getClientProfileCompletion(data.customer);
 
   return NextResponse.json({
     id: data.id,
@@ -103,6 +127,14 @@ export async function GET(
       ...data.customer,
       weeklyInterestRateOverride:
         data.customer.weeklyInterestRateOverride != null ? Number(data.customer.weeklyInterestRateOverride) : null,
+      profileCompletion: {
+        profileFieldsComplete: profileCompletion.profileFieldsComplete,
+        documentsComplete: profileCompletion.documentsComplete,
+        profileComplete: profileCompletion.profileComplete,
+        missingFields: profileCompletion.missingFields,
+        missingDocTypes: profileCompletion.missingDocTypes,
+        issueLabels: describeClientProfileMissing(profileCompletion),
+      },
     },
     product: { id: data.product.id, name: data.product.name },
     pricingQuote,
