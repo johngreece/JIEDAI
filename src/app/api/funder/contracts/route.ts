@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFunderSession, getAdminSession } from "@/lib/auth";
+import { getFunderSession } from "@/lib/auth";
+import { ensureActiveFunderSession, requireActiveFunderSession } from "@/lib/portal-session";
+import { requirePermission } from "@/lib/rbac";
 import { FunderContractService } from "@/services/funder-contract.service";
 
 export const dynamic = "force-dynamic";
@@ -9,8 +11,8 @@ export const dynamic = "force-dynamic";
  * 获取资金方合同列表
  */
 export async function GET(req: NextRequest) {
-  const session = await getFunderSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requireActiveFunderSession();
+  if (session instanceof Response) return session;
 
   const contracts = await FunderContractService.list(session.sub);
   return NextResponse.json(contracts);
@@ -26,13 +28,14 @@ export async function POST(req: NextRequest) {
 
   const funderSession = await getFunderSession();
   if (funderSession) {
-    funderId = funderSession.sub;
+    const activeFunderSession = await ensureActiveFunderSession(funderSession);
+    if (activeFunderSession instanceof Response) return activeFunderSession;
+
+    funderId = activeFunderSession.sub;
     generatedBy = "资金方自助";
   } else {
-    const adminSession = await getAdminSession();
-    if (!adminSession) {
-      return NextResponse.json({ error: "未授权" }, { status: 401 });
-    }
+    const adminSession = await requirePermission(["contract:generate"]);
+    if (adminSession instanceof Response) return adminSession;
     const body = await req.json();
     if (!body.funderId) {
       return NextResponse.json({ error: "请提供 funderId" }, { status: 400 });

@@ -1,4 +1,4 @@
-import { getClientSession } from "@/lib/auth";
+import { getActiveClientSession } from "@/lib/portal-session";
 import { ClientHeader } from "@/components/client/Header";
 import { AppRuntimeBridge } from "@/components/pwa/AppRuntimeBridge";
 import { MobileBottomNav } from "@/components/pwa/MobileBottomNav";
@@ -8,7 +8,7 @@ export default async function ClientLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getClientSession();
+  const session = await getActiveClientSession();
   const username = session?.name || "Guest";
 
   return (

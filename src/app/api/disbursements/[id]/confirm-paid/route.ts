@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import Decimal from "decimal.js";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { recordDisbursementLedger } from "@/services/ledger.service";
 import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
 import {
@@ -11,6 +12,7 @@ import {
   loadFeeConfig,
   parseTiersFromPricingRules,
 } from "@/lib/interest-engine";
+import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -20,13 +22,17 @@ function genPlanNo() {
 }
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await requirePermission(["disbursement:confirm"]);
   if (session instanceof Response) return session;
 
   const { id } = await params;
+  const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "disbursement-confirm-paid", id]);
+  const cached = await checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
+
   const current = await prisma.disbursement.findUnique({
     where: { id },
     include: { application: true },
@@ -40,7 +46,9 @@ export async function POST(
     return NextResponse.json({ error: "当前状态不允许确认打款" }, { status: 400 });
   }
 
-  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const now = new Date();
 
     const pendingDisbursement = await tx.disbursement.findUnique({
@@ -48,6 +56,9 @@ export async function POST(
       include: {
         application: {
           include: {
+            customer: {
+              select: { weeklyInterestRateOverride: true },
+            },
             product: {
               include: {
                 pricingRules: {
@@ -64,6 +75,9 @@ export async function POST(
     if (!pendingDisbursement) {
       throw new Error("放款单不存在");
     }
+    if (pendingDisbursement.status !== "PENDING") {
+      throw new Error("DISBURSEMENT_STATUS_CHANGED");
+    }
 
     let pricingConfig;
     if (pendingDisbursement.application.product.pricingRules.length > 0) {
@@ -74,6 +88,7 @@ export async function POST(
       for (const setting of settingsRows) sysMap[setting.key] = setting.value;
       pricingConfig = loadFeeConfig(sysMap, null);
     }
+    pricingConfig = applyCustomerPricingOverride(pricingConfig, pendingDisbursement.application.customer);
 
     const { tiers, overdueConfig, upfrontFeeRate, channel } = pricingConfig;
     const principal = Number(pendingDisbursement.amount);
@@ -95,8 +110,8 @@ export async function POST(
       .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
       .toNumber();
 
-    const disbursement = await tx.disbursement.update({
-      where: { id },
+    const claimed = await tx.disbursement.updateMany({
+      where: { id, status: "PENDING" },
       data: {
         status: "PAID",
         disbursedAt: now,
@@ -105,6 +120,11 @@ export async function POST(
         netAmount,
       },
     });
+    if (claimed.count !== 1) {
+      throw new Error("DISBURSEMENT_STATUS_CHANGED");
+    }
+
+    const disbursement = await tx.disbursement.findUniqueOrThrow({ where: { id } });
 
     await tx.loanApplication.update({
       where: { id: disbursement.applicationId },
@@ -122,6 +142,7 @@ export async function POST(
         upfrontFeeRate,
         tiers: sortedTiers,
         overdueConfig,
+        customerPricing: pricingConfig.customerPricing,
         startTime: now.toISOString(),
         dueDate: dueDate.toISOString(),
       };
@@ -188,7 +209,15 @@ export async function POST(
     });
 
     return disbursement;
-  });
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message === "DISBURSEMENT_STATUS_CHANGED") {
+      return NextResponse.json({ error: "当前放款单状态已变化，请刷新后重试" }, { status: 409 });
+    }
+    console.error("[disbursement-confirm-paid]", error);
+    return NextResponse.json({ error: "确认打款失败" }, { status: 500 });
+  }
 
   await writeAuditLog({
     userId: session.sub,
@@ -200,5 +229,8 @@ export async function POST(
     changeSummary: "确认已打款并同步生成还款规则快照",
   }).catch((error) => console.error("[AuditLog] confirm-paid", error));
 
-  return NextResponse.json({ id: result.id, status: result.status });
+  const responseBody = { id: result.id, status: result.status };
+  await saveIdempotencyResult(idemKey, responseBody);
+
+  return NextResponse.json(responseBody);
 }

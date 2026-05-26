@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
 interface Withdrawal {
   id: string;
@@ -71,6 +72,8 @@ export default function FunderWithdrawalsPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ type: "INTEREST", amount: "", remark: "" });
   const [submitting, setSubmitting] = useState(false);
+  const submitKeyRef = useRef<string | null>(null);
+  const submitInFlightRef = useRef(false);
   const [error, setError] = useState("");
 
   const loadData = () => {
@@ -127,6 +130,9 @@ export default function FunderWithdrawalsPage() {
     data?.funder?.cooperationMode === "FIXED_MONTHLY"
       ? `固定月结，按月利率 ${data.funder.monthlyRate}% 结算。`
       : `周收益模式，按周利率 ${data?.funder?.weeklyRate ?? 0}% 结算。`;
+  const clearSubmitKey = () => {
+    submitKeyRef.current = null;
+  };
 
   const handleSubmit = async () => {
     setError("");
@@ -142,12 +148,19 @@ export default function FunderWithdrawalsPage() {
       return;
     }
 
+    if (submitInFlightRef.current) return;
+    const idempotencyKey = submitKeyRef.current ?? makeClientIdempotencyKey("funder-withdrawal");
+    submitKeyRef.current = idempotencyKey;
+    submitInFlightRef.current = true;
     setSubmitting(true);
 
     try {
       const response = await fetch("/api/funder/withdrawals", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": idempotencyKey,
+        },
         body: JSON.stringify({
           type: form.type,
           amount,
@@ -157,15 +170,20 @@ export default function FunderWithdrawalsPage() {
       });
 
       if (!response.ok) {
-        const result = await response.json();
+        submitKeyRef.current = null;
+        const result = await response.json().catch(() => ({}));
         setError(result.error || "提交失败");
         return;
       }
 
+      submitKeyRef.current = null;
       setShowForm(false);
       setForm({ type: "INTEREST", amount: "", remark: "" });
       loadData();
+    } catch {
+      setError("网络异常，请再次提交；系统会按同一次请求防止重复生成提现申请。");
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -232,7 +250,10 @@ export default function FunderWithdrawalsPage() {
                   <select
                     className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     value={form.type}
-                    onChange={(event) => setForm({ ...form, type: event.target.value, amount: "" })}
+                    onChange={(event) => {
+                      clearSubmitKey();
+                      setForm({ ...form, type: event.target.value, amount: "" });
+                    }}
                   >
                     <option value="INTEREST">只提收益</option>
                     <option value="PRINCIPAL">只提本金</option>
@@ -247,7 +268,10 @@ export default function FunderWithdrawalsPage() {
                     className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     placeholder="0.00"
                     value={form.amount}
-                    onChange={(event) => setForm({ ...form, amount: event.target.value })}
+                    onChange={(event) => {
+                      clearSubmitKey();
+                      setForm({ ...form, amount: event.target.value });
+                    }}
                   />
                 </label>
 
@@ -258,7 +282,10 @@ export default function FunderWithdrawalsPage() {
                     className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     placeholder="选填"
                     value={form.remark}
-                    onChange={(event) => setForm({ ...form, remark: event.target.value })}
+                    onChange={(event) => {
+                      clearSubmitKey();
+                      setForm({ ...form, remark: event.target.value });
+                    }}
                   />
                 </label>
 

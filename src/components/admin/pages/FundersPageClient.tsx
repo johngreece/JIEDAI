@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 import type { FunderPrefetchItem } from "@/lib/admin-prefetch";
 
 type FundAccount = {
@@ -22,6 +23,13 @@ type CapitalInflow = {
   inflowDate: string;
   status: string;
   remark: string | null;
+  proofs?: Array<{
+    id: string;
+    fileName: string;
+    mimeType?: string;
+    fileUrl?: string;
+    createdAt?: string;
+  }>;
 };
 
 const TYPE_MAP: Record<string, string> = {
@@ -40,6 +48,13 @@ function formatMoney(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function inflowStatusLabel(status: string) {
+  if (status === "PENDING") return "待确认";
+  if (status === "CONFIRMED") return "已到账";
+  if (status === "CANCELLED") return "已驳回/作废";
+  return status;
 }
 
 type FundersPageClientProps = {
@@ -312,7 +327,15 @@ function AccountManager({
     channel: "BANK_TRANSFER",
     remark: "",
   });
+  const [injectingCapital, setInjectingCapital] = useState(false);
+  const injectCapitalKeyRef = useRef<string | null>(null);
+  const injectCapitalInFlightRef = useRef(false);
   const [deletingInflowId, setDeletingInflowId] = useState<string | null>(null);
+  const [reviewingInflowId, setReviewingInflowId] = useState<string | null>(null);
+
+  const clearInjectCapitalKey = () => {
+    injectCapitalKeyRef.current = null;
+  };
 
   const loadAccounts = useCallback(async () => {
     setLoading(true);
@@ -364,11 +387,21 @@ function AccountManager({
   }
 
   async function injectCapital() {
+    if (injectCapitalInFlightRef.current) return;
+
+    const idempotencyKey =
+      injectCapitalKeyRef.current ?? makeClientIdempotencyKey("admin-capital-inflow-direct");
+    injectCapitalKeyRef.current = idempotencyKey;
+    injectCapitalInFlightRef.current = true;
+    setInjectingCapital(true);
     setError("");
     try {
       const res = await fetch(`/api/fund-accounts/${inflowForm.accountId}/inflows`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": idempotencyKey,
+        },
         body: JSON.stringify({
           amount: Number(inflowForm.amount),
           channel: inflowForm.channel,
@@ -376,29 +409,67 @@ function AccountManager({
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "资金注入失败");
+      if (!res.ok) {
+        injectCapitalKeyRef.current = null;
+        throw new Error(data.error ?? "资金注入失败");
+      }
+      injectCapitalKeyRef.current = null;
       setInflowForm((current) => ({ ...current, amount: "", remark: "" }));
       await loadAccounts();
       await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "资金注入失败");
+    } finally {
+      injectCapitalInFlightRef.current = false;
+      setInjectingCapital(false);
     }
   }
 
   async function removeInflow(account: FundAccount, inflow: CapitalInflow) {
-    if (!window.confirm(`Delete inflow of EUR ${formatMoney(inflow.amount)} from account "${account.accountName}"?`)) return;
+    if (!window.confirm(`确认作废账户“${account.accountName}”的 EUR ${formatMoney(inflow.amount)} 入金记录吗？已到账记录会同步写反向流水。`)) return;
     setDeletingInflowId(inflow.id);
     setError("");
     try {
       const res = await fetch(`/api/fund-accounts/${account.id}/inflows/${inflow.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Failed to delete capital inflow");
+      if (!res.ok) throw new Error(data.error ?? "作废入金记录失败");
       await loadAccounts();
       await onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete capital inflow");
+      setError(err instanceof Error ? err.message : "作废入金记录失败");
     } finally {
       setDeletingInflowId(null);
+    }
+  }
+
+  async function reviewInflow(account: FundAccount, inflow: CapitalInflow, action: "confirm" | "reject") {
+    const reason =
+      action === "reject"
+        ? window.prompt("请输入驳回原因（会通知资金方）", "凭证与到账记录不一致")
+        : undefined;
+
+    if (action === "reject" && reason === null) return;
+    if (action === "confirm" && !window.confirm(`确认账户“${account.accountName}”已收到 EUR ${formatMoney(inflow.amount)} 吗？确认后会增加可用余额并写资金流水。`)) return;
+
+    setReviewingInflowId(inflow.id);
+    setError("");
+    try {
+      const res = await fetch(`/api/fund-accounts/${account.id}/inflows/${inflow.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          ...(action === "reject" ? { reason: reason?.trim() || "后台驳回入金申请" } : {}),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "审核入金申请失败");
+      await loadAccounts();
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "审核入金申请失败");
+    } finally {
+      setReviewingInflowId(null);
     }
   }
 
@@ -443,16 +514,30 @@ function AccountManager({
           <div className="admin-note-block admin-note-block--soft">
             <div className="admin-section-card__title text-sm">资金池注入资金</div>
             <div className="mt-3 grid gap-3">
-              <select className="admin-field text-sm" value={inflowForm.accountId} onChange={(e) => setInflowForm({ ...inflowForm, accountId: e.target.value })}>
+              <select className="admin-field text-sm" value={inflowForm.accountId} onChange={(e) => {
+                clearInjectCapitalKey();
+                setInflowForm({ ...inflowForm, accountId: e.target.value });
+              }}>
                 <option value="">请选择账户</option>
                 {accounts.map((account) => (
                   <option key={account.id} value={account.id}>{account.accountName} / {account.accountNo}</option>
                 ))}
               </select>
-              <input className="admin-field text-sm" type="number" min="0" step="0.01" placeholder="注入金额" value={inflowForm.amount} onChange={(e) => setInflowForm({ ...inflowForm, amount: e.target.value })} />
-              <input className="admin-field text-sm" placeholder="渠道，例如 BANK_TRANSFER" value={inflowForm.channel} onChange={(e) => setInflowForm({ ...inflowForm, channel: e.target.value })} />
-              <input className="admin-field text-sm" placeholder="备注（可选）" value={inflowForm.remark} onChange={(e) => setInflowForm({ ...inflowForm, remark: e.target.value })} />
-              <button onClick={() => void injectCapital()} disabled={!inflowForm.accountId || !inflowForm.amount} className="admin-btn admin-btn-success disabled:opacity-50">录入注资</button>
+              <input className="admin-field text-sm" type="number" min="0" step="0.01" placeholder="注入金额" value={inflowForm.amount} onChange={(e) => {
+                clearInjectCapitalKey();
+                setInflowForm({ ...inflowForm, amount: e.target.value });
+              }} />
+              <input className="admin-field text-sm" placeholder="渠道，例如 BANK_TRANSFER" value={inflowForm.channel} onChange={(e) => {
+                clearInjectCapitalKey();
+                setInflowForm({ ...inflowForm, channel: e.target.value });
+              }} />
+              <input className="admin-field text-sm" placeholder="备注（可选）" value={inflowForm.remark} onChange={(e) => {
+                clearInjectCapitalKey();
+                setInflowForm({ ...inflowForm, remark: e.target.value });
+              }} />
+              <button onClick={() => void injectCapital()} disabled={!inflowForm.accountId || !inflowForm.amount || injectingCapital} className="admin-btn admin-btn-success disabled:opacity-50">
+                {injectingCapital ? "录入中..." : "录入注资"}
+              </button>
             </div>
           </div>
         </div>
@@ -488,21 +573,59 @@ function AccountManager({
                     <p className="text-xs font-medium text-slate-600">最近注资记录</p>
                     {recentInflows[account.id]?.length ? (
                       <div className="mt-2 space-y-2">
-                        {recentInflows[account.id].slice(0, 5).map((item) => (
-                          <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-                            <span>{new Date(item.inflowDate).toLocaleString()}</span>
-                            <span>{item.channel}</span>
-                            <span>EUR {formatMoney(item.amount)}</span>
-                            <span>{item.status}</span>
-                            <button
-                              onClick={() => void removeInflow(account, item)}
-                              disabled={deletingInflowId === item.id}
-                              className="text-rose-600 hover:underline disabled:opacity-50"
-                            >
-                              {deletingInflowId === item.id ? "Deleting..." : "Delete"}
-                            </button>
-                          </div>
-                        ))}
+                        {recentInflows[account.id].slice(0, 5).map((item) => {
+                          const proofNames = item.proofs?.map((proof) => proof.fileName).filter(Boolean).join(", ");
+                          const isPending = item.status === "PENDING";
+                          const isConfirmed = item.status === "CONFIRMED";
+                          const isBusy = deletingInflowId === item.id || reviewingInflowId === item.id;
+
+                          return (
+                            <div key={item.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span>{new Date(item.inflowDate).toLocaleString()}</span>
+                                <span>{item.channel}</span>
+                                <span className="font-medium text-slate-900">EUR {formatMoney(item.amount)}</span>
+                                <span className={isPending ? "text-amber-600" : isConfirmed ? "text-emerald-600" : "text-slate-500"}>
+                                  {inflowStatusLabel(item.status)}
+                                </span>
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                <span className="max-w-full truncate text-slate-400" title={proofNames || item.remark || undefined}>
+                                  {proofNames ? `凭证：${proofNames}` : item.remark || "无凭证文件名"}
+                                </span>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {isPending ? (
+                                    <>
+                                      <button
+                                        onClick={() => void reviewInflow(account, item, "confirm")}
+                                        disabled={isBusy}
+                                        className="text-emerald-600 hover:underline disabled:opacity-50"
+                                      >
+                                        {reviewingInflowId === item.id ? "处理中..." : "确认到账"}
+                                      </button>
+                                      <button
+                                        onClick={() => void reviewInflow(account, item, "reject")}
+                                        disabled={isBusy}
+                                        className="text-amber-600 hover:underline disabled:opacity-50"
+                                      >
+                                        驳回
+                                      </button>
+                                    </>
+                                  ) : null}
+                                  {isConfirmed ? (
+                                    <button
+                                      onClick={() => void removeInflow(account, item)}
+                                      disabled={isBusy}
+                                      className="text-rose-600 hover:underline disabled:opacity-50"
+                                    >
+                                      {deletingInflowId === item.id ? "作废中..." : "作废"}
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="mt-2 text-xs text-slate-400">暂无注资记录</p>

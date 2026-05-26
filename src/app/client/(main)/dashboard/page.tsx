@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getClientSession } from "@/lib/auth";
+import { getActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { ConfirmReceivedButton } from "@/components/client/ConfirmReceivedButton";
 import { LoanApplicationPanel } from "@/components/client/LoanApplicationPanel";
@@ -22,6 +22,7 @@ import {
   type OverdueConfig,
   type RepaymentTier,
 } from "@/lib/interest-engine";
+import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
@@ -41,6 +42,18 @@ function formatDate(value: Date | string | null | undefined) {
   });
 }
 
+function formatDateTime(value: Date | string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 function diffDays(target: Date) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -50,7 +63,7 @@ function diffDays(target: Date) {
 }
 
 export default async function ClientDashboardPage() {
-  const session = await getClientSession();
+  const session = await getActiveClientSession();
 
   if (!session) {
     return (
@@ -69,6 +82,7 @@ export default async function ClientDashboardPage() {
       select: {
         creditLimit: true,
         creditLimitOverride: true,
+        weeklyInterestRateOverride: true,
       },
     }),
     prisma.loanProduct.findMany({
@@ -239,19 +253,21 @@ export default async function ClientDashboardPage() {
       }
     } else if (application.product.pricingRules.length > 0) {
       const parsed = parseTiersFromPricingRules(application.product.pricingRules);
-      tiers = parsed.tiers;
-      overdueConfig = parsed.overdueConfig;
-      upfrontFeeRate = parsed.upfrontFeeRate;
-      channel = parsed.channel;
+      const effective = applyCustomerPricingOverride(parsed, customer);
+      tiers = effective.tiers;
+      overdueConfig = effective.overdueConfig;
+      upfrontFeeRate = effective.upfrontFeeRate;
+      channel = effective.channel;
     } else {
       const settingsRows = await prisma.systemSetting.findMany();
       const sysMap: Record<string, string | number> = {};
       for (const setting of settingsRows) sysMap[setting.key] = setting.value;
       const parsed = loadFeeConfig(sysMap, null);
-      tiers = parsed.tiers;
-      overdueConfig = parsed.overdueConfig;
-      upfrontFeeRate = parsed.upfrontFeeRate;
-      channel = parsed.channel;
+      const effective = applyCustomerPricingOverride(parsed, customer);
+      tiers = effective.tiers;
+      overdueConfig = effective.overdueConfig;
+      upfrontFeeRate = effective.upfrontFeeRate;
+      channel = effective.channel;
     }
 
     if (!dueDate) {
@@ -281,6 +297,9 @@ export default async function ClientDashboardPage() {
   }
 
   const reminders: string[] = [];
+  if (customer?.weeklyInterestRateOverride != null) {
+    reminders.push(`你当前适用专属周息 ${Number(customer.weeklyInterestRateOverride)}%，还款金额会自动按该费率计算。`);
+  }
   if (application.status === "PENDING_RISK") reminders.push("你的借款申请已提交，当前等待风控审核。");
   if (application.status === "PENDING_APPROVAL") reminders.push("你的借款申请已通过风控，当前等待审批。");
   if (application.status === "APPROVED") reminders.push("你的借款申请已审批通过，请留意合同生成和放款提醒。");
@@ -315,7 +334,7 @@ export default async function ClientDashboardPage() {
         <SummaryCard
           title="当前待还"
           value={plan ? money(displayOutstandingAmount) : "待生成"}
-          note={nextItem ? `${formatDate(nextItem.dueDate)} · 第 ${nextItem.periodNumber} 期` : "暂无还款计划"}
+          note={nextItem ? `${formatDateTime(nextItem.dueDate)} · 第 ${nextItem.periodNumber} 期` : "暂无还款计划"}
         />
       </section>
 
@@ -383,7 +402,7 @@ export default async function ClientDashboardPage() {
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="text-sm font-medium text-slate-900">第 {item.periodNumber} 期</div>
-                          <div className="mt-1 text-xs text-slate-500">到期日 {formatDate(item.dueDate)}</div>
+                          <div className="mt-1 text-xs text-slate-500">到期时间 {formatDateTime(item.dueDate)}</div>
                         </div>
                         <div className="text-right">
                           <div className="text-sm font-semibold text-slate-900">{money(Number(item.remaining || item.totalDue || 0))}</div>
@@ -416,13 +435,23 @@ export default async function ClientDashboardPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="font-semibold text-slate-900">{PRODUCT_RULE_DISPLAY.UPFRONT_7D.title}</div>
                 <div className="mt-2">{PRODUCT_RULE_DISPLAY.UPFRONT_7D.summary}</div>
+                <ul className="mt-3 list-disc space-y-1 pl-5">
+                  {PRODUCT_RULE_DISPLAY.UPFRONT_7D.bullets.map((bullet) => (
+                    <li key={bullet}>{bullet}</li>
+                  ))}
+                </ul>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <div className="font-semibold text-slate-900">{PRODUCT_RULE_DISPLAY.FULL_AMOUNT_7D.title}</div>
                 <div className="mt-2">{PRODUCT_RULE_DISPLAY.FULL_AMOUNT_7D.summary}</div>
+                <ul className="mt-3 list-disc space-y-1 pl-5">
+                  {PRODUCT_RULE_DISPLAY.FULL_AMOUNT_7D.bullets.map((bullet) => (
+                    <li key={bullet}>{bullet}</li>
+                  ))}
+                </ul>
               </div>
               <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-                逾期后按日复利滚动：逾期第 1 到 7 天按 1%/天，逾期第 8 到 30 天按 2%/天，逾期第 31 天起按 3%/天；当天未付利息会并入本金继续计算。
+                逾期后按日复利滚动：逾期第 1 到 7 天按 2%/天，逾期第 8 到 30 天按 2%/天，逾期第 31 天起按 3%/天；当天未付利息会并入本金继续计算。
               </div>
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <div className="font-semibold text-slate-900">{BUSINESS_LOAN_NOTICE.title}</div>

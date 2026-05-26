@@ -18,6 +18,8 @@ type CustomerDetail = {
   bankAccount: string | null;
   bankName: string | null;
   riskLevel: string;
+  weeklyInterestRateOverride: number | null;
+  pricingRemark: string | null;
   source: string | null;
   remark: string | null;
   createdAt: string;
@@ -74,6 +76,10 @@ export default function CustomerDetailPage() {
   const [creditOverride, setCreditOverride] = useState("");
   const [creditSaving, setCreditSaving] = useState(false);
   const [creditMsg, setCreditMsg] = useState("");
+  const [weeklyInterestRateOverride, setWeeklyInterestRateOverride] = useState("");
+  const [pricingRemark, setPricingRemark] = useState("");
+  const [pricingSaving, setPricingSaving] = useState(false);
+  const [pricingMsg, setPricingMsg] = useState("");
 
   // 证件管理
   const [docs, setDocs] = useState<DocItem[]>([]);
@@ -89,6 +95,10 @@ export default function CustomerDetailPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
       setData(json);
+      setWeeklyInterestRateOverride(
+        json.weeklyInterestRateOverride != null ? String(json.weeklyInterestRateOverride) : ""
+      );
+      setPricingRemark(json.pricingRemark ?? "");
     } catch {
       setData(null);
     } finally {
@@ -252,6 +262,34 @@ export default function CustomerDetailPage() {
     }
   }
 
+  async function savePricingOverride(e: React.FormEvent) {
+    e.preventDefault();
+    setPricingSaving(true);
+    setPricingMsg("");
+    try {
+      const rate =
+        weeklyInterestRateOverride.trim() === ""
+          ? null
+          : Number(weeklyInterestRateOverride);
+      const res = await fetch(`/api/customers/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          weeklyInterestRateOverride: rate,
+          pricingRemark: pricingRemark.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "保存失败");
+      setPricingMsg("专属周息已更新");
+      await load();
+    } catch (e) {
+      setPricingMsg(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setPricingSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* 顶部头部 */}
@@ -319,6 +357,7 @@ export default function CustomerDetailPage() {
                 ["紧急联系人", data.emergencyContact ?? "-"], ["联系人电话", data.emergencyContactPhone ?? "-"],
                 ["银行账号", data.bankAccount ?? "-"], ["开户行", data.bankName ?? "-"],
                 ["风险等级", RISK_LABELS[data.riskLevel] ?? data.riskLevel], ["来源", data.source ?? "-"],
+                ["专属周息", data.weeklyInterestRateOverride != null ? `${data.weeklyInterestRateOverride}%` : "跟随产品规则"],
                 ["注册时间", new Date(data.createdAt).toLocaleString()],
               ] as const).map(([label, val]) => (
                 <div key={label}><span className="text-slate-500">{label}：</span><span className="text-slate-900">{val}</span></div>
@@ -545,6 +584,85 @@ export default function CustomerDetailPage() {
             ) : (
               <p className="text-sm text-slate-400">加载中...</p>
             )}
+            </div>
+          </section>
+
+          {/* 客户专属定价 */}
+          <section className="admin-section-card">
+            <div className="admin-section-card__header">
+              <div>
+                <div className="admin-section-card__title">专属定价</div>
+                <p className="admin-section-card__description">
+                  特殊客户可单独设置周息。留空时自动使用产品默认费率；设置后，合同展示、放款还款计划和实时还款金额都会自动按该周息执行。
+                </p>
+              </div>
+            </div>
+            <div className="admin-section-card__body">
+              <form onSubmit={savePricingOverride} className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+                  <label className="text-sm text-slate-600">
+                    专属周息（%）
+                    <input
+                      type="number"
+                      className="admin-field mt-1 text-sm"
+                      placeholder="例如 3.5；留空=默认产品费率"
+                      value={weeklyInterestRateOverride}
+                      onChange={(e) => setWeeklyInterestRateOverride(e.target.value)}
+                      min="0"
+                      max="100"
+                      step="0.01"
+                    />
+                  </label>
+                  <label className="text-sm text-slate-600">
+                    定价备注
+                    <input
+                      className="admin-field mt-1 text-sm"
+                      placeholder="例如 老客户优惠、风控特批、短期活动价"
+                      value={pricingRemark}
+                      onChange={(e) => setPricingRemark(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="submit" disabled={pricingSaving} className="admin-btn admin-btn-primary">
+                    {pricingSaving ? "保存中..." : "保存专属定价"}
+                  </button>
+                  {data.weeklyInterestRateOverride != null ? (
+                    <button
+                      type="button"
+                      disabled={pricingSaving}
+                      onClick={async () => {
+                        setWeeklyInterestRateOverride("");
+                        setPricingRemark("");
+                        setPricingSaving(true);
+                        setPricingMsg("");
+                        try {
+                          const res = await fetch(`/api/customers/${id}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ weeklyInterestRateOverride: null, pricingRemark: null }),
+                          });
+                          if (!res.ok) throw new Error("清除失败");
+                          setPricingMsg("专属周息已清除");
+                          await load();
+                        } catch (e) {
+                          setPricingMsg(e instanceof Error ? e.message : "清除失败");
+                        } finally {
+                          setPricingSaving(false);
+                        }
+                      }}
+                      className="admin-btn admin-btn-secondary"
+                    >
+                      清除专属周息
+                    </button>
+                  ) : null}
+                </div>
+                {pricingMsg ? (
+                  <p className={`text-xs ${pricingMsg.includes("已") ? "text-emerald-600" : "text-red-600"}`}>
+                    {pricingMsg}
+                  </p>
+                ) : null}
+              </form>
             </div>
           </section>
 

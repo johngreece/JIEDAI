@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { writeAuditLog } from "@/lib/audit";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -41,6 +42,11 @@ export async function POST(
   const session = await requirePermission(["repayment:allocate"]);
   if (session instanceof Response) return session;
 
+  const { id } = await params;
+  const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "repayment-allocate", id]);
+  const cached = await checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
+
   const body = await req.json().catch(() => ({}));
   const parsed = allocateSchema.safeParse(body);
   if (!parsed.success) {
@@ -50,7 +56,6 @@ export async function POST(
     );
   }
 
-  const { id } = await params;
   const input = parsed.data;
 
   const repayment = await prisma.repayment.findUnique({
@@ -121,6 +126,7 @@ export async function POST(
     select: {
       applicationId: true,
       rulesSnapshotJson: true,
+      version: true,
     },
   });
   const planApplication = planContext
@@ -215,28 +221,115 @@ export async function POST(
     .filter((item) => item.type === "PENALTY")
     .reduce((sum, item) => sum + item.amount, 0);
 
-  const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.repaymentAllocation.createMany({
-      data: allocations.map((allocation) => ({
-        repaymentId: id,
-        itemId: allocation.itemId,
-        amount: allocation.amount,
-        type: allocation.type,
-      })),
-    });
+  let updated;
+  try {
+    updated = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        if (planContext) {
+          const claimedPlan = await tx.repaymentPlan.updateMany({
+            where: { id: repayment.planId, version: planContext.version },
+            data: { version: { increment: 1 } },
+          });
+          if (claimedPlan.count !== 1) {
+            throw new Error("PLAN_CHANGED");
+          }
+        }
 
-    return tx.repayment.update({
-      where: { id },
-      data: {
-        principalPart,
-        interestPart,
-        feePart,
-        penaltyPart,
-        status: "PENDING_CONFIRM",
-        matchComment: input.comment ?? "系统分配完成，等待客户确认付款",
+        const claimedRepayment = await tx.repayment.updateMany({
+          where: {
+            id,
+            status: { in: ["PENDING", "MATCHED", "MANUAL_REVIEW"] },
+          },
+          data: {
+            principalPart,
+            interestPart,
+            feePart,
+            penaltyPart,
+            status: "PENDING_CONFIRM",
+            matchComment: input.comment ?? "系统分配完成，等待客户确认付款",
+          },
+        });
+        if (claimedRepayment.count !== 1) {
+          throw new Error("REPAYMENT_STATUS_CHANGED");
+        }
+
+        const existingAllocation = await tx.repaymentAllocation.findFirst({
+          where: { repaymentId: id },
+          select: { id: true },
+        });
+        if (existingAllocation) {
+          throw new Error("REPAYMENT_ALREADY_ALLOCATED");
+        }
+
+        const latestReservedAllocations = await tx.repaymentAllocation.findMany({
+          where: {
+            itemId: { in: uniqueItemIds },
+            repaymentId: { not: id },
+            repayment: {
+              status: { in: ["PENDING_CONFIRM", "CUSTOMER_CONFIRMED"] },
+            },
+          },
+          select: {
+            itemId: true,
+            amount: true,
+          },
+        });
+
+        const latestReservedMap = new Map<string, number>();
+        latestReservedAllocations.forEach((allocation) => {
+          latestReservedMap.set(
+            allocation.itemId,
+            (latestReservedMap.get(allocation.itemId) || 0) + Number(allocation.amount)
+          );
+        });
+
+        for (const [itemId, requestedAmount] of requestedByItem.entries()) {
+          const scheduleItem = itemMap.get(itemId);
+          if (!scheduleItem) continue;
+
+          const remaining = dynamicAvailableByItem.get(itemId) ?? Number(scheduleItem.remaining);
+          const reserved = latestReservedMap.get(itemId) || 0;
+          const available = Math.max(0, remaining - reserved);
+
+          if (requestedAmount - available > 0.000001) {
+            throw new Error(`ALLOCATION_OVER_LIMIT:${scheduleItem.periodNumber}:${available.toFixed(2)}`);
+          }
+        }
+
+        await tx.repaymentAllocation.createMany({
+          data: allocations.map((allocation) => ({
+            repaymentId: id,
+            itemId: allocation.itemId,
+            amount: allocation.amount,
+            type: allocation.type,
+          })),
+        });
+
+        return tx.repayment.findUniqueOrThrow({ where: { id } });
       },
-    });
-  });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message === "PLAN_CHANGED") {
+      return NextResponse.json({ error: "还款计划已变化，请刷新后重试" }, { status: 409 });
+    }
+    if (message === "REPAYMENT_STATUS_CHANGED") {
+      return NextResponse.json({ error: "还款状态已变化，请刷新后重试" }, { status: 409 });
+    }
+    if (message === "REPAYMENT_ALREADY_ALLOCATED") {
+      return NextResponse.json({ error: "该还款已分配，不能重复分配" }, { status: 409 });
+    }
+    if (message.startsWith("ALLOCATION_OVER_LIMIT:")) {
+      const [, periodNumber, available] = message.split(":");
+      return NextResponse.json(
+        { error: `期次 ${periodNumber} 可分配金额不足，当前可用 ${available}` },
+        { status: 409 }
+      );
+    }
+    console.error("[repayment-allocate]", error);
+    return NextResponse.json({ error: "还款分配失败" }, { status: 500 });
+  }
 
   await writeAuditLog({
     userId: session.sub,
@@ -261,12 +354,15 @@ export async function POST(
     changeSummary: "还款分配完成，进入待客户确认付款状态",
   }).catch(() => undefined);
 
-  return NextResponse.json({
+  const responseBody = {
     id: updated.id,
     status: updated.status,
     principalPart: Number(updated.principalPart),
     interestPart: Number(updated.interestPart),
     feePart: Number(updated.feePart),
     penaltyPart: Number(updated.penaltyPart),
-  });
+  };
+  await saveIdempotencyResult(idemKey, responseBody);
+
+  return NextResponse.json(responseBody);
 }

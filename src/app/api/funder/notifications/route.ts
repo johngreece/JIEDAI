@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFunderSession } from "@/lib/auth";
+import { requireActiveFunderSession } from "@/lib/portal-session";
 import { FunderNotificationService } from "@/services/funder-notification.service";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,20 @@ function toFunderAction(type: string) {
     };
   }
 
+  if (type === "CAPITAL_INFLOW_CONFIRMED" || type === "CAPITAL_INFLOW_REJECTED") {
+    return {
+      actionUrl: "/funder/inflows",
+      actionLabel: "查看入金",
+    };
+  }
+
+  if (type === "WITHDRAWAL_APPROVED" || type === "WITHDRAWAL_REJECTED") {
+    return {
+      actionUrl: "/funder/withdrawals",
+      actionLabel: "查看提现",
+    };
+  }
+
   return {
     actionUrl: "/funder/dashboard?focus=settlement",
     actionLabel: "查看详情",
@@ -26,10 +40,8 @@ function toFunderAction(type: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getFunderSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveFunderSession();
+  if (session instanceof Response) return session;
 
   const url = new URL(req.url);
   const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10), 200);
@@ -56,10 +68,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = await getFunderSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveFunderSession();
+  if (session instanceof Response) return session;
 
   const body = await req.json();
 

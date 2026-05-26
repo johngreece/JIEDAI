@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getClientSession } from "@/lib/auth";
+import { getActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
@@ -12,8 +12,19 @@ function money(value: number) {
   }).format(value);
 }
 
+function formatDateTime(value: Date | string) {
+  return new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 export default async function ClientRepaymentPlansPage() {
-  const session = await getClientSession();
+  const session = await getActiveClientSession();
 
   if (!session) {
     return (
@@ -128,7 +139,7 @@ export default async function ClientRepaymentPlansPage() {
                   plan.scheduleItems.map((item) => (
                     <tr key={item.id} className="border-t border-slate-100">
                       <td className="px-4 py-2">第 {item.periodNumber} 期</td>
-                      <td className="px-4 py-2">{new Date(item.dueDate).toLocaleDateString("zh-CN")}</td>
+                      <td className="px-4 py-2">{formatDateTime(item.dueDate)}</td>
                       <td className="px-4 py-2">{money(Number(item.principal))}</td>
                       <td className="px-4 py-2">{money(Number(item.interest))}</td>
                       <td className="px-4 py-2">{money(Number(item.fee))}</td>

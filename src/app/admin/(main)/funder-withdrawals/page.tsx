@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
 interface Withdrawal {
   id: string;
@@ -56,6 +57,11 @@ export default function FunderWithdrawalsPage() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [processing, setProcessing] = useState(false);
+  const actionKeyRef = useRef<{ scope: string; key: string } | null>(null);
+
+  function clearActionKey() {
+    actionKeyRef.current = null;
+  }
 
   async function load() {
     setLoading(true);
@@ -73,21 +79,38 @@ export default function FunderWithdrawalsPage() {
   }, []);
 
   async function handleAction(id: string, action: "approve" | "reject") {
+    if (processing) return;
+
+    const scope = `${id}:${action}`;
+    if (actionKeyRef.current?.scope !== scope) {
+      actionKeyRef.current = {
+        scope,
+        key: makeClientIdempotencyKey(`admin-funder-withdrawal-${action}`),
+      };
+    }
+
     setProcessing(true);
     try {
       const res = await fetch("/api/funder-withdrawals", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": actionKeyRef.current.key,
+        },
         body: JSON.stringify({ withdrawalId: id, action, reason: rejectReason || undefined }),
       });
       if (!res.ok) {
-        const data = await res.json();
+        clearActionKey();
+        const data = await res.json().catch(() => ({}));
         alert(data.error || "操作失败");
         return;
       }
+      clearActionKey();
       setActionId(null);
       setRejectReason("");
       await load();
+    } catch {
+      alert("网络异常，请再次提交；系统会按同一次请求防止重复审批提现。");
     } finally {
       setProcessing(false);
     }
@@ -132,14 +155,22 @@ export default function FunderWithdrawalsPage() {
                   <div className="admin-btn-group">
                     {actionId === item.id ? (
                       <>
-                        <input className="admin-field w-44 text-sm" placeholder="拒绝原因" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} />
+                        <input
+                          className="admin-field w-44 text-sm"
+                          placeholder="拒绝原因"
+                          value={rejectReason}
+                          onChange={(e) => {
+                            clearActionKey();
+                            setRejectReason(e.target.value);
+                          }}
+                        />
                         <button className="admin-btn admin-btn-danger admin-btn-sm" onClick={() => handleAction(item.id, "reject")} disabled={processing}>拒绝</button>
-                        <button className="text-sm text-slate-500 hover:underline" onClick={() => { setActionId(null); setRejectReason(""); }}>取消</button>
+                        <button className="text-sm text-slate-500 hover:underline" onClick={() => { clearActionKey(); setActionId(null); setRejectReason(""); }}>取消</button>
                       </>
                     ) : (
                       <>
                         <button className="admin-btn admin-btn-success admin-btn-sm" onClick={() => handleAction(item.id, "approve")} disabled={processing}>通过</button>
-                        <button className="admin-btn admin-btn-secondary admin-btn-sm" onClick={() => setActionId(item.id)}>拒绝</button>
+                        <button className="admin-btn admin-btn-secondary admin-btn-sm" onClick={() => { clearActionKey(); setActionId(item.id); }}>拒绝</button>
                       </>
                     )}
                   </div>

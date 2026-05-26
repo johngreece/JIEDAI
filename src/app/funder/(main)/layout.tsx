@@ -1,4 +1,4 @@
-import { getFunderSession } from "@/lib/auth";
+import { getActiveFunderSession } from "@/lib/portal-session";
 import { redirect } from "next/navigation";
 import { FunderHeader } from "./FunderHeader";
 import { AppRuntimeBridge } from "@/components/pwa/AppRuntimeBridge";
@@ -9,7 +9,7 @@ export default async function FunderLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getFunderSession();
+  const session = await getActiveFunderSession();
   if (!session) redirect("/funder/login");
 
   return (
@@ -34,6 +34,7 @@ export default async function FunderLayout({
       <MobileBottomNav
         items={[
           { href: "/funder/dashboard", label: "概览", shortLabel: "概览" },
+          { href: "/funder/inflows", label: "入金", shortLabel: "入金" },
           { href: "/funder/disbursements", label: "放款", shortLabel: "放款" },
           { href: "/funder/withdrawals", label: "提现", shortLabel: "提现" },
           { href: "/funder/notifications", label: "消息", shortLabel: "消息" },

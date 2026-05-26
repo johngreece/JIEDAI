@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClientSession } from "@/lib/auth";
+import { requireActiveClientSession } from "@/lib/portal-session";
 import { ClientNotificationService } from "@/services/client-notification.service";
 
 export const dynamic = "force-dynamic";
@@ -67,10 +67,8 @@ function toClientAction(notification: {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getClientSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
 
   const url = new URL(req.url);
   const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10), 200);
@@ -97,10 +95,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const session = await getClientSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));
 

@@ -35,7 +35,7 @@ async function main() {
   const period = { start, end };
   const summary = await SettlementService.generateReport(period);
 
-  const [disbursements, repayments, ledgerEntries, outstandingAgg] = await Promise.all([
+  const [disbursements, repayments, ledgerEntries, outstandingAgg, capitalInflowAgg, funderWithdrawalAgg] = await Promise.all([
     prisma.disbursement.findMany({
       where: {
         disbursedAt: { gte: start, lt: end },
@@ -102,6 +102,20 @@ async function main() {
       },
       _sum: { remaining: true },
     }),
+    prisma.capitalInflow.aggregate({
+      where: {
+        status: "CONFIRMED",
+        inflowDate: { gte: start, lt: end },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.funderWithdrawal.aggregate({
+      where: {
+        status: "APPROVED",
+        approvedAt: { gte: start, lt: end },
+      },
+      _sum: { amount: true },
+    }),
   ]);
 
   const applicationIds = Array.from(new Set(repayments.map((item) => item.plan.applicationId)));
@@ -131,6 +145,8 @@ async function main() {
   const rawRepaidInterest = repayments.reduce((sum, item) => sum.plus(item.interestPart), new Decimal(0));
   const rawRepaidFee = repayments.reduce((sum, item) => sum.plus(item.feePart), new Decimal(0));
   const rawRepaidPenalty = repayments.reduce((sum, item) => sum.plus(item.penaltyPart), new Decimal(0));
+  const rawCapitalInjected = decimal(capitalInflowAgg._sum.amount);
+  const rawFunderWithdrawalAmount = decimal(funderWithdrawalAgg._sum.amount);
 
   const ledgerDebitTotal = ledgerEntries
     .filter((item) => item.direction === "DEBIT")
@@ -152,8 +168,10 @@ async function main() {
     repaidPenalty: money(rawRepaidPenalty),
     totalIncome: money(rawDisbursedFee.plus(rawRepaidInterest).plus(rawRepaidFee).plus(rawRepaidPenalty)),
     totalOutflow: money(rawDisbursedNet),
+    capitalInjected: money(rawCapitalInjected),
+    funderWithdrawalAmount: money(rawFunderWithdrawalAmount),
     capitalRecovery: money(rawRepaidPrincipal),
-    periodNetCashflow: money(rawRepaidAmount.minus(rawDisbursedNet)),
+    periodNetCashflow: money(rawCapitalInjected.plus(rawRepaidAmount).minus(rawDisbursedNet).minus(rawFunderWithdrawalAmount)),
     currentOutstandingBalance: money(outstandingAgg._sum.remaining),
     ledgerDebitTotal: money(ledgerDebitTotal),
     ledgerCreditTotal: money(ledgerCreditTotal),

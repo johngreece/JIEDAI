@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClientSession } from "@/lib/auth";
+import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -9,10 +8,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getClientSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录客户端" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
 
   const { id } = await params;
 
@@ -39,26 +36,36 @@ export async function POST(
 
   const forwarded = req.headers.get("x-forwarded-for");
   const ip = forwarded?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? "unknown";
+  const userAgent = req.headers.get("user-agent");
+  const confirmedAt = new Date();
 
   const updated = await prisma.disbursement.update({
     where: { id },
     data: {
       status: "CONFIRMED",
       customerConfirmIp: ip,
+      customerConfirmedAt: confirmedAt,
+      customerConfirmUserAgent: userAgent,
+      customerConfirmEvidenceJson: JSON.stringify({
+        action: "CLIENT_CONFIRM_RECEIVED",
+        portal: "client",
+        customerId: session.sub,
+        applicationId: disbursement.applicationId,
+        disbursementNo: disbursement.disbursementNo,
+        amount: Number(disbursement.amount),
+        netAmount: Number(disbursement.netAmount),
+        previousStatus: disbursement.status,
+        confirmedAt: confirmedAt.toISOString(),
+        ipAddress: ip,
+        userAgent,
+      }),
     },
   });
 
-  await writeAuditLog({
-    userId: session.sub,
-    action: "confirm",
-    entityType: "disbursement",
-    entityId: id,
-    oldValue: { status: disbursement.status },
-    newValue: { status: updated.status, customerConfirmIp: updated.customerConfirmIp },
-    changeSummary: "客户端确认已收款",
-    ipAddress: ip,
-    userAgent: req.headers.get("user-agent"),
-  }).catch(() => undefined);
-
-  return NextResponse.json({ ok: true, id: updated.id, status: updated.status });
+  return NextResponse.json({
+    ok: true,
+    id: updated.id,
+    status: updated.status,
+    customerConfirmedAt: updated.customerConfirmedAt,
+  });
 }

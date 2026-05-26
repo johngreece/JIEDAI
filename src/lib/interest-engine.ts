@@ -1,10 +1,13 @@
 import Decimal from "decimal.js";
+import { parsePricingRuleCondition } from "@/lib/pricing-rule-condition";
 
 export interface RepaymentTier {
   maxDays: number;
   maxHours?: number;
   ratePercent: number;
   label: string;
+  windowType?: "ELAPSED_HOURS" | "SAME_NIGHT" | "NEXT_CALENDAR_DAY";
+  nightCutoffHour?: number;
 }
 
 export interface OverduePhase {
@@ -23,16 +26,16 @@ export interface OverdueConfig {
 export type ChannelType = "UPFRONT_DEDUCTION" | "FULL_AMOUNT";
 
 export const DEFAULT_TIERS: RepaymentTier[] = [
-  { maxDays: 0, maxHours: 5, ratePercent: 2, label: "5小时内还" },
-  { maxDays: 1, maxHours: 24, ratePercent: 3, label: "24小时内还" },
+  { maxDays: 0, maxHours: 5, ratePercent: 2, label: "当晚还款", windowType: "SAME_NIGHT", nightCutoffHour: 5 },
+  { maxDays: 1, maxHours: 24, ratePercent: 3, label: "次日还款", windowType: "NEXT_CALENDAR_DAY" },
   { maxDays: 2, maxHours: 48, ratePercent: 4, label: "48小时内还" },
-  { maxDays: 7, maxHours: 7 * 24, ratePercent: 6, label: "48小时后至7天内还" },
+  { maxDays: 7, maxHours: 7 * 24, ratePercent: 5, label: "第7天同一时间前" },
 ];
 
 export const DEFAULT_OVERDUE: OverdueConfig = {
   graceHours: 0,
   phases: [
-    { startDay: 1, maxDay: 7, dailyRate: 1, label: "逾期第1-7天", compound: true },
+    { startDay: 1, maxDay: 7, dailyRate: 2, label: "逾期第1-7天", compound: true },
     { startDay: 8, maxDay: 30, dailyRate: 2, label: "逾期第8-30天", compound: true },
     { startDay: 31, maxDay: null, dailyRate: 3, label: "逾期第31天起", compound: true },
   ],
@@ -107,6 +110,32 @@ function sortTiers(tiers: RepaymentTier[]): RepaymentTier[] {
   return [...tiers].sort((a, b) => getTierHours(a) - getTierHours(b));
 }
 
+function getSameNightDeadline(startTime: Date, cutoffHour = 5): Date {
+  const deadline = new Date(startTime);
+  if (deadline.getHours() >= cutoffHour) {
+    deadline.setDate(deadline.getDate() + 1);
+  }
+  deadline.setHours(cutoffHour, 0, 0, 0);
+  return deadline;
+}
+
+function getNextCalendarDayDeadline(startTime: Date): Date {
+  const deadline = new Date(startTime);
+  deadline.setDate(deadline.getDate() + 1);
+  deadline.setHours(23, 59, 59, 999);
+  return deadline;
+}
+
+function getTierDeadline(tier: RepaymentTier, startTime: Date): Date {
+  if (tier.windowType === "SAME_NIGHT") {
+    return getSameNightDeadline(startTime, tier.nightCutoffHour ?? 5);
+  }
+  if (tier.windowType === "NEXT_CALENDAR_DAY") {
+    return getNextCalendarDayDeadline(startTime);
+  }
+  return new Date(startTime.getTime() + getTierHours(tier) * HOUR_MS);
+}
+
 function sortOverduePhases(phases: OverduePhase[]): OverduePhase[] {
   return [...phases].sort((a, b) => a.startDay - b.startDay);
 }
@@ -158,10 +187,12 @@ export function daysBetween(start: Date, end: Date): number {
   return Math.max(0, Math.round((e.getTime() - s.getTime()) / DAY_MS));
 }
 
-function findCurrentTier(elapsedMs: number, tiers: RepaymentTier[]): { tier: RepaymentTier | null; index: number } {
-  const sorted = sortTiers(tiers);
+function findCurrentTier(currentTime: Date, startTime: Date, tiers: RepaymentTier[]): { tier: RepaymentTier | null; index: number } {
+  const sorted = [...tiers].sort(
+    (a, b) => getTierDeadline(a, startTime).getTime() - getTierDeadline(b, startTime).getTime()
+  );
   for (let i = 0; i < sorted.length; i += 1) {
-    if (elapsedMs <= getTierHours(sorted[i]) * HOUR_MS) {
+    if (currentTime.getTime() <= getTierDeadline(sorted[i], startTime).getTime()) {
       return { tier: sorted[i], index: i };
     }
   }
@@ -245,7 +276,7 @@ export function calculateRealtimeRepayment(input: RealtimeCalcInput): RealtimeCa
   const elapsedDays = daysBetween(startTime, currentTime);
   const netDisbursement = calcNetDisbursement(principal, upfrontFeeRate, channel);
   const tiers = sortTiers(input.tiers);
-  const { tier: currentTier, index: tierIndex } = findCurrentTier(elapsedMs, tiers);
+  const { tier: currentTier, index: tierIndex } = findCurrentTier(currentTime, startTime, tiers);
   const dueAt = new Date(dueDate);
   const overdueStartDate = new Date(dueAt.getTime() + overdueConfig.graceHours * HOUR_MS);
   const isOverdue = currentTime.getTime() > overdueStartDate.getTime();
@@ -344,9 +375,9 @@ export function loadFeeConfig(
   const rate5h = getSetting(mergedSettings, ["loan_fee_5h_rate", "fee_same_day_rate"], 2);
   const rate24h = getSetting(mergedSettings, ["loan_fee_24h_rate", "fee_next_day_rate"], 3);
   const rate48h = getSetting(mergedSettings, ["loan_fee_48h_rate", "fee_other_day_rate"], 4);
-  const rate7d = getSetting(mergedSettings, ["loan_fee_7d_rate", "fee_day3_day7_rate"], 6);
+  const rate7d = getSetting(mergedSettings, ["loan_fee_7d_rate", "fee_day3_day7_rate"], 5);
   const graceHours = getSetting(mergedSettings, ["loan_overdue_grace_hours", "fee_overdue_grace_hours"], 0);
-  const overdueRateBefore7 = getSetting(mergedSettings, ["loan_overdue_rate_per_day_before_7"], 1);
+  const overdueRateBefore7 = getSetting(mergedSettings, ["loan_overdue_rate_per_day_before_7"], 2);
   const overdueRateBefore30 = getSetting(mergedSettings, ["loan_overdue_rate_per_day_before_30", "fee_overdue_rate_after_14"], 2);
   const overdueRateAfter30 = getSetting(mergedSettings, ["loan_overdue_rate_per_day_after_30"], 3);
   const rawChannel = String(mergedSettings.fee_channel ?? mergedSettings.loan_channel ?? "FULL_AMOUNT");
@@ -354,10 +385,10 @@ export function loadFeeConfig(
 
   return {
     tiers: sortTiers([
-      { maxDays: 0, maxHours: 5, ratePercent: rate5h, label: "5小时内还" },
-      { maxDays: 1, maxHours: 24, ratePercent: rate24h, label: "24小时内还" },
+      { maxDays: 0, maxHours: 5, ratePercent: rate5h, label: "当晚还款", windowType: "SAME_NIGHT", nightCutoffHour: 5 },
+      { maxDays: 1, maxHours: 24, ratePercent: rate24h, label: "次日还款", windowType: "NEXT_CALENDAR_DAY" },
       { maxDays: 2, maxHours: 48, ratePercent: rate48h, label: "48小时内还" },
-      { maxDays: 7, maxHours: 7 * 24, ratePercent: rate7d, label: "48小时后至7天内还" },
+      { maxDays: 7, maxHours: 7 * 24, ratePercent: rate7d, label: "第7天同一时间前" },
     ]),
     overdueConfig: {
       graceHours,
@@ -370,6 +401,25 @@ export function loadFeeConfig(
     upfrontFeeRate,
     channel,
   };
+}
+
+function parseWindowType(raw: unknown): RepaymentTier["windowType"] | undefined {
+  if (raw === "SAME_NIGHT" || raw === "NEXT_CALENDAR_DAY" || raw === "ELAPSED_HOURS") {
+    return raw;
+  }
+  return undefined;
+}
+
+function inferWindowType(
+  maxHours: number,
+  ratePercent: number,
+  cond: Record<string, unknown>
+): RepaymentTier["windowType"] | undefined {
+  const explicit = parseWindowType(cond.windowType);
+  if (explicit) return explicit;
+  if (maxHours <= 5 && ratePercent === 2) return "SAME_NIGHT";
+  if (maxHours === 24 && ratePercent === 3) return "NEXT_CALENDAR_DAY";
+  return undefined;
 }
 
 export function parseTiersFromPricingRules(
@@ -391,7 +441,7 @@ export function parseTiersFromPricingRules(
   let graceHours = DEFAULT_OVERDUE.graceHours;
 
   for (const rule of rules) {
-    const cond = rule.conditionJson ? (JSON.parse(rule.conditionJson) as Record<string, unknown>) : {};
+    const cond = parsePricingRuleCondition(rule.conditionJson);
     const value = Number(rule.rateValue);
 
     if (rule.ruleType === "UPFRONT_FEE") {
@@ -412,11 +462,14 @@ export function parseTiersFromPricingRules(
     if (rule.ruleType === "TIER_RATE") {
       const maxHours = Number(cond.maxHours ?? 0) || Number(cond.maxDays ?? 7) * 24;
       const maxDays = Number(cond.maxDays ?? Math.ceil(maxHours / 24));
+      const windowType = inferWindowType(maxHours, value, cond);
       tiers.push({
         maxDays,
         maxHours,
         ratePercent: value,
         label: String(cond.label ?? `${maxHours}小时内还`),
+        ...(windowType ? { windowType } : {}),
+        ...(windowType === "SAME_NIGHT" ? { nightCutoffHour: Number(cond.nightCutoffHour ?? 5) } : {}),
       });
       continue;
     }

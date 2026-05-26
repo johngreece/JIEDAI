@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isClient } from "@/lib/auth";
+import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -14,10 +14,8 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 /* GET — 获取当前客户的所有证件 */
 export async function GET() {
-  const session = await getSession();
-  if (!session || !isClient(session)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
 
   const docs = await prisma.customerKyc.findMany({
     where: { customerId: session.sub },
@@ -59,10 +57,8 @@ export async function GET() {
 
 /* POST — 上传或更新证件 */
 export async function POST(req: NextRequest) {
-  const session = await getSession();
-  if (!session || !isClient(session)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
 
   const formData = await req.formData();
   const kycType = formData.get("kycType") as string;

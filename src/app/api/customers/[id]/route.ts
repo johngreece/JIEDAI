@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
+import { ACTIVE_LOAN_STATUSES } from "@/lib/business-status";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requirePermission } from "@/lib/rbac";
@@ -18,6 +19,8 @@ const updateSchema = z.object({
   bankAccount: z.string().optional(),
   bankName: z.string().optional(),
   riskLevel: z.enum(["LOW", "NORMAL", "HIGH", "BLACKLIST"]).optional(),
+  weeklyInterestRateOverride: z.number().min(0).max(100).nullable().optional(),
+  pricingRemark: z.string().max(500).nullable().optional(),
   remark: z.string().optional(),
   newPassword: z.string().min(6).optional(),
 });
@@ -56,6 +59,7 @@ export async function GET(
   const { passwordHash, ...rest } = customer;
   return NextResponse.json({
     ...rest,
+    weeklyInterestRateOverride: customer.weeklyInterestRateOverride != null ? Number(customer.weeklyInterestRateOverride) : null,
     loanApplications: rest.loanApplications.map((a) => ({
       ...a,
       amount: Number(a.amount),
@@ -119,6 +123,8 @@ export async function PUT(
       bankAccount: existing.bankAccount,
       bankName: existing.bankName,
       riskLevel: existing.riskLevel,
+      weeklyInterestRateOverride: existing.weeklyInterestRateOverride != null ? Number(existing.weeklyInterestRateOverride) : null,
+      pricingRemark: existing.pricingRemark,
       remark: existing.remark,
     },
     newValue: {
@@ -132,6 +138,8 @@ export async function PUT(
       bankAccount: updated.bankAccount,
       bankName: updated.bankName,
       riskLevel: updated.riskLevel,
+      weeklyInterestRateOverride: updated.weeklyInterestRateOverride != null ? Number(updated.weeklyInterestRateOverride) : null,
+      pricingRemark: updated.pricingRemark,
       remark: updated.remark,
       passwordUpdated: Boolean(newPassword),
     },
@@ -141,7 +149,10 @@ export async function PUT(
   }).catch(() => undefined);
 
   const { passwordHash, ...rest } = updated;
-  return NextResponse.json(rest);
+  return NextResponse.json({
+    ...rest,
+    weeklyInterestRateOverride: updated.weeklyInterestRateOverride != null ? Number(updated.weeklyInterestRateOverride) : null,
+  });
 }
 
 export async function DELETE(
@@ -160,7 +171,7 @@ export async function DELETE(
   const activeLoan = await prisma.loanApplication.findFirst({
     where: {
       customerId: id,
-      status: { in: ["PENDING", "APPROVED", "DISBURSED"] },
+      status: { in: [...ACTIVE_LOAN_STATUSES] },
       deletedAt: null,
     },
   });

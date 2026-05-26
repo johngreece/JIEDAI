@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFunderSession, getAdminSession } from "@/lib/auth";
+import { getFunderSession } from "@/lib/auth";
+import { ensureActiveFunderSession } from "@/lib/portal-session";
+import { requirePermission } from "@/lib/rbac";
 import { FunderContractService } from "@/services/funder-contract.service";
 
 export const dynamic = "force-dynamic";
@@ -13,11 +15,13 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const funderSession = await getFunderSession();
-  const adminSession = await getAdminSession();
-
-  if (!funderSession && !adminSession) {
-    return NextResponse.json({ error: "未授权" }, { status: 401 });
+  if (funderSession) {
+    const activeFunderSession = await ensureActiveFunderSession(funderSession);
+    if (activeFunderSession instanceof Response) return activeFunderSession;
   }
+  const adminSession = funderSession ? null : await requirePermission(["contract:view"]);
+
+  if (adminSession instanceof Response) return adminSession;
 
   const { id } = await params;
   const contract = await FunderContractService.get(id);

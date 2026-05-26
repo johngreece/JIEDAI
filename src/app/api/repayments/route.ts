@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
@@ -109,6 +110,10 @@ export async function POST(req: Request) {
   const session = await requirePermission(["repayment:create"]);
   if (session instanceof Response) return session;
 
+  const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "repayment-register"]);
+  const cached = await checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
+
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
@@ -121,13 +126,27 @@ export async function POST(req: Request) {
   let created;
   try {
     created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const plan = await tx.repaymentPlan.findUnique({ where: { id: input.planId } });
+      const plan = await tx.repaymentPlan.findUnique({
+        where: { id: input.planId },
+        select: { id: true, status: true, version: true },
+      });
       if (!plan) throw new Error("PLAN_NOT_FOUND");
       if (plan.status !== "ACTIVE") throw new Error("PLAN_NOT_ACTIVE");
 
-      // 检查是否有 PENDING 状态的还款记录（防止重复创建）
+      const claimedPlan = await tx.repaymentPlan.updateMany({
+        where: { id: input.planId, version: plan.version },
+        data: { version: { increment: 1 } },
+      });
+      if (claimedPlan.count !== 1) throw new Error("PLAN_CHANGED");
+
+      // 检查是否已有未核销还款记录（防止重复创建）
       const pendingRepayment = await tx.repayment.findFirst({
-        where: { planId: input.planId, status: "PENDING" },
+        where: {
+          planId: input.planId,
+          status: {
+            in: ["PENDING", "MATCHED", "MANUAL_REVIEW", "PENDING_CONFIRM", "CUSTOMER_CONFIRMED"],
+          },
+        },
       });
       if (pendingRepayment) throw new Error("HAS_PENDING");
 
@@ -152,6 +171,7 @@ export async function POST(req: Request) {
     const msg = e instanceof Error ? e.message : "";
     if (msg === "PLAN_NOT_FOUND") return NextResponse.json({ error: "还款计划不存在" }, { status: 404 });
     if (msg === "PLAN_NOT_ACTIVE") return NextResponse.json({ error: "仅 ACTIVE 计划可登记还款" }, { status: 400 });
+    if (msg === "PLAN_CHANGED") return NextResponse.json({ error: "还款计划状态已变化，请刷新后重试" }, { status: 409 });
     if (msg === "HAS_PENDING") return NextResponse.json({ error: "该计划已有待处理的还款，请先处理" }, { status: 409 });
     return NextResponse.json({ error: "还款登记失败" }, { status: 500 });
   }
@@ -170,9 +190,12 @@ export async function POST(req: Request) {
     changeSummary: "财务登记还款",
   }).catch((e) => console.error("[AuditLog] repayment-create", e));
 
-  return NextResponse.json({
+  const result = {
     id: created.id,
     repaymentNo: created.repaymentNo,
     status: created.status,
-  });
+  };
+  await saveIdempotencyResult(idemKey, result);
+
+  return NextResponse.json(result);
 }

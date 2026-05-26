@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession, isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -11,15 +12,15 @@ const createSchema = z.object({
   accountNo: z.string().min(1),
 });
 
-async function requireSuperAdminSession() {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+async function requireSuperAdminSession(requiredPermissions: string[]) {
+  const session = await requirePermission(requiredPermissions);
+  if (session instanceof Response) return session;
   if (!isSuperAdmin(session)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return session;
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSuperAdminSession();
+  const session = await requireSuperAdminSession(["ledger:view"]);
   if (session instanceof Response) return session;
 
   const { id } = await params;
@@ -40,7 +41,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSuperAdminSession();
+  const session = await requireSuperAdminSession(["settings:edit"]);
   if (session instanceof Response) return session;
 
   const { id } = await params;

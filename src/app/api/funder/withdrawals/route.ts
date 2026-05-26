@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFunderSession } from "@/lib/auth";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { requireActiveFunderSession } from "@/lib/portal-session";
 import { FunderInterestService } from "@/services/funder-interest.service";
 import { prisma } from "@/lib/prisma";
 
@@ -7,10 +8,8 @@ export const dynamic = "force-dynamic";
 
 /* GET — 获取提现记录 */
 export async function GET() {
-  const session = await getFunderSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveFunderSession();
+  if (session instanceof Response) return session;
 
   const funder = await prisma.funder.findUnique({
     where: { id: session.sub },
@@ -57,10 +56,12 @@ export async function GET() {
 
 /* POST — 发起提现申请 */
 export async function POST(req: NextRequest) {
-  const session = await getFunderSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveFunderSession();
+  if (session instanceof Response) return session;
+
+  const idemKey = getScopedIdempotencyKey(req, ["funder", session.sub, "withdrawal"]);
+  const cached = await checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
 
   const body = await req.json().catch(() => ({}));
   const { amount, type, includeInterest, remark } = body;
@@ -81,11 +82,13 @@ export async function POST(req: NextRequest) {
       remark,
     });
 
-    return NextResponse.json({
+    const result = {
       id: withdrawal.id,
       amount: Number(withdrawal.amount),
       status: withdrawal.status,
-    });
+    };
+    await saveIdempotencyResult(idemKey, result);
+    return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "提现失败" },

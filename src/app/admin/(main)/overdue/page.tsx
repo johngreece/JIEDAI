@@ -15,10 +15,21 @@ type OverdueItem = {
 };
 
 const STATUS_MAP: Record<string, { label: string; cls: string }> = {
-  OPEN: { label: "逾期中", cls: "bg-red-50 text-red-700 border-red-200" },
+  OVERDUE: { label: "逾期中", cls: "bg-red-50 text-red-700 border-red-200" },
   RESOLVED: { label: "已解决", cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   WRITTEN_OFF: { label: "已核销", cls: "bg-slate-100 text-slate-500 border-slate-200" },
 };
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
 export default function OverduePage() {
   const [items, setItems] = useState<OverdueItem[]>([]);
@@ -80,7 +91,7 @@ export default function OverduePage() {
             }}
           >
             <option value="">全部状态</option>
-            <option value="OPEN">逾期中</option>
+            <option value="OVERDUE">逾期中</option>
             <option value="RESOLVED">已解决</option>
             <option value="WRITTEN_OFF">已核销</option>
           </select>
@@ -147,7 +158,7 @@ export default function OverduePage() {
                           {statusMeta.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-slate-500">{new Date(item.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-3 text-slate-500">{formatDateTime(item.createdAt)}</td>
                     </tr>
                   );
                 })

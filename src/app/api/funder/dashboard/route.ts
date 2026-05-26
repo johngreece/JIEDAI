@@ -1,15 +1,13 @@
 import { NextResponse } from "next/server";
-import { getFunderSession } from "@/lib/auth";
+import { requireActiveFunderSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { FunderInterestService } from "@/services/funder-interest.service";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const session = await getFunderSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveFunderSession();
+  if (session instanceof Response) return session;
 
   const funder = await prisma.funder.findUnique({
     where: { id: session.sub },

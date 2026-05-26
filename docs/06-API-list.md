@@ -70,14 +70,16 @@
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /api/loan-products | 产品列表 |
-| GET | /api/loan-products/:id | 产品详情（含规则） |
-| POST | /api/loan-products | 创建产品 |
-| PUT | /api/loan-products/:id | 更新产品（版本化） |
-| GET | /api/pricing-rules | 定价规则列表（可按 productId 筛选） |
-| POST | /api/pricing-rules | 创建规则 |
-| PUT | /api/pricing-rules/:id | 更新规则（生效时间） |
-| POST | /api/loan-products/trial | 费用试算（金额、期限、产品） |
+| GET | /api/products | 产品列表 |
+| GET | /api/products/:id | 产品详情（含有效定价规则） |
+| POST | /api/products | 创建产品 |
+| PUT | /api/products/:id | 更新产品 |
+| DELETE | /api/products/:id | 软删除产品（有在途业务时禁止） |
+| GET | /api/products/:id/pricing-rules | 产品定价规则列表 |
+| POST | /api/products/:id/pricing-rules | 创建产品定价规则（校验 JSON、窗口、费率） |
+| PUT/PATCH | /api/products/:id/pricing-rules/:ruleId | 更新产品定价规则（写审计、版本号递增） |
+| DELETE | /api/products/:id/pricing-rules/:ruleId | 停用产品定价规则（禁止停用最后一条通道/阶梯规则） |
+| POST | /api/products/trial | 费用试算（金额、期限、产品） |
 
 ---
 
@@ -106,10 +108,10 @@
 | POST | /api/contract-templates | 创建模板 |
 | PUT | /api/contract-templates/:id | 更新模板（版本） |
 | GET | /api/contracts | 合同列表 |
-| GET | /api/contracts/:id | 合同详情（含变量快照、签署记录） |
+| GET | /api/contracts/:id | 合同详情（客户仅本人；管理端需 contract:view） |
 | POST | /api/loan-applications/:id/generate-contract | 生成合同（审批通过后） |
 | GET | /api/contracts/:id/pdf | 合同 PDF 下载/预览 |
-| POST | /api/contracts/:id/sign | 提交签署（手写/勾选/验证码 + 设备信息） |
+| POST | /api/contracts/:id/sign | 客户本人提交签署（管理端不可代签） |
 | POST | /api/contracts/:id/cancel | 作废合同 |
 
 ---
@@ -120,7 +122,7 @@
 |------|------|------|
 | GET | /api/disbursements | 放款列表（待放款/已放款） |
 | GET | /api/disbursements/pending | 待放款列表 |
-| GET | /api/disbursements/:id | 放款单详情 |
+| GET | /api/disbursements/:id | 放款单详情（含客户确认收款证据） |
 | POST | /api/disbursements | 创建放款单（合同已签后） |
 | PUT | /api/disbursements/:id | 更新（打款信息、凭证） |
 | POST | /api/disbursements/:id/confirm-paid | 标记已打款 |

@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
+import Decimal from "decimal.js";
 import { z } from "zod";
-import { getAdminSession, isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/auth";
+import { ACTIVE_LOAN_STATUSES, OPEN_FUNDER_WITHDRAWAL_STATUSES } from "@/lib/business-status";
+import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +30,15 @@ const updateSchema = z.object({
   withdrawalCooldownDays: z.number().int().min(0).optional(),
 });
 
-async function requireSuperAdminSession() {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+async function requireSuperAdminSession(requiredPermissions: string[]) {
+  const session = await requirePermission(requiredPermissions);
+  if (session instanceof Response) return session;
   if (!isSuperAdmin(session)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return session;
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSuperAdminSession();
+  const session = await requireSuperAdminSession(["ledger:view"]);
   if (session instanceof Response) return session;
 
   const { id } = await params;
@@ -80,7 +84,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSuperAdminSession();
+  const session = await requireSuperAdminSession(["settings:edit"]);
   if (session instanceof Response) return session;
 
   const { id } = await params;
@@ -134,17 +138,83 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSuperAdminSession();
+  const session = await requireSuperAdminSession(["settings:edit"]);
   if (session instanceof Response) return session;
 
   const { id } = await params;
   const existing = await prisma.funder.findFirst({
     where: { id, deletedAt: null },
-    select: { id: true },
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+      accounts: {
+        where: { isActive: true },
+        select: {
+          id: true,
+          accountName: true,
+          balance: true,
+        },
+      },
+    },
   });
 
   if (!existing) {
     return NextResponse.json({ error: "资金方不存在" }, { status: 404 });
+  }
+
+  const nonZeroAccounts = existing.accounts.filter(
+    (account) => !new Decimal(account.balance.toString()).isZero(),
+  );
+
+  if (nonZeroAccounts.length > 0) {
+    return NextResponse.json(
+      {
+        error: "资金方仍有未清零资金账户，不能删除",
+        accounts: nonZeroAccounts.map((account) => ({
+          id: account.id,
+          accountName: account.accountName,
+          balance: Number(account.balance),
+        })),
+      },
+      { status: 409 },
+    );
+  }
+
+  const [activeLoanDisbursements, pendingInflows, openWithdrawals] = await Promise.all([
+    prisma.disbursement.count({
+      where: {
+        fundAccount: { funderId: id },
+        application: {
+          status: { in: [...ACTIVE_LOAN_STATUSES] },
+          deletedAt: null,
+        },
+      },
+    }),
+    prisma.capitalInflow.count({
+      where: {
+        fundAccount: { funderId: id },
+        status: "PENDING",
+      },
+    }),
+    prisma.funderWithdrawal.count({
+      where: {
+        funderId: id,
+        status: { in: [...OPEN_FUNDER_WITHDRAWAL_STATUSES] },
+      },
+    }),
+  ]);
+
+  if (activeLoanDisbursements > 0 || pendingInflows > 0 || openWithdrawals > 0) {
+    return NextResponse.json(
+      {
+        error: "资金方仍有关联的在途借款、入金或提现流程，不能删除",
+        activeLoanDisbursements,
+        pendingInflows,
+        openWithdrawals,
+      },
+      { status: 409 },
+    );
   }
 
   await prisma.$transaction(async (tx) => {
@@ -163,6 +233,20 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
       },
     });
   });
+
+  await writeAuditLog({
+    userId: session.sub,
+    action: "delete",
+    entityType: "funder",
+    entityId: id,
+    oldValue: {
+      name: existing.name,
+      isActive: existing.isActive,
+      activeAccountCount: existing.accounts.length,
+    },
+    newValue: { deletedAt: true, isActive: false },
+    changeSummary: "Soft-delete funder after balance and open-flow checks",
+  }).catch((error) => console.error("[AuditLog] funder-delete", error));
 
   return NextResponse.json({ success: true });
 }

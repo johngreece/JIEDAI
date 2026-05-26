@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +17,8 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["settings:view"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const tpl = await prisma.contractTemplate.findFirst({
@@ -32,8 +33,8 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["settings:edit"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -54,6 +55,26 @@ export async function PUT(
     },
   });
 
+  await writeAuditLog({
+    userId: session.sub,
+    action: "update",
+    entityType: "contract_template",
+    entityId: id,
+    oldValue: {
+      name: existing.name,
+      code: existing.code,
+      version: existing.version,
+      isActive: existing.isActive,
+    },
+    newValue: {
+      name: updated.name,
+      code: updated.code,
+      version: updated.version,
+      isActive: updated.isActive,
+    },
+    changeSummary: "Update contract template and increment version",
+  }).catch((error) => console.error("[AuditLog] template-update", error));
+
   return NextResponse.json(updated);
 }
 
@@ -61,8 +82,8 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["settings:edit"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const existing = await prisma.contractTemplate.findFirst({ where: { id, deletedAt: null } });
@@ -76,6 +97,20 @@ export async function DELETE(
       where: { id },
       data: { isActive: false },
     });
+    await writeAuditLog({
+      userId: session.sub,
+      action: "update",
+      entityType: "contract_template",
+      entityId: id,
+      oldValue: {
+        name: existing.name,
+        code: existing.code,
+        isActive: existing.isActive,
+        usedCount,
+      },
+      newValue: { isActive: false },
+      changeSummary: "Deactivate contract template because existing contracts reference it",
+    }).catch((error) => console.error("[AuditLog] template-deactivate", error));
     return NextResponse.json({ success: true, message: "已停用（有合同引用，无法删除）" });
   }
 
@@ -83,5 +118,19 @@ export async function DELETE(
     where: { id },
     data: { deletedAt: new Date() },
   });
+  await writeAuditLog({
+    userId: session.sub,
+    action: "delete",
+    entityType: "contract_template",
+    entityId: id,
+    oldValue: {
+      name: existing.name,
+      code: existing.code,
+      version: existing.version,
+      isActive: existing.isActive,
+    },
+    newValue: { deletedAt: true },
+    changeSummary: "Soft-delete unused contract template",
+  }).catch((error) => console.error("[AuditLog] template-delete", error));
   return NextResponse.json({ success: true });
 }

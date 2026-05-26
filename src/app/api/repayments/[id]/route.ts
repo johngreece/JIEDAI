@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { ensureActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { writeAuditLog } from "@/lib/audit";
@@ -8,12 +9,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await getSession();
   if (!session) {
-    return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
   const { id } = await params;
   const repayment = await prisma.repayment.findUnique({
     where: { id },
@@ -24,6 +26,11 @@ export async function GET(
       status: true,
       matchComment: true,
       updatedAt: true,
+      plan: {
+        select: {
+          applicationId: true,
+        },
+      },
       confirmation: {
         select: {
           status: true,
@@ -33,9 +40,33 @@ export async function GET(
       },
     },
   });
+
   if (!repayment) {
-    return NextResponse.json({ error: "还款记录不存在" }, { status: 404 });
+    return NextResponse.json({ error: "Repayment not found" }, { status: 404 });
   }
+
+  if (session.portal === "admin") {
+    const adminSession = await requirePermission(["repayment:view"]);
+    if (adminSession instanceof Response) return adminSession;
+  } else if (session.portal === "client") {
+    const activeClientSession = await ensureActiveClientSession(session);
+    if (activeClientSession instanceof Response) return activeClientSession;
+
+    const ownedApplication = await prisma.loanApplication.findFirst({
+      where: {
+        id: repayment.plan.applicationId,
+        customerId: session.sub,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!ownedApplication) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+  } else {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   return NextResponse.json({
     id: repayment.id,
     repaymentNo: repayment.repaymentNo,
@@ -49,7 +80,7 @@ export async function GET(
 
 export async function DELETE(
   _req: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await requirePermission(["repayment:allocate"]);
   if (session instanceof Response) return session;
@@ -64,43 +95,52 @@ export async function DELETE(
   });
 
   if (!repayment) {
-    return NextResponse.json({ error: "还款记录不存在" }, { status: 404 });
+    return NextResponse.json({ error: "Repayment not found" }, { status: 404 });
   }
 
   if (repayment.status === "CONFIRMED") {
-    return NextResponse.json({ error: "已确认到账的还款不能删除" }, { status: 409 });
+    return NextResponse.json({ error: "Confirmed repayments cannot be cancelled" }, { status: 409 });
+  }
+
+  if (repayment.status === "CANCELLED") {
+    return NextResponse.json({ error: "Repayment already cancelled" }, { status: 409 });
   }
 
   await prisma.$transaction(async (tx) => {
     if (repayment.confirmation) {
-      await tx.repaymentConfirmation.delete({
+      await tx.repaymentConfirmation.update({
         where: { repaymentId: id },
+        data: {
+          status: "REJECTED",
+          rejectReason: "Repayment record cancelled by operator before receipt confirmation",
+          confirmedAt: null,
+        },
       });
     }
 
-    if (repayment.allocations.length > 0) {
-      await tx.repaymentAllocation.deleteMany({
-        where: { repaymentId: id },
-      });
-    }
-
-    await tx.repayment.delete({
+    await tx.repayment.update({
       where: { id },
+      data: {
+        status: "CANCELLED",
+        matchComment: "Cancelled by operator before receipt confirmation",
+      },
     });
   });
 
   await writeAuditLog({
     userId: session.sub,
-    action: "delete",
+    action: "cancel",
     entityType: "repayment",
     entityId: id,
     oldValue: {
       repaymentNo: repayment.repaymentNo,
       status: repayment.status,
       amount: Number(repayment.amount),
+      allocationCount: repayment.allocations.length,
     },
-    changeSummary: "删除还款记录",
+    newValue: { status: "CANCELLED" },
+    changeSummary: "Cancel repayment record before receipt confirmation",
   }).catch(() => undefined);
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, status: "CANCELLED" });
 }

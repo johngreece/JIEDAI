@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
 type LoanItem = {
   id: string;
@@ -102,7 +103,10 @@ export function DisbursementsPageClient() {
     try {
       const res = await fetch("/api/disbursements", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": makeClientIdempotencyKey("admin-disbursement-create"),
+        },
         body: JSON.stringify({
           applicationId: form.applicationId,
           fundAccountId: form.fundAccountId,
@@ -133,7 +137,12 @@ export function DisbursementsPageClient() {
   async function confirmPaid(id: string) {
     setActing(id);
     try {
-      const res = await fetch(`/api/disbursements/${id}/confirm-paid`, { method: "POST" });
+      const res = await fetch(`/api/disbursements/${id}/confirm-paid`, {
+        method: "POST",
+        headers: {
+          "x-idempotency-key": makeClientIdempotencyKey("admin-disbursement-confirm-paid"),
+        },
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to confirm disbursement");
       await Promise.all([loadList(), loadOptions()]);

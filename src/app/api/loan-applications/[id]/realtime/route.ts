@@ -6,7 +6,10 @@
  */
 
 import { NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import { ensureActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 import {
   calculateRealtimeRepayment,
   parseTiersFromPricingRules,
@@ -18,6 +21,7 @@ import {
   type RepaymentTier,
   type OverdueConfig,
 } from "@/lib/interest-engine";
+import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +30,10 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const application = await prisma.loanApplication.findUnique({
     where: { id },
@@ -39,12 +47,30 @@ export async function GET(
         },
       },
       disbursement: true,
-      customer: { select: { id: true, name: true, phone: true } },
+      customer: { select: { id: true, name: true, phone: true, weeklyInterestRateOverride: true } },
     },
   });
 
   if (!application) {
     return NextResponse.json({ error: "借款申请不存在" }, { status: 404 });
+  }
+
+  if (session.portal === "client") {
+    const activeClientSession = await ensureActiveClientSession(session);
+    if (activeClientSession instanceof Response) return activeClientSession;
+
+    if (application.customerId !== session.sub) {
+      return NextResponse.json({ error: "无权查看该借款的实时还款信息" }, { status: 403 });
+    }
+  }
+
+  if (session.portal === "admin") {
+    const permission = await requirePermission(["loan:view"]);
+    if (permission instanceof Response) return permission;
+  }
+
+  if (session.portal === "funder") {
+    return NextResponse.json({ error: "资金端无权查看客户实时还款明细" }, { status: 403 });
   }
 
   if (!application.disbursement || application.disbursement.status !== "PAID") {
@@ -94,20 +120,22 @@ export async function GET(
   if (!plan?.rulesSnapshotJson) {
     if (application.product.pricingRules.length > 0) {
       const parsed = parseTiersFromPricingRules(application.product.pricingRules);
-      tiers = parsed.tiers;
-      overdueConfig = parsed.overdueConfig;
-      upfrontFeeRate = parsed.upfrontFeeRate;
-      channel = parsed.channel;
+      const effective = applyCustomerPricingOverride(parsed, application.customer);
+      tiers = effective.tiers;
+      overdueConfig = effective.overdueConfig;
+      upfrontFeeRate = effective.upfrontFeeRate;
+      channel = effective.channel;
     } else {
       const settingsRows = await prisma.systemSetting.findMany();
       const sysMap: Record<string, string | number> = {};
       for (const s of settingsRows) sysMap[s.key] = s.value;
       const loanOverride = null;
       const parsed = loadFeeConfig(sysMap, loanOverride);
-      tiers = parsed.tiers;
-      overdueConfig = parsed.overdueConfig;
-      upfrontFeeRate = parsed.upfrontFeeRate;
-      channel = parsed.channel;
+      const effective = applyCustomerPricingOverride(parsed, application.customer);
+      tiers = effective.tiers;
+      overdueConfig = effective.overdueConfig;
+      upfrontFeeRate = effective.upfrontFeeRate;
+      channel = effective.channel;
     }
   }
 
@@ -149,7 +177,13 @@ export async function GET(
   return NextResponse.json({
     applicationId: id,
     applicationNo: application.applicationNo,
-    customer: application.customer,
+    customer: {
+      ...application.customer,
+      weeklyInterestRateOverride:
+        application.customer.weeklyInterestRateOverride != null
+          ? Number(application.customer.weeklyInterestRateOverride)
+          : null,
+    },
     productName: application.product.name,
     channel: result.channel,
     principal: result.principal,

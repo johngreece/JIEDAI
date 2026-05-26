@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { settleRepaymentReceipt } from "@/lib/repayment-confirm";
 import { requirePermission } from "@/lib/rbac";
 
@@ -18,6 +19,10 @@ export async function POST(
   if (session instanceof Response) return session;
 
   const { id } = await params;
+  const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "repayment-confirm", id]);
+  const cached = await checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
+
   const body = await req.json().catch(() => ({}));
   const parsed = bodySchema.safeParse(body);
 
@@ -36,11 +41,14 @@ export async function POST(
       rejectReason: parsed.data.rejectReason,
     });
 
-    return NextResponse.json({
+    const responseBody = {
       id: repayment.id,
       status: repayment.status,
       receivedAt: repayment.receivedAt?.toISOString() ?? null,
-    });
+    };
+    await saveIdempotencyResult(idemKey, responseBody);
+
+    return NextResponse.json(responseBody);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Confirm failed";
     return NextResponse.json({ error: message }, { status: 400 });

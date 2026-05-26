@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["customer:view"]);
+  if (session instanceof Response) return session;
 
   const url = new URL(req.url);
   const pagination = parsePagination(url);
@@ -39,6 +39,7 @@ export async function GET(req: Request) {
         idNumber: true,
         email: true,
         riskLevel: true,
+        weeklyInterestRateOverride: true,
         source: true,
         createdAt: true,
       },
@@ -47,5 +48,13 @@ export async function GET(req: Request) {
     prisma.customer.count({ where }),
   ]);
 
-  return NextResponse.json(paginatedResponse(items, total, pagination));
+  return NextResponse.json(paginatedResponse(
+    items.map((item) => ({
+      ...item,
+      weeklyInterestRateOverride:
+        item.weeklyInterestRateOverride != null ? Number(item.weeklyInterestRateOverride) : null,
+    })),
+    total,
+    pagination,
+  ));
 }

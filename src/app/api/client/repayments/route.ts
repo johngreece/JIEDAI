@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getClientSession } from "@/lib/auth";
+import { TERMINAL_LOAN_STATUSES } from "@/lib/business-status";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 import {
@@ -14,6 +16,7 @@ import {
   type OverdueConfig,
   type RepaymentTier,
 } from "@/lib/interest-engine";
+import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -37,10 +40,12 @@ function money(value: number) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getClientSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
+
+  const idemKey = getScopedIdempotencyKey(req, ["client", session.sub, "repayment-request"]);
+  const cached = await checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -53,14 +58,14 @@ export async function POST(req: NextRequest) {
   const [customer, activeApplication, operator] = await Promise.all([
     prisma.customer.findUnique({
       where: { id: session.sub },
-      select: { id: true, name: true, phone: true, deletedAt: true },
+      select: { id: true, name: true, phone: true, deletedAt: true, weeklyInterestRateOverride: true },
     }),
     prisma.loanApplication.findFirst({
       where: {
         customerId: session.sub,
         deletedAt: null,
         status: {
-          notIn: ["SETTLED", "COMPLETED", "REJECTED"],
+          notIn: [...TERMINAL_LOAN_STATUSES],
         },
       },
       orderBy: { createdAt: "desc" },
@@ -161,19 +166,21 @@ export async function POST(req: NextRequest) {
       }
     } else if (activeApplication.product.pricingRules.length > 0) {
       const parsed = parseTiersFromPricingRules(activeApplication.product.pricingRules);
-      tiers = parsed.tiers;
-      overdueConfig = parsed.overdueConfig;
-      upfrontFeeRate = parsed.upfrontFeeRate;
-      channel = parsed.channel;
+      const effective = applyCustomerPricingOverride(parsed, customer);
+      tiers = effective.tiers;
+      overdueConfig = effective.overdueConfig;
+      upfrontFeeRate = effective.upfrontFeeRate;
+      channel = effective.channel;
     } else {
       const settingsRows = await prisma.systemSetting.findMany();
       const sysMap: Record<string, string | number> = {};
       for (const setting of settingsRows) sysMap[setting.key] = setting.value;
       const parsed = loadFeeConfig(sysMap, null);
-      tiers = parsed.tiers;
-      overdueConfig = parsed.overdueConfig;
-      upfrontFeeRate = parsed.upfrontFeeRate;
-      channel = parsed.channel;
+      const effective = applyCustomerPricingOverride(parsed, customer);
+      tiers = effective.tiers;
+      overdueConfig = effective.overdueConfig;
+      upfrontFeeRate = effective.upfrontFeeRate;
+      channel = effective.channel;
     }
 
     if (!dueDate) {
@@ -273,5 +280,6 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
+  await saveIdempotencyResult(idemKey, repayment);
   return NextResponse.json(repayment);
 }

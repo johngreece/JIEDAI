@@ -10,6 +10,8 @@ import {
   PROFESSIONAL_LOAN_TEMPLATE_HTML,
   PROFESSIONAL_LOAN_TEMPLATE_VARIABLES,
 } from "@/lib/contract-engine/professional-loan-template";
+import { applyCustomerPricingOverride, buildCustomerPricingQuote } from "@/lib/customer-pricing";
+import { parseTiersFromPricingRules } from "@/lib/interest-engine";
 
 type ContractRecord = NonNullable<Awaited<ReturnType<typeof prisma.contract.findFirst>>>;
 
@@ -74,6 +76,7 @@ function buildRenderedContract(params: {
     params.options?.contractPrincipal,
     basePrincipal + capitalizedInterestAmount
   );
+  const contractDisplayInterestRate = params.options?.contractDisplayInterestRate || "2%";
 
   const context = buildContractContext({
     platformName: "借贷智能管理平台",
@@ -94,7 +97,7 @@ function buildRenderedContract(params: {
     termUnit: formatTermUnit(params.termUnit),
     interestRate: "正常利息已按业务规则并入本金",
     serviceFee: "不适用",
-    contractDisplayInterestRate: params.options?.contractDisplayInterestRate || "2%",
+    contractDisplayInterestRate,
     contractDisplayInterestNote:
       "仅用于合同展示和法律依据，不参与系统正常利息重复计算。",
     totalRepay: money(contractPrincipal),
@@ -146,7 +149,17 @@ export class ContractService {
   ): Promise<ServiceResponse<ContractDraftPayload>> {
     const application = await prisma.loanApplication.findUnique({
       where: { id: applicationId },
-      include: { customer: true, product: true },
+      include: {
+        customer: true,
+        product: {
+          include: {
+            pricingRules: {
+              where: { isActive: true },
+              orderBy: { priority: "desc" },
+            },
+          },
+        },
+      },
     });
 
     if (!application) {
@@ -195,6 +208,19 @@ export class ContractService {
         ? PROFESSIONAL_LOAN_TEMPLATE_HTML
         : template.content;
 
+    const pricingConfig = applyCustomerPricingOverride(
+      parseTiersFromPricingRules(application.product.pricingRules),
+      application.customer,
+    );
+    const pricingQuote = buildCustomerPricingQuote(Number(application.amount), pricingConfig);
+    const resolvedOptions: MainContractOptions = {
+      ...options,
+      contractDisplayInterestRate:
+        options?.contractDisplayInterestRate ?? pricingQuote.contractDisplayInterestRate,
+      weeklyInterestAmount: options?.weeklyInterestAmount ?? pricingQuote.weeklyInterestAmount,
+      monthlyInterestAmount: options?.monthlyInterestAmount ?? pricingQuote.monthlyInterestAmount,
+    };
+
     try {
       const rendered = buildRenderedContract({
         templateContent,
@@ -207,7 +233,7 @@ export class ContractService {
         amount: Number(application.amount),
         termValue: application.termValue,
         termUnit: application.termUnit,
-        options,
+        options: resolvedOptions,
       });
 
       const variableNames =
@@ -231,10 +257,10 @@ export class ContractService {
                 options?.contractPrincipal ??
                 (options?.basePrincipal ?? Number(application.amount)) +
                   (options?.capitalizedInterestAmount ?? 0),
-              contractDisplayInterestRate:
-                options?.contractDisplayInterestRate ?? "2%",
-              weeklyInterestAmount: options?.weeklyInterestAmount ?? "",
-              monthlyInterestAmount: options?.monthlyInterestAmount ?? "",
+              contractDisplayInterestRate: resolvedOptions.contractDisplayInterestRate,
+              weeklyInterestAmount: resolvedOptions.weeklyInterestAmount ?? "",
+              monthlyInterestAmount: resolvedOptions.monthlyInterestAmount ?? "",
+              pricingQuote,
             },
           }),
         },

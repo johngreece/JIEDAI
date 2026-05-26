@@ -9,6 +9,7 @@
 import { prisma } from "./prisma";
 
 const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000; // 10 分钟
+const MAX_IDEMPOTENCY_KEY_LENGTH = 180;
 
 /**
  * 检查幂等键是否已存在；命中则返回先前结果
@@ -50,6 +51,21 @@ export async function saveIdempotencyResult(key: string | null, result: unknown)
 
 export function getIdempotencyKey(req: Request): string | null {
   return req.headers.get("x-idempotency-key");
+}
+
+export function getScopedIdempotencyKey(
+  req: Request,
+  scopeParts: Array<string | number | null | undefined>
+): string | null {
+  const rawKey = getIdempotencyKey(req)?.trim();
+  if (!rawKey || rawKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) return null;
+
+  const scope = scopeParts
+    .map((part) => String(part ?? "").trim())
+    .filter(Boolean)
+    .join(":");
+
+  return scope ? `${scope}:${rawKey}` : rawKey;
 }
 
 // ── 乐观锁 ──────────────────────────────────────────────────────────────

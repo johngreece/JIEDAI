@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
+import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 import type { RepaymentPlanPrefetchItem, RepaymentPrefetchItem } from "@/lib/admin-prefetch";
 
 type ScheduleItem = {
@@ -51,6 +52,8 @@ export function RepaymentsPageClient({
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [allocatingId, setAllocatingId] = useState<string | null>(null);
+  const allocateKeyRef = useRef<string | null>(null);
+  const allocateInFlightRef = useRef(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
@@ -64,6 +67,10 @@ export function RepaymentsPageClient({
     repaymentId: "",
     items: [{ ...EMPTY_ALLOCATION_ROW }],
   });
+
+  function clearAllocateKey() {
+    allocateKeyRef.current = null;
+  }
 
   async function loadAll() {
     setLoading(true);
@@ -93,7 +100,10 @@ export function RepaymentsPageClient({
 
     const response = await fetch("/api/repayments", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-idempotency-key": makeClientIdempotencyKey("admin-repayment-register"),
+      },
       body: JSON.stringify({
         planId: form.planId,
         amount: Number(form.amount),
@@ -124,6 +134,7 @@ export function RepaymentsPageClient({
 
   async function allocate(event: React.FormEvent) {
     event.preventDefault();
+    if (allocateInFlightRef.current) return;
 
     const normalizedItems = allocForm.items.filter((item) => item.itemId && item.amount && Number(item.amount) > 0);
     if (!allocForm.repaymentId || normalizedItems.length === 0) {
@@ -131,30 +142,44 @@ export function RepaymentsPageClient({
       return;
     }
 
+    const idempotencyKey = allocateKeyRef.current ?? makeClientIdempotencyKey("admin-repayment-allocate");
+    allocateKeyRef.current = idempotencyKey;
+    allocateInFlightRef.current = true;
     setAllocatingId(allocForm.repaymentId);
-    const response = await fetch(`/api/repayments/${allocForm.repaymentId}/allocate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        allocations: normalizedItems.map((item) => ({
-          itemId: item.itemId,
-          amount: Number(item.amount),
-          type: item.type,
-        })),
-      }),
-    });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      alert(data.error ?? "分配失败");
+    try {
+      const response = await fetch(`/api/repayments/${allocForm.repaymentId}/allocate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          allocations: normalizedItems.map((item) => ({
+            itemId: item.itemId,
+            amount: Number(item.amount),
+            type: item.type,
+          })),
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        allocateKeyRef.current = null;
+        alert(data.error ?? "分配失败");
+        return;
+      }
+
+      allocateKeyRef.current = null;
+      setAllocForm({ repaymentId: "", items: [{ ...EMPTY_ALLOCATION_ROW }] });
+      setSchedule([]);
+      await loadAll();
+    } catch {
+      alert("网络异常，请再次提交；系统会按同一次请求防止重复分配。");
+    } finally {
+      allocateInFlightRef.current = false;
       setAllocatingId(null);
-      return;
     }
-
-    setAllocForm({ repaymentId: "", items: [{ ...EMPTY_ALLOCATION_ROW }] });
-    setSchedule([]);
-    setAllocatingId(null);
-    await loadAll();
   }
 
   async function reviewRepayment(id: string, action: "RECEIVED" | "NOT_RECEIVED") {
@@ -166,7 +191,10 @@ export function RepaymentsPageClient({
     setReviewingId(id);
     const response = await fetch(`/api/repayments/${id}/confirm`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-idempotency-key": makeClientIdempotencyKey(`admin-repayment-confirm-${action.toLowerCase()}`),
+      },
       body: JSON.stringify({ action, rejectReason }),
     });
 
@@ -324,6 +352,7 @@ export function RepaymentsPageClient({
               required
               value={allocForm.repaymentId}
               onChange={(event) => {
+                clearAllocateKey();
                 const repayment = pendingRegister.find((item) => item.id === event.target.value);
                 setAllocForm({
                   repaymentId: event.target.value,
@@ -366,14 +395,15 @@ export function RepaymentsPageClient({
                   <select
                     required
                     value={row.itemId}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      clearAllocateKey();
                       setAllocForm((current) => ({
                         ...current,
                         items: current.items.map((item, itemIndex) =>
                           itemIndex === index ? { ...item, itemId: event.target.value } : item,
                         ),
-                      }))
-                    }
+                      }));
+                    }}
                     className="admin-field text-sm"
                   >
                     <option value="">请选择期次</option>
@@ -386,14 +416,15 @@ export function RepaymentsPageClient({
 
                   <select
                     value={row.type}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      clearAllocateKey();
                       setAllocForm((current) => ({
                         ...current,
                         items: current.items.map((item, itemIndex) =>
                           itemIndex === index ? { ...item, type: event.target.value as AllocationDraft["type"] } : item,
                         ),
-                      }))
-                    }
+                      }));
+                    }}
                     className="admin-field text-sm"
                   >
                     <option value="PRINCIPAL">本金</option>
@@ -407,28 +438,30 @@ export function RepaymentsPageClient({
                     type="number"
                     step="0.01"
                     value={row.amount}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      clearAllocateKey();
                       setAllocForm((current) => ({
                         ...current,
                         items: current.items.map((item, itemIndex) =>
                           itemIndex === index ? { ...item, amount: event.target.value } : item,
                         ),
-                      }))
-                    }
+                      }));
+                    }}
                     className="admin-field text-sm"
                   />
 
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      clearAllocateKey();
                       setAllocForm((current) => ({
                         ...current,
                         items:
                           current.items.length > 1
                             ? current.items.filter((_, itemIndex) => itemIndex !== index)
                             : [{ ...EMPTY_ALLOCATION_ROW }],
-                      }))
-                    }
+                      }));
+                    }}
                     className="admin-btn admin-btn-ghost admin-btn-sm"
                   >
                     删除
@@ -440,12 +473,13 @@ export function RepaymentsPageClient({
             <div className="mt-4 admin-btn-group">
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  clearAllocateKey();
                   setAllocForm((current) => ({
                     ...current,
                     items: [...current.items, { itemId: schedule[0]?.id ?? "", amount: "", type: "INTEREST" }],
-                  }))
-                }
+                  }));
+                }}
                 className="admin-btn admin-btn-secondary admin-btn-sm"
               >
                 新增一行
@@ -453,7 +487,8 @@ export function RepaymentsPageClient({
               {selectedRepayment ? (
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    clearAllocateKey();
                     setAllocForm((current) => ({
                       ...current,
                       items: [
@@ -463,8 +498,8 @@ export function RepaymentsPageClient({
                           type: "PRINCIPAL",
                         },
                       ],
-                    }))
-                  }
+                    }));
+                  }}
                   className="admin-btn admin-btn-secondary admin-btn-sm"
                 >
                   覆盖首行金额

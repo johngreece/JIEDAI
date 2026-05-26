@@ -9,6 +9,7 @@ export type CustomerListItem = {
   idNumber: string;
   email: string | null;
   riskLevel: string;
+  weeklyInterestRateOverride: number | null;
   source: string | null;
   createdAt: Date;
 };
@@ -107,6 +108,7 @@ export async function getCustomersList({
         idNumber: true,
         email: true,
         riskLevel: true,
+        weeklyInterestRateOverride: true,
         source: true,
         createdAt: true,
       },
@@ -115,7 +117,15 @@ export async function getCustomersList({
     prisma.customer.count({ where }),
   ]);
 
-  return paginatedResponse(items, total, pagination);
+  return paginatedResponse(
+    items.map((item) => ({
+      ...item,
+      weeklyInterestRateOverride:
+        item.weeklyInterestRateOverride != null ? Number(item.weeklyInterestRateOverride) : null,
+    })),
+    total,
+    pagination,
+  );
 }
 
 export async function getLoanApplicationsList({

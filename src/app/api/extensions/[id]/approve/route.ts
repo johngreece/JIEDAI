@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
+import { requirePermission } from "@/lib/rbac";
 import { approveExtension } from "@/services/extension.service";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +15,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["extension:approve"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -38,7 +36,7 @@ export async function POST(
     await writeAuditLog({
       userId: session.sub,
       action: parsed.data.action === "APPROVED" ? "approve" : "reject",
-      entityType: "extension" as any,
+      entityType: "extension",
       entityId: id,
       newValue: { action: parsed.data.action },
       changeSummary: `展期${parsed.data.action === "APPROVED" ? "审批通过" : "已拒绝"}`,

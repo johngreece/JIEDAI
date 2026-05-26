@@ -437,17 +437,31 @@ export class FunderInterestService {
       ?? funder.accounts[0]
       ?? null;
 
-    return prisma.funderWithdrawal.create({
-      data: {
-        funderId: params.funderId,
-        accountId: preferredAccount?.id ?? null,
-        amount: params.amount,
-        type: params.type,
-        includeInterest: params.includeInterest,
-        interestAmount,
-        remark: params.remark,
+    return prisma.$transaction(
+      async (tx) => {
+        const claimed = await tx.funder.updateMany({
+          where: { id: params.funderId, updatedAt: funder.updatedAt },
+          data: { updatedAt: new Date() },
+        });
+
+        if (claimed.count !== 1) {
+          throw new Error("Funder balance changed, please refresh and submit again");
+        }
+
+        return tx.funderWithdrawal.create({
+          data: {
+            funderId: params.funderId,
+            accountId: preferredAccount?.id ?? null,
+            amount: params.amount,
+            type: params.type,
+            includeInterest: params.includeInterest,
+            interestAmount,
+            remark: params.remark,
+          },
+        });
       },
-    });
+      { isolationLevel: "Serializable" },
+    );
   }
 
   static async approveWithdrawal(withdrawalId: string, adminId: string) {
@@ -514,6 +528,21 @@ export class FunderInterestService {
         throw new Error("No active fund account has enough available balance for this withdrawal");
       }
 
+      const now = new Date();
+      const claimed = await tx.funderWithdrawal.updateMany({
+        where: { id: withdrawalId, status: "PENDING" },
+        data: {
+          status: "APPROVED",
+          accountId: chosenAccount.id,
+          approvedAt: now,
+          approvedBy: adminId,
+        },
+      });
+
+      if (claimed.count !== 1) {
+        throw new Error("This withdrawal request has already been processed");
+      }
+
       await writeFundAccountLedgerEntry(tx, {
         fundAccountId: chosenAccount.id,
         type: "WITHDRAWAL",
@@ -538,31 +567,37 @@ export class FunderInterestService {
         },
       });
 
-      await tx.funderWithdrawal.update({
-        where: { id: withdrawalId },
-        data: {
-          status: "APPROVED",
-          accountId: chosenAccount.id,
-          approvedAt: new Date(),
-          approvedBy: adminId,
-        },
-      });
-
       return {
         ok: true,
         accountId: chosenAccount.id,
+        funderId: withdrawal.funderId,
+        withdrawalId: withdrawal.id,
+        amount: Number(withdrawal.amount),
+        interestAmount: Number(withdrawal.interestAmount),
+        type: withdrawal.type,
       };
-    });
+    }, { isolationLevel: "Serializable" });
   }
 
   static async rejectWithdrawal(withdrawalId: string, reason: string) {
-    return prisma.funderWithdrawal.update({
-      where: { id: withdrawalId },
-      data: {
-        status: "REJECTED",
-        rejectedAt: new Date(),
-        rejectedReason: reason,
+    return prisma.$transaction(
+      async (tx) => {
+        const claimed = await tx.funderWithdrawal.updateMany({
+          where: { id: withdrawalId, status: "PENDING" },
+          data: {
+            status: "REJECTED",
+            rejectedAt: new Date(),
+            rejectedReason: reason,
+          },
+        });
+
+        if (claimed.count !== 1) {
+          throw new Error("This withdrawal request has already been processed");
+        }
+
+        return tx.funderWithdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
       },
-    });
+      { isolationLevel: "Serializable" },
+    );
   }
 }

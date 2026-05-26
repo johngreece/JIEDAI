@@ -10,9 +10,9 @@ const defaultRates = {
   fee5hRate: 2,
   fee24hRate: 3,
   fee48hRate: 4,
-  fee7dRate: 6,
+  fee7dRate: 5,
   overdueGraceHours: 0,
-  overdueRatePerDayBefore7: 1,
+  overdueRatePerDayBefore7: 2,
   overdueRatePerDayBefore30: 2,
   overdueRatePerDayAfter30: 3,
 };
@@ -350,7 +350,7 @@ async function seedLoanProducts() {
     create: {
       name: "全额短期贷（7天）",
       code: "FULL_AMOUNT_7D",
-      description: "全额到账模式：5小时 2%，24小时 3%，48小时 4%，7天内 6%",
+      description: "全额到账模式：当晚还款 2%，次日还款 3%，48小时 4%，第7天同一时间前 5%",
       minAmount: 1000,
       maxAmount: 100000,
       minTermValue: 7,
@@ -362,7 +362,7 @@ async function seedLoanProducts() {
       maxExtensionTimes: 2,
     },
     update: {
-      description: "全额到账模式：5小时 2%，24小时 3%，48小时 4%，7天内 6%",
+      description: "全额到账模式：当晚还款 2%，次日还款 3%，48小时 4%，第7天同一时间前 5%",
       minTermValue: 7,
       maxTermValue: 7,
       isActive: true,
@@ -374,18 +374,18 @@ async function seedLoanProducts() {
     { name: "砍头息手续费", ruleType: "UPFRONT_FEE", rateValue: 5, conditionJson: null, priority: 100 },
     { name: "通道类型", ruleType: "CHANNEL", rateValue: 0, conditionJson: JSON.stringify({ type: "UPFRONT_DEDUCTION" }), priority: 99 },
     { name: "7天内固定费率", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "7天内固定5%" }), priority: 10 },
-    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ startDay: 1, maxOverdueDay: 7, compound: true, label: "逾期第1-7天" }), priority: 5 },
+    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 2, conditionJson: JSON.stringify({ startDay: 1, maxOverdueDay: 7, compound: true, label: "逾期第1-7天" }), priority: 5 },
     { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: JSON.stringify({ startDay: 8, maxOverdueDay: 30, compound: true, label: "逾期第8-30天" }), priority: 4 },
     { name: "逾期阶段3", ruleType: "OVERDUE_PHASE3", rateValue: 3, conditionJson: JSON.stringify({ startDay: 31, compound: true, label: "逾期第31天起" }), priority: 3 },
   ];
 
   const fullRules = [
     { name: "通道类型", ruleType: "CHANNEL", rateValue: 0, conditionJson: JSON.stringify({ type: "FULL_AMOUNT" }), priority: 99 },
-    { name: "5小时内还款", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxHours: 5, maxDays: 0, label: "5小时内还款" }), priority: 10 },
-    { name: "24小时内还款", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxHours: 24, maxDays: 1, label: "24小时内还款" }), priority: 9 },
+    { name: "当晚还款", ruleType: "TIER_RATE", rateValue: 2, conditionJson: JSON.stringify({ maxHours: 5, maxDays: 0, windowType: "SAME_NIGHT", nightCutoffHour: 5, label: "当晚还款（含次日凌晨）" }), priority: 10 },
+    { name: "次日还款", ruleType: "TIER_RATE", rateValue: 3, conditionJson: JSON.stringify({ maxHours: 24, maxDays: 1, windowType: "NEXT_CALENDAR_DAY", label: "次日下午/晚上还款" }), priority: 9 },
     { name: "48小时内还款", ruleType: "TIER_RATE", rateValue: 4, conditionJson: JSON.stringify({ maxHours: 48, maxDays: 2, label: "48小时内还款" }), priority: 8 },
-    { name: "7天内还款", ruleType: "TIER_RATE", rateValue: 6, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "48小时后至7天内还款" }), priority: 7 },
-    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 1, conditionJson: JSON.stringify({ startDay: 1, maxOverdueDay: 7, compound: true, label: "逾期第1-7天" }), priority: 5 },
+    { name: "第7天同一时间前还款", ruleType: "TIER_RATE", rateValue: 5, conditionJson: JSON.stringify({ maxHours: 168, maxDays: 7, label: "第7天同一时间前还款" }), priority: 7 },
+    { name: "逾期阶段1", ruleType: "OVERDUE_PHASE1", rateValue: 2, conditionJson: JSON.stringify({ startDay: 1, maxOverdueDay: 7, compound: true, label: "逾期第1-7天" }), priority: 5 },
     { name: "逾期阶段2", ruleType: "OVERDUE_PHASE2", rateValue: 2, conditionJson: JSON.stringify({ startDay: 8, maxOverdueDay: 30, compound: true, label: "逾期第8-30天" }), priority: 4 },
     { name: "逾期阶段3", ruleType: "OVERDUE_PHASE3", rateValue: 3, conditionJson: JSON.stringify({ startDay: 31, compound: true, label: "逾期第31天起" }), priority: 3 },
   ];

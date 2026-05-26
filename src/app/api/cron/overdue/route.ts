@@ -7,8 +7,7 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/cron/overdue — Vercel Cron 触发逾期扫描
  *
- * vercel.json 中配置:
- * { "crons": [{ "path": "/api/cron/overdue", "schedule": "0 0 * * *" }] }
+ * vercel.json 中配置为每 15 分钟扫描一次，确保超过到期同一时间后能尽快自动登记逾期。
  *
  * 本地测试需携带：Authorization: Bearer ${CRON_SECRET}
  */

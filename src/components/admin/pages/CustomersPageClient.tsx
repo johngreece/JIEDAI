@@ -128,6 +128,7 @@ export function CustomersPageClient({
                 <th className="px-4 py-3">证件号</th>
                 <th className="px-4 py-3">邮箱</th>
                 <th className="px-4 py-3">风险等级</th>
+                <th className="px-4 py-3">专属周息</th>
                 <th className="px-4 py-3">注册时间</th>
                 <th className="px-4 py-3">操作</th>
               </tr>
@@ -135,13 +136,13 @@ export function CustomersPageClient({
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                  <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
                     加载中...
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
+                  <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
                     暂无客户
                   </td>
                 </tr>
@@ -158,6 +159,9 @@ export function CustomersPageClient({
                         <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${risk.cls}`}>
                           {risk.label}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {customer.weeklyInterestRateOverride != null ? `${customer.weeklyInterestRateOverride}%` : "默认"}
                       </td>
                       <td className="px-4 py-3 text-slate-500">
                         {new Date(customer.createdAt).toLocaleDateString()}

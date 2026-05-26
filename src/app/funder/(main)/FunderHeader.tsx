@@ -19,6 +19,7 @@ export function FunderHeader({ username }: { username: string }) {
 
   const navigation = [
     { name: "投资概览", href: "/funder/dashboard" },
+    { name: "入金申请", href: "/funder/inflows" },
     { name: "放款明细", href: "/funder/disbursements" },
     { name: "提现管理", href: "/funder/withdrawals" },
     { name: "对账单", href: "/funder/statements" },

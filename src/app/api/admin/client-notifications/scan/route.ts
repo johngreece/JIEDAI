@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
+import { requirePermission } from "@/lib/rbac";
 import { ClientNotificationService } from "@/services/client-notification.service";
 
 export const dynamic = "force-dynamic";
 
 export async function POST() {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requirePermission(["dashboard:view"]);
+  if (session instanceof Response) return session;
 
   const result = await ClientNotificationService.scanAll();
   return NextResponse.json(result);

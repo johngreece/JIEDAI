@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
+import { requirePermission } from "@/lib/rbac";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +16,8 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["customer:create"]);
+  if (session instanceof Response) return session;
   const body = await req.json().catch(() => ({}));
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) {

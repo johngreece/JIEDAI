@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit";
+import { ACTIVE_LOAN_STATUSES } from "@/lib/business-status";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +23,8 @@ const updateSchema = z.object({
 });
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["settings:view"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const product = await prisma.loanProduct.findFirst({
@@ -46,8 +48,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 }
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["settings:edit"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -61,15 +63,66 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
   const product = await prisma.loanProduct.update({ where: { id }, data: parsed.data });
 
+  await writeAuditLog({
+    userId: session.sub,
+    action: "update",
+    entityType: "loan_product",
+    entityId: id,
+    oldValue: {
+      name: existing.name,
+      minAmount: Number(existing.minAmount),
+      maxAmount: Number(existing.maxAmount),
+      isActive: existing.isActive,
+    },
+    newValue: {
+      name: product.name,
+      minAmount: Number(product.minAmount),
+      maxAmount: Number(product.maxAmount),
+      isActive: product.isActive,
+    },
+    changeSummary: "Update loan product",
+  }).catch((error) => console.error("[AuditLog] product-update", error));
+
   return NextResponse.json({ ...product, minAmount: Number(product.minAmount), maxAmount: Number(product.maxAmount) });
 }
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["settings:edit"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
-  await prisma.loanProduct.update({ where: { id }, data: { deletedAt: new Date() } });
+  const existing = await prisma.loanProduct.findFirst({ where: { id, deletedAt: null } });
+  if (!existing) return NextResponse.json({ error: "产品不存在" }, { status: 404 });
+
+  const activeApplicationCount = await prisma.loanApplication.count({
+    where: {
+      productId: id,
+      deletedAt: null,
+      status: { in: [...ACTIVE_LOAN_STATUSES] },
+    },
+  });
+  if (activeApplicationCount > 0) {
+    return NextResponse.json(
+      { error: "产品仍有关联的在途借款申请，不能删除", activeApplicationCount },
+      { status: 409 },
+    );
+  }
+
+  await prisma.loanProduct.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+
+  await writeAuditLog({
+    userId: session.sub,
+    action: "delete",
+    entityType: "loan_product",
+    entityId: id,
+    oldValue: {
+      name: existing.name,
+      code: existing.code,
+      isActive: existing.isActive,
+    },
+    newValue: { deletedAt: true, isActive: false },
+    changeSummary: "Soft-delete loan product",
+  }).catch((error) => console.error("[AuditLog] product-delete", error));
 
   return NextResponse.json({ ok: true });
 }

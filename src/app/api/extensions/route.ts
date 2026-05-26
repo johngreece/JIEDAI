@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAdminSession } from "@/lib/auth";
 import { writeAuditLog } from "@/lib/audit";
+import { requirePermission } from "@/lib/rbac";
 import { applyExtension, getExtensionList } from "@/services/extension.service";
 
 export const dynamic = "force-dynamic";
@@ -13,10 +13,8 @@ const createSchema = z.object({
 });
 
 export async function GET(req: Request) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["extension:view"]);
+  if (session instanceof Response) return session;
 
   const url = new URL(req.url);
   const applicationId = url.searchParams.get("applicationId") ?? undefined;
@@ -29,10 +27,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录管理端" }, { status: 401 });
-  }
+  const session = await requirePermission(["extension:create"]);
+  if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -49,7 +45,7 @@ export async function POST(req: Request) {
     await writeAuditLog({
       userId: session.sub,
       action: "create",
-      entityType: "extension" as any,
+      entityType: "extension",
       entityId: ext.id,
       newValue: { extensionDays: ext.extensionDays, extensionFee: Number(ext.extensionFee) },
       changeSummary: `申请展期 ${ext.extensionDays} 天`,

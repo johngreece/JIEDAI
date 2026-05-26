@@ -97,27 +97,29 @@ model RolePermission {
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 model Customer {
-  id                       String    @id @default(uuid())
-  name                     String
-  phone                    String    @unique
-  passwordHash             String?   @map("password_hash")
-  idType                   String    @default("ID_CARD") @map("id_type")
-  idNumber                 String    @unique @map("id_number")
-  email                    String?
-  address                  String?
-  emergencyContact         String?   @map("emergency_contact")
-  emergencyContactPhone    String?   @map("emergency_contact_phone")
-  emergencyContactRelation String?   @map("emergency_contact_relation")
-  bankAccount              String?   @map("bank_account")
-  bankName                 String?   @map("bank_name")
-  riskLevel                String    @default("NORMAL") @map("risk_level")
-  creditLimit              Decimal   @default(10000) @map("credit_limit") @db.Decimal(14, 2)
-  creditLimitOverride      Decimal?  @map("credit_limit_override") @db.Decimal(14, 2)
-  source                   String?
-  remark                   String?
-  createdAt                DateTime  @default(now()) @map("created_at")
-  updatedAt                DateTime  @updatedAt @map("updated_at")
-  deletedAt                DateTime? @map("deleted_at")
+  id                         String    @id @default(uuid())
+  name                       String
+  phone                      String    @unique
+  passwordHash               String?   @map("password_hash")
+  idType                     String    @default("ID_CARD") @map("id_type")
+  idNumber                   String    @unique @map("id_number")
+  email                      String?
+  address                    String?
+  emergencyContact           String?   @map("emergency_contact")
+  emergencyContactPhone      String?   @map("emergency_contact_phone")
+  emergencyContactRelation   String?   @map("emergency_contact_relation")
+  bankAccount                String?   @map("bank_account")
+  bankName                   String?   @map("bank_name")
+  riskLevel                  String    @default("NORMAL") @map("risk_level")
+  creditLimit                Decimal   @default(10000) @map("credit_limit") @db.Decimal(14, 2)
+  creditLimitOverride        Decimal?  @map("credit_limit_override") @db.Decimal(14, 2)
+  weeklyInterestRateOverride Decimal?  @map("weekly_interest_rate_override") @db.Decimal(10, 6)
+  pricingRemark              String?   @map("pricing_remark")
+  source                     String?
+  remark                     String?
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+  deletedAt                  DateTime? @map("deleted_at")
 
   kyc               CustomerKyc[]
   loanApplications  LoanApplication[]
@@ -552,11 +554,14 @@ model Disbursement {
   payerBank         String?   @map("payer_bank")
   status            String    @default("PENDING")
   disbursedAt       DateTime? @map("disbursed_at")
-  customerConfirmIp String?   @map("customer_confirm_ip")
-  operatorId        String    @map("operator_id")
-  remark            String?
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  customerConfirmIp           String?   @map("customer_confirm_ip")
+  customerConfirmedAt         DateTime? @map("customer_confirmed_at")
+  customerConfirmUserAgent    String?   @map("customer_confirm_user_agent")
+  customerConfirmEvidenceJson String?   @map("customer_confirm_evidence_json")
+  operatorId                  String    @map("operator_id")
+  remark                      String?
+  createdAt                   DateTime  @default(now()) @map("created_at")
+  updatedAt                   DateTime  @updatedAt @map("updated_at")
 
   application LoanApplication @relation(fields: [applicationId], references: [id])
   fundAccount FundAccount     @relation(fields: [fundAccountId], references: [id])

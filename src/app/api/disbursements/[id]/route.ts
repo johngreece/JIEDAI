@@ -5,6 +5,18 @@ import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
+function parseEvidenceJson(value: string | null): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -53,6 +65,12 @@ export async function GET(
     feeAmount: Number(disbursement.feeAmount),
     netAmount: Number(disbursement.netAmount),
     disbursedAt: disbursement.disbursedAt,
+    customerConfirmation: {
+      confirmedAt: disbursement.customerConfirmedAt,
+      ipAddress: disbursement.customerConfirmIp,
+      userAgent: disbursement.customerConfirmUserAgent,
+      evidence: parseEvidenceJson(disbursement.customerConfirmEvidenceJson),
+    },
     remark: disbursement.remark,
     application: {
       id: disbursement.application.id,
@@ -143,8 +161,14 @@ export async function DELETE(
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.disbursement.delete({
+    await tx.disbursement.update({
       where: { id },
+      data: {
+        status: "CANCELLED",
+        remark: disbursement.remark
+          ? `${disbursement.remark}\nCancelled by operator before payment`
+          : "Cancelled by operator before payment",
+      },
     });
 
     if (disbursement.application.status === "CONTRACTED") {
@@ -157,7 +181,7 @@ export async function DELETE(
 
   await writeAuditLog({
     userId: session.sub,
-    action: "delete",
+    action: "cancel",
     entityType: "disbursement",
     entityId: id,
     oldValue: {
@@ -167,6 +191,7 @@ export async function DELETE(
       applicationNo: disbursement.application.applicationNo,
     },
     newValue: {
+      status: "CANCELLED",
       applicationStatus: disbursement.application.status === "CONTRACTED" ? "APPROVED" : disbursement.application.status,
     },
     changeSummary: "删除待打款放款单",
@@ -174,6 +199,7 @@ export async function DELETE(
 
   return NextResponse.json({
     success: true,
+    status: "CANCELLED",
     applicationStatus: disbursement.application.status === "CONTRACTED" ? "APPROVED" : disbursement.application.status,
   });
 }

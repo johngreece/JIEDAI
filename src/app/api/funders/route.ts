@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { getAdminSession, isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { paginatedResponse, parsePagination, toPrismaArgs } from "@/lib/pagination";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -26,20 +27,17 @@ const createSchema = z.object({
   withdrawalCooldownDays: z.number().int().min(0).default(0),
 });
 
-function requireSuperAdminSession() {
-  return getAdminSession().then((session) => {
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-    if (!isSuperAdmin(session)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    return session;
-  });
+async function requireSuperAdminSession(requiredPermissions: string[]) {
+  const session = await requirePermission(requiredPermissions);
+  if (session instanceof Response) return session;
+  if (!isSuperAdmin(session)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return session;
 }
 
 export async function GET(req: Request) {
-  const session = await requireSuperAdminSession();
+  const session = await requireSuperAdminSession(["ledger:view"]);
   if (session instanceof Response) return session;
 
   const url = new URL(req.url);
@@ -78,7 +76,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const session = await requireSuperAdminSession();
+  const session = await requireSuperAdminSession(["settings:edit"]);
   if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));

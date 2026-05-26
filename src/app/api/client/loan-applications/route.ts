@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getClientSession } from "@/lib/auth";
+import { TERMINAL_LOAN_STATUSES } from "@/lib/business-status";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 import { isPublicClientProductCode } from "@/lib/public-loan-products";
@@ -14,6 +16,8 @@ const createSchema = z.object({
   purpose: z.string().trim().max(200).optional(),
   remark: z.string().trim().max(500).optional(),
 });
+
+const REQUIRED_DOC_TYPES = ["PASSPORT", "CHINA_ID", "GREEK_RESIDENCE_PERMIT"] as const;
 
 function genApplicationNo() {
   return `LA${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
@@ -29,10 +33,12 @@ function money(value: number) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getClientSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
+
+  const idemKey = getScopedIdempotencyKey(req, ["client", session.sub, "loan-application"]);
+  const cached = await checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -51,7 +57,16 @@ export async function POST(req: NextRequest) {
         phone: true,
         creditLimit: true,
         creditLimitOverride: true,
+        riskLevel: true,
         deletedAt: true,
+        kyc: {
+          select: {
+            kycType: true,
+            documentUrl: true,
+            status: true,
+            expiresAt: true,
+          },
+        },
       },
     }),
     prisma.loanProduct.findFirst({
@@ -76,7 +91,7 @@ export async function POST(req: NextRequest) {
         customerId: session.sub,
         deletedAt: null,
         status: {
-          notIn: ["SETTLED", "COMPLETED", "REJECTED"],
+          notIn: [...TERMINAL_LOAN_STATUSES],
         },
       },
       select: { id: true, applicationNo: true, status: true },
@@ -93,6 +108,30 @@ export async function POST(req: NextRequest) {
 
   if (!customer || customer.deletedAt) {
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+  }
+
+  if (customer.riskLevel === "BLACKLIST") {
+    return NextResponse.json({ error: "当前客户风险状态不允许自助申请借款" }, { status: 403 });
+  }
+
+  const now = new Date();
+  const validDocTypes = new Set(
+    customer.kyc
+      .filter((item) => {
+        const expired = item.expiresAt ? item.expiresAt < now : false;
+        return !!item.documentUrl && item.status !== "REJECTED" && !expired;
+      })
+      .map((item) => item.kycType),
+  );
+  const missingDocTypes = REQUIRED_DOC_TYPES.filter((type) => !validDocTypes.has(type));
+  if (missingDocTypes.length > 0) {
+    return NextResponse.json(
+      {
+        error: "请先补齐有效身份资料后再申请借款",
+        missingDocTypes,
+      },
+      { status: 428 },
+    );
   }
 
   if (!product) {
@@ -180,5 +219,6 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
+  await saveIdempotencyResult(idemKey, created);
   return NextResponse.json(created);
 }

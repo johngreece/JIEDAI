@@ -1,14 +1,13 @@
 import { NextResponse } from "next/server";
-import { getAdminSession, isSuperAdmin } from "@/lib/auth";
+import { isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const session = await getAdminSession();
-  if (!session) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requirePermission(["ledger:view"]);
+  if (session instanceof Response) return session;
   if (!isSuperAdmin(session)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

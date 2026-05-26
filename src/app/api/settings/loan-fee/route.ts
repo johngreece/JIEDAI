@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_FEE_RATES, FEE_SETTING_KEYS, type FeeRates } from "@/lib/loan-fee-rules";
 import { writeAuditLog } from "@/lib/audit";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +55,8 @@ function requireSuperAdmin(session: { roles: string[] } | null) {
 }
 
 export async function GET() {
-  const session = await getAdminSession();
+  const session = await requirePermission(["settings:view"]);
+  if (session instanceof Response) return session;
   const error = requireSuperAdmin(session);
   if (error) return error;
 
@@ -90,7 +91,8 @@ const RATE_TO_KEY: Record<keyof FeeRates, string> = {
 };
 
 export async function PUT(req: Request) {
-  const session = await getAdminSession();
+  const session = await requirePermission(["settings:edit"]);
+  if (session instanceof Response) return session;
   const error = requireSuperAdmin(session);
   if (error) return error;
 
@@ -125,7 +127,7 @@ export async function PUT(req: Request) {
   }
 
   await writeAuditLog({
-    userId: session!.sub,
+    userId: session.sub,
     action: "update",
     entityType: "system_setting",
     entityId: "loan_fee",

@@ -51,7 +51,6 @@ export async function confirmRepayment(params: {
   rejectReason?: string;
   ipAddress: string;
   deviceInfo?: string;
-  operatorId: string;
 }) {
   const repayment = await prisma.repayment.findUnique({
     where: { id: params.repaymentId },
@@ -124,18 +123,6 @@ export async function confirmRepayment(params: {
     });
   });
 
-  await writeAuditLog({
-    userId: params.operatorId,
-    action: "repay_confirm",
-    entityType: "repayment_confirmation",
-    entityId: params.repaymentId,
-    newValue: {
-      action: params.action,
-      targetStatus,
-      ipAddress: params.ipAddress,
-      deviceInfo: params.deviceInfo,
-    },
-  }).catch(() => undefined);
 }
 
 export async function settleRepaymentReceipt(params: {
@@ -183,6 +170,17 @@ export async function settleRepaymentReceipt(params: {
 
   if (params.action === "NOT_RECEIVED") {
     const rejected = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      const claimed = await tx.repayment.updateMany({
+        where: { id: params.repaymentId, status: repayment.status },
+        data: {
+          status: "REJECTED",
+          matchComment: params.rejectReason || "管理端确认未收到款项，本笔还款无效",
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new Error("Repayment status changed, please refresh and retry");
+      }
+
       await tx.repaymentConfirmation.updateMany({
         where: { repaymentId: params.repaymentId },
         data: {
@@ -191,13 +189,7 @@ export async function settleRepaymentReceipt(params: {
         },
       });
 
-      return tx.repayment.update({
-        where: { id: params.repaymentId },
-        data: {
-          status: "REJECTED",
-          matchComment: params.rejectReason || "管理端确认未收到款项，本笔还款无效",
-        },
-      });
+      return tx.repayment.findUniqueOrThrow({ where: { id: params.repaymentId } });
     });
 
     await writeAuditLog({
@@ -224,13 +216,20 @@ export async function settleRepaymentReceipt(params: {
   }
 
   const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const received = await tx.repayment.update({
-      where: { id: params.repaymentId },
+    const claimed = await tx.repayment.updateMany({
+      where: { id: params.repaymentId, status: repayment.status },
       data: {
         status: "CONFIRMED",
         receivedAt: now,
         matchComment: "管理端已确认到账",
       },
+    });
+    if (claimed.count !== 1) {
+      throw new Error("Repayment status changed, please refresh and retry");
+    }
+
+    const received = await tx.repayment.findUniqueOrThrow({
+      where: { id: params.repaymentId },
     });
 
     await tx.repaymentConfirmation.updateMany({

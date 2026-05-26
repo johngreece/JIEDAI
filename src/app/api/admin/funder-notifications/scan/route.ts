@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
+import { requirePermission } from "@/lib/rbac";
 import { FunderNotificationService } from "@/services/funder-notification.service";
 
 export const dynamic = "force-dynamic";
@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
  * 管理端触发利息到期扫描
  */
 export async function POST() {
-  const session = await getAdminSession();
-  if (!session) return NextResponse.json({ error: "未授权" }, { status: 401 });
+  const session = await requirePermission(["dashboard:view"]);
+  if (session instanceof Response) return session;
 
   const result = await FunderNotificationService.scanInterestMaturity();
   return NextResponse.json(result);

@@ -1,9 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { FunderInterestService } from "@/services/funder-interest.service";
+import { FunderNotificationService } from "@/services/funder-notification.service";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
+
+function money(value: number) {
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 
 /* GET — 管理端查看所有提现申请 */
 export async function GET() {
@@ -46,13 +57,33 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "参数错误" }, { status: 400 });
   }
 
+  const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "funder-withdrawal-review", withdrawalId, action]);
+  const cached = await checkIdempotencyKey(idemKey);
+  if (cached) return NextResponse.json(cached);
+
   try {
+    let result;
     if (action === "approve") {
-      await FunderInterestService.approveWithdrawal(withdrawalId, session.sub);
+      result = await FunderInterestService.approveWithdrawal(withdrawalId, session.sub);
+      await FunderNotificationService.send(
+        result.funderId,
+        "WITHDRAWAL_APPROVED",
+        "提现申请已通过",
+        `你的提现申请 ${money(result.amount)} 已通过审核，资金账户已完成出账登记。`,
+      ).catch((error) => console.error("[FunderWithdrawal] approve notification", error));
     } else {
-      await FunderInterestService.rejectWithdrawal(withdrawalId, reason || "管理员拒绝");
+      result = await FunderInterestService.rejectWithdrawal(withdrawalId, reason || "管理员拒绝");
+      await FunderNotificationService.send(
+        result.funderId,
+        "WITHDRAWAL_REJECTED",
+        "提现申请已拒绝",
+        `你的提现申请 ${money(Number(result.amount))} 未通过审核。原因：${result.rejectedReason || reason || "管理员拒绝"}`,
+      ).catch((error) => console.error("[FunderWithdrawal] reject notification", error));
     }
-    return NextResponse.json({ ok: true });
+    const responseBody = { ok: true, result };
+    await saveIdempotencyResult(idemKey, responseBody);
+
+    return NextResponse.json(responseBody);
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : "操作失败" },

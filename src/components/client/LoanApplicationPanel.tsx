@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 import { BUSINESS_LOAN_NOTICE, PRODUCT_RULE_DISPLAY, type PublicClientProductCode } from "@/lib/public-loan-products";
 
 type ProductOption = {
@@ -49,12 +50,18 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
   const [purpose, setPurpose] = useState("");
   const [remark, setRemark] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submitKeyRef = useRef<string | null>(null);
+  const submitInFlightRef = useRef(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const maxBorrowable = selectedProduct ? Math.min(selectedProduct.maxAmount, availableLimit) : 0;
   const limitInsufficient = selectedProduct ? maxBorrowable < selectedProduct.minAmount : true;
+  const clearSubmitKey = () => {
+    submitKeyRef.current = null;
+  };
 
   const handleProductChange = (nextProductId: string) => {
+    clearSubmitKey();
     setProductId(nextProductId);
     const next = products.find((product) => product.id === nextProductId);
     if (!next) return;
@@ -67,6 +74,11 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submitInFlightRef.current) return;
+
+    const idempotencyKey = submitKeyRef.current ?? makeClientIdempotencyKey("client-loan-application");
+    submitKeyRef.current = idempotencyKey;
+    submitInFlightRef.current = true;
     setSubmitting(true);
     setError("");
     setMessage("");
@@ -74,7 +86,10 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
     try {
       const response = await fetch("/api/client/loan-applications", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": idempotencyKey,
+        },
         body: JSON.stringify({
           productId,
           amount: Number(amount),
@@ -86,13 +101,18 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        submitKeyRef.current = null;
         setError(data.error ?? "借款申请提交失败");
         return;
       }
 
+      submitKeyRef.current = null;
       setMessage(`借款申请 ${data.applicationNo} 已提交，当前进入待风控。`);
       router.refresh();
+    } catch {
+      setError("网络异常，请再次提交；系统会按同一次请求防止重复生成借款申请。");
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -174,7 +194,10 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
               min={selectedProduct?.minAmount ?? 0}
               max={selectedProduct ? maxBorrowable : undefined}
               value={amount}
-              onChange={(event) => setAmount(event.target.value)}
+              onChange={(event) => {
+                clearSubmitKey();
+                setAmount(event.target.value);
+              }}
               disabled={submitting}
               required
             />
@@ -188,7 +211,10 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
               min={selectedProduct?.minTermValue ?? 1}
               max={selectedProduct?.maxTermValue ?? undefined}
               value={termValue}
-              onChange={(event) => setTermValue(event.target.value)}
+              onChange={(event) => {
+                clearSubmitKey();
+                setTermValue(event.target.value);
+              }}
               disabled={submitting}
               required
             />
@@ -199,7 +225,10 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
             <input
               className="input-base"
               value={purpose}
-              onChange={(event) => setPurpose(event.target.value)}
+              onChange={(event) => {
+                clearSubmitKey();
+                setPurpose(event.target.value);
+              }}
               disabled={submitting}
               placeholder="例如：经营周转、备货、短期应急"
             />
@@ -210,7 +239,10 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
             <textarea
               className="input-base min-h-28"
               value={remark}
-              onChange={(event) => setRemark(event.target.value)}
+              onChange={(event) => {
+                clearSubmitKey();
+                setRemark(event.target.value);
+              }}
               disabled={submitting}
               placeholder="可填写预计用款时间、特殊说明等"
             />
@@ -277,10 +309,10 @@ export function LoanApplicationPanel({ availableLimit, products }: Props) {
           <h2 className="text-lg font-semibold text-slate-900">逾期与违约条款</h2>
           <div className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-              7 天到期后进入逾期计算，请务必提前确认实际还款时间；如果无法偿还，请谨慎借款。
+              到期点按放款时间精确到同一时间，超过第 7 天同一时间后进入逾期计算；如果无法偿还，请谨慎借款。
             </div>
             <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-              逾期第 1 到 7 天按 1%/天，逾期第 8 到 30 天按 2%/天，逾期第 31 天起按 3%/天。
+              逾期第 1 到 7 天按 2%/天，逾期第 8 到 30 天按 2%/天，逾期第 31 天起按 3%/天。
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               逾期利息按日复利滚动计算，如果当天未支付利息，当天利息会直接并入本金，下一天继续按新本金计息。你提交还款申请后，仍需等待管理端确认到账。

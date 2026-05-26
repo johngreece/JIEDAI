@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
 type Detail = {
@@ -82,7 +83,12 @@ export default function DisbursementDetailPage() {
   async function confirmPaid() {
     setActing(true);
     try {
-      const res = await fetch(`/api/disbursements/${params.id}/confirm-paid`, { method: "POST" });
+      const res = await fetch(`/api/disbursements/${params.id}/confirm-paid`, {
+        method: "POST",
+        headers: {
+          "x-idempotency-key": makeClientIdempotencyKey("admin-disbursement-confirm-paid"),
+        },
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Failed to confirm disbursement");
       await load();

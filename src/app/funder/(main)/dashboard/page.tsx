@@ -147,6 +147,12 @@ export default function FunderDashboardPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
+              href="/funder/inflows"
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 hover:no-underline"
+            >
+              提交入金
+            </Link>
+            <Link
               href="/funder/withdrawals"
               className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 hover:no-underline"
             >

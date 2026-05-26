@@ -44,6 +44,17 @@ const ITEM_STATUS: Record<string, string> = {
   OVERDUE: "逾期",
 };
 
+function formatDateTime(value: Date | string) {
+  return new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 export default function RepaymentPlansPage() {
   const [items, setItems] = useState<PlanItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -207,7 +218,7 @@ export default function RepaymentPlansPage() {
                           {plan.scheduleItems.map((item) => (
                             <tr key={item.id}>
                               <td className="px-3 py-2">{item.periodNumber}</td>
-                              <td className="px-3 py-2">{new Date(item.dueDate).toLocaleDateString()}</td>
+                              <td className="px-3 py-2">{formatDateTime(item.dueDate)}</td>
                               <td className="px-3 py-2">EUR {item.principal.toLocaleString()}</td>
                               <td className="px-3 py-2">EUR {item.interest.toLocaleString()}</td>
                               <td className="px-3 py-2">EUR {item.fee.toLocaleString()}</td>

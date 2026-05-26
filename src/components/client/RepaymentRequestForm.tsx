@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
 type Props = {
   outstandingAmount: number;
@@ -24,11 +25,21 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
   const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER");
   const [remark, setRemark] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submitKeyRef = useRef<string | null>(null);
+  const submitInFlightRef = useRef(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const clearSubmitKey = () => {
+    submitKeyRef.current = null;
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (submitInFlightRef.current) return;
+
+    const idempotencyKey = submitKeyRef.current ?? makeClientIdempotencyKey("client-repayment");
+    submitKeyRef.current = idempotencyKey;
+    submitInFlightRef.current = true;
     setSubmitting(true);
     setError("");
     setMessage("");
@@ -36,7 +47,10 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
     try {
       const response = await fetch("/api/client/repayments", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": idempotencyKey,
+        },
         body: JSON.stringify({
           amount: Number(amount),
           paymentMethod,
@@ -46,13 +60,18 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        submitKeyRef.current = null;
         setError(data.error ?? "还款申请提交失败");
         return;
       }
 
+      submitKeyRef.current = null;
       setMessage(`还款申请 ${data.repaymentNo} 已提交，后台会尽快核对并处理。`);
       router.refresh();
+    } catch {
+      setError("网络异常，请再次提交；系统会按同一次请求防止重复生成还款申请。");
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   };
@@ -80,7 +99,10 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
             min={0.01}
             max={outstandingAmount}
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(event) => {
+              clearSubmitKey();
+              setAmount(event.target.value);
+            }}
             disabled={submitting || blocked}
             required
           />
@@ -91,7 +113,10 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
           <select
             className="input-base"
             value={paymentMethod}
-            onChange={(event) => setPaymentMethod(event.target.value)}
+            onChange={(event) => {
+              clearSubmitKey();
+              setPaymentMethod(event.target.value);
+            }}
             disabled={submitting || blocked}
           >
             <option value="BANK_TRANSFER">银行转账</option>
@@ -105,7 +130,10 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
           <textarea
             className="input-base min-h-24"
             value={remark}
-            onChange={(event) => setRemark(event.target.value)}
+            onChange={(event) => {
+              clearSubmitKey();
+              setRemark(event.target.value);
+            }}
             disabled={submitting || blocked}
             placeholder="可填写付款时间、转账尾号、付款渠道等"
           />

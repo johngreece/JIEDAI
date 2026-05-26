@@ -86,10 +86,10 @@ export default function AdminLoanFeeSettingsPage() {
 
           <div className="admin-form-grid md:grid-cols-2">
             <Field label="砍头息固定费率 (%)" value={form.upfrontFlatRate} onChange={(value) => updateField("upfrontFlatRate", value)} />
-            <Field label="全额到账 5 小时内 (%)" value={form.fee5hRate} onChange={(value) => updateField("fee5hRate", value)} />
-            <Field label="全额到账 24 小时内 (%)" value={form.fee24hRate} onChange={(value) => updateField("fee24hRate", value)} />
+            <Field label="全额到账 当晚还款 (%)" value={form.fee5hRate} onChange={(value) => updateField("fee5hRate", value)} />
+            <Field label="全额到账 次日还款 (%)" value={form.fee24hRate} onChange={(value) => updateField("fee24hRate", value)} />
             <Field label="全额到账 48 小时内 (%)" value={form.fee48hRate} onChange={(value) => updateField("fee48hRate", value)} />
-            <Field label="全额到账 7 天内 (%)" value={form.fee7dRate} onChange={(value) => updateField("fee7dRate", value)} />
+            <Field label="全额到账 第7天同一时间前 (%)" value={form.fee7dRate} onChange={(value) => updateField("fee7dRate", value)} />
             <Field label="逾期起算延迟 (小时)" value={form.overdueGraceHours} onChange={(value) => updateField("overdueGraceHours", value)} step="1" />
             <Field label="逾期第 1-7 天 (%/天)" value={form.overdueRatePerDayBefore7} onChange={(value) => updateField("overdueRatePerDayBefore7", value)} />
             <Field label="逾期第 8-30 天 (%/天)" value={form.overdueRatePerDayBefore30} onChange={(value) => updateField("overdueRatePerDayBefore30", value)} />
@@ -119,11 +119,11 @@ export default function AdminLoanFeeSettingsPage() {
               </div>
               <div className="admin-note-block">
                 <div className="admin-note-block__label">全额到账模式</div>
-                <p className="admin-note-block__text">5 小时内 2%，24 小时内 3%，48 小时内 4%，7 天内 6%。</p>
+                <p className="admin-note-block__text">当晚还款（含次日凌晨）2%，次日还款 3%，48 小时内 4%，第 7 天同一时间前 5%。</p>
               </div>
               <div className="admin-note-block">
                 <div className="admin-note-block__label">逾期规则</div>
-                <p className="admin-note-block__text">1-7 天按 1%/天，8-30 天按 2%/天，31 天起按 3%/天，并按复利滚动。</p>
+                <p className="admin-note-block__text">1-7 天按 2%/天，8-30 天按 2%/天，31 天起按 3%/天，并按复利滚动。</p>
               </div>
               <div className="admin-note-block">
                 <div className="admin-note-block__label">商业借款</div>

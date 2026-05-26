@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFunderSession, getAdminSession } from "@/lib/auth";
+import { getFunderSession } from "@/lib/auth";
+import { ensureActiveFunderSession } from "@/lib/portal-session";
+import { requirePermission } from "@/lib/rbac";
 import { FunderStatementService } from "@/services/funder-statement.service";
 
 export const dynamic = "force-dynamic";
@@ -19,12 +21,14 @@ export async function GET(req: NextRequest) {
   let funderId: string;
   const funderSession = await getFunderSession();
   if (funderSession) {
-    funderId = funderSession.sub;
+    const activeFunderSession = await ensureActiveFunderSession(funderSession);
+    if (activeFunderSession instanceof Response) return activeFunderSession;
+
+    funderId = activeFunderSession.sub;
   } else {
-    const adminSession = await getAdminSession();
-    if (!adminSession || !queryFunderId) {
-      return NextResponse.json({ error: "未授权" }, { status: 401 });
-    }
+    const adminSession = await requirePermission(["ledger:view"]);
+    if (adminSession instanceof Response) return adminSession;
+    if (!queryFunderId) return NextResponse.json({ error: "请提供 funderId" }, { status: 400 });
     funderId = queryFunderId;
   }
 

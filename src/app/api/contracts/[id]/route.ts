@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession, isAdmin, isClient } from "@/lib/auth";
 import { verifyContractSignAccessToken } from "@/lib/contract-sign-session";
 import { prisma } from "@/lib/prisma";
+import { ensureActiveClientSession } from "@/lib/portal-session";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -34,12 +36,18 @@ export async function GET(
   }
 
   if (isAdmin(session)) {
+    const adminSession = await requirePermission(["contract:view"]);
+    if (adminSession instanceof Response) return adminSession;
+
     return NextResponse.json(contract);
   }
 
   if (!isClient(session)) {
     return NextResponse.json({ error: "无权访问该合同" }, { status: 403 });
   }
+
+  const activeClientSession = await ensureActiveClientSession(session);
+  if (activeClientSession instanceof Response) return activeClientSession;
 
   if (contract.customerId !== session.sub) {
     return NextResponse.json({ error: "无权访问该合同" }, { status: 403 });

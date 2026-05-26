@@ -28,8 +28,16 @@ type Detail = {
   };
   totalApprovedAmount: number | null;
   rejectedReason: string | null;
-  customer: { id: string; name: string; phone: string; idNumber: string };
+  customer: { id: string; name: string; phone: string; idNumber: string; weeklyInterestRateOverride: number | null };
   product: { id: string; name: string };
+  pricingQuote: {
+    source: "product_default" | "customer_override";
+    weeklyInterestRate: number;
+    weeklyInterestRateOverride: number | null;
+    contractDisplayInterestRate: string;
+    weeklyInterestAmount: string;
+    monthlyInterestAmount: string;
+  };
   approvals: Array<{
     id: string;
     action: string;
@@ -119,9 +127,11 @@ export default function LoanApplicationDetailPage() {
         basePrincipal: String(defaultBase || ""),
         capitalizedInterestAmount: String(defaultCapitalized || 0),
         contractPrincipal: String(defaultPrincipal || ""),
-        contractDisplayInterestRate: String(saved?.contractDisplayInterestRate ?? "2%"),
-        weeklyInterestAmount: String(saved?.weeklyInterestAmount ?? ""),
-        monthlyInterestAmount: String(saved?.monthlyInterestAmount ?? ""),
+        contractDisplayInterestRate: String(
+          saved?.contractDisplayInterestRate ?? json.pricingQuote?.contractDisplayInterestRate ?? "2%"
+        ),
+        weeklyInterestAmount: String(saved?.weeklyInterestAmount ?? json.pricingQuote?.weeklyInterestAmount ?? ""),
+        monthlyInterestAmount: String(saved?.monthlyInterestAmount ?? json.pricingQuote?.monthlyInterestAmount ?? ""),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "加载失败");
@@ -585,6 +595,13 @@ export default function LoanApplicationDetailPage() {
             当前口径预览：基础本金 {contractForm.basePrincipal || "0"} + 并入本金利息{" "}
             {contractForm.capitalizedInterestAmount || "0"} = 合同本金 {contractForm.contractPrincipal || "0"}。
             合同中另列展示利率 {contractForm.contractDisplayInterestRate || "2%"}，该利率不参与系统正常利息重复计算。
+          </div>
+
+          <div className="rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm text-cyan-800">
+            系统定价：周息 {data.pricingQuote.weeklyInterestRate}%；
+            {data.pricingQuote.source === "customer_override"
+              ? "已命中客户专属周息，生成合同和放款还款计划会自动使用该费率。"
+              : "当前跟随产品默认周息。"}
           </div>
 
           {contractFieldsInvalid ? (

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getClientSession } from "@/lib/auth";
+import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -18,8 +18,8 @@ type RepaymentLite = {
 };
 
 export async function GET() {
-  const session = await getClientSession();
-  if (!session) return NextResponse.json({ error: "请先登录客户端" }, { status: 401 });
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
 
   const apps = await prisma.loanApplication.findMany({
     where: { customerId: session.sub, deletedAt: null },

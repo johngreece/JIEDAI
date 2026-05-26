@@ -4,7 +4,7 @@
 
 | 用例编号 | 场景 | 前置条件 | 操作 | 预期 |
 |----------|------|----------|------|------|
-| AUTH-01 | 未登录访问工作台 | 无 | GET /api/dashboard/summary 无 Cookie | 200（或 401 若接口要求登录） |
+| AUTH-01 | 未登录访问工作台 | 无 | GET /api/dashboard/summary 无 Cookie | 401 |
 | AUTH-02 | 登录后获取当前用户 | 已登录 | GET /api/auth/me | 200，返回用户信息与 roles |
 | AUTH-03 | 业务员无权限访问用户管理 | 业务员登录 | GET /api/users | 403 |
 | AUTH-04 | 超管可访问用户管理 | 超管登录 | GET /api/users | 200 |

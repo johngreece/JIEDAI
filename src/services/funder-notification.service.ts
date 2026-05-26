@@ -143,9 +143,20 @@ export class FunderNotificationService {
   }
 
   static async send(funderId: string, type: string, title: string, content: string) {
-    return prisma.funderNotification.create({
+    const notification = await prisma.funderNotification.create({
       data: { funderId, type, title, content },
     });
+
+    await MessageDeliveryService.deliverFunderAlert({
+      funderId,
+      title,
+      content,
+      type,
+      sourceType: "FUNDER_NOTIFICATION",
+      sourceId: notification.id,
+    }).catch((error) => console.error("[FunderNotification] delivery failed", error));
+
+    return notification;
   }
 
   static async list(funderId: string, limit = 30) {

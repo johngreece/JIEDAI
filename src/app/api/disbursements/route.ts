@@ -4,7 +4,7 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
-import { getIdempotencyKey, checkIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import { requirePermission } from "@/lib/rbac";
 
@@ -20,6 +20,18 @@ const createSchema = z.object({
 
 function genDisbursementNo() {
   return `DB${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
+function parseEvidenceJson(value: string | null): Record<string, unknown> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(req: Request) {
@@ -61,6 +73,10 @@ export async function GET(req: Request) {
       amount: unknown;
       feeAmount: unknown;
       netAmount: unknown;
+      customerConfirmIp: string | null;
+      customerConfirmedAt: Date | null;
+      customerConfirmUserAgent: string | null;
+      customerConfirmEvidenceJson: string | null;
       createdAt: Date;
       application: {
         id: string;
@@ -75,6 +91,12 @@ export async function GET(req: Request) {
       amount: Number(x.amount),
       feeAmount: Number(x.feeAmount),
       netAmount: Number(x.netAmount),
+      customerConfirmation: {
+        confirmedAt: x.customerConfirmedAt,
+        ipAddress: x.customerConfirmIp,
+        userAgent: x.customerConfirmUserAgent,
+        evidence: parseEvidenceJson(x.customerConfirmEvidenceJson),
+      },
       createdAt: x.createdAt,
       application: x.application,
       fundAccount: x.fundAccount,
@@ -89,7 +111,7 @@ export async function POST(req: Request) {
   if (session instanceof Response) return session;
 
   // 幂等性检查
-  const idemKey = getIdempotencyKey(req);
+  const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "disbursement-create"]);
   const cached = await checkIdempotencyKey(idemKey);
   if (cached) return NextResponse.json(cached);
 
@@ -135,7 +157,10 @@ export async function POST(req: Request) {
         }
 
         const existing = await tx.disbursement.findFirst({
-          where: { applicationId: input.applicationId },
+          where: {
+            applicationId: input.applicationId,
+            status: { not: "CANCELLED" },
+          },
           select: { id: true },
         });
         if (existing) {
@@ -192,6 +217,36 @@ export async function POST(req: Request) {
         }
 
         // 5) 创建放款单（PENDING；实际扣账在 confirm-paid 中）
+        const cancelled = await tx.disbursement.findFirst({
+          where: {
+            applicationId: input.applicationId,
+            status: "CANCELLED",
+          },
+          orderBy: { updatedAt: "desc" },
+          select: { id: true },
+        });
+
+        if (cancelled) {
+          return tx.disbursement.update({
+            where: { id: cancelled.id },
+            data: {
+              disbursementNo: genDisbursementNo(),
+              fundAccountId: fundAccountId,
+              amount: new Prisma.Decimal(amountDec.toString()),
+              feeAmount: new Prisma.Decimal(feeDec.toString()),
+              netAmount: new Prisma.Decimal(netDec.toString()),
+              operatorId: session.sub,
+              status: "PENDING",
+              disbursedAt: null,
+              customerConfirmIp: null,
+              customerConfirmedAt: null,
+              customerConfirmUserAgent: null,
+              customerConfirmEvidenceJson: null,
+              remark: input.remark ?? null,
+            },
+          });
+        }
+
         return tx.disbursement.create({
           data: {
             disbursementNo: genDisbursementNo(),

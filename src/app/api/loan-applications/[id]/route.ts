@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
+import { applyCustomerPricingOverride, buildCustomerPricingQuote } from "@/lib/customer-pricing";
+import { parseTiersFromPricingRules } from "@/lib/interest-engine";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { RiskIntelligenceService } from "@/services/risk-intelligence.service";
@@ -26,8 +28,17 @@ export async function GET(
   const data = await prisma.loanApplication.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true, phone: true, idNumber: true } },
-      product: { select: { id: true, name: true } },
+      customer: { select: { id: true, name: true, phone: true, idNumber: true, weeklyInterestRateOverride: true } },
+      product: {
+        select: {
+          id: true,
+          name: true,
+          pricingRules: {
+            where: { isActive: true },
+            orderBy: { priority: "desc" },
+          },
+        },
+      },
       approvals: {
         orderBy: { createdAt: "desc" },
         include: { approver: { select: { id: true, username: true, realName: true } } },
@@ -67,6 +78,12 @@ export async function GET(
     }
   }
 
+  const effectivePricing = applyCustomerPricingOverride(
+    parseTiersFromPricingRules(data.product.pricingRules),
+    data.customer,
+  );
+  const pricingQuote = buildCustomerPricingQuote(Number(data.amount), effectivePricing);
+
   return NextResponse.json({
     id: data.id,
     applicationNo: data.applicationNo,
@@ -82,8 +99,13 @@ export async function GET(
     totalApprovedAmount: data.totalApprovedAmount ? Number(data.totalApprovedAmount) : null,
     rejectedAt: data.rejectedAt,
     rejectedReason: data.rejectedReason,
-    customer: data.customer,
-    product: data.product,
+    customer: {
+      ...data.customer,
+      weeklyInterestRateOverride:
+        data.customer.weeklyInterestRateOverride != null ? Number(data.customer.weeklyInterestRateOverride) : null,
+    },
+    product: { id: data.product.id, name: data.product.name },
+    pricingQuote,
     approvals: data.approvals.map((approval) => ({
       id: approval.id,
       action: approval.action,

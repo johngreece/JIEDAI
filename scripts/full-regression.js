@@ -494,7 +494,14 @@ async function main() {
     throw new Error("Repayment plan was not generated after disbursement");
   }
 
-  const item = plan.scheduleItems[0];
+  const schedule = await expectOk(
+    financeJar,
+    `/api/repayment-plans/${plan.id}/schedule`,
+    { method: "GET" },
+    "load live repayment schedule"
+  );
+  const item = schedule.items?.[0] || plan.scheduleItems[0];
+  const repaymentAmount = Number(item.remaining);
   const repayment = await expectOk(
     financeJar,
     "/api/repayments",
@@ -502,7 +509,7 @@ async function main() {
       method: "POST",
       body: {
         planId: plan.id,
-        amount: Number(item.remaining),
+        amount: repaymentAmount,
         paymentMethod: "BANK_TRANSFER",
         remark: `repayment ${tag}`,
       },
@@ -520,7 +527,7 @@ async function main() {
         allocations: [
           {
             itemId: item.id,
-            amount: Number(item.remaining),
+            amount: repaymentAmount,
             type: "PRINCIPAL",
           },
         ],

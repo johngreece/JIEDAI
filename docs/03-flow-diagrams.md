@@ -140,7 +140,7 @@ flowchart TB
     GracePeriod -->|否| A["创建/更新 overdue_records<br/>status: active"]
 
     A --> Calc["规则引擎计算逾期费用"]
-    Calc --> CalcDetail["计算逻辑：<br/>1. 读取 overdue_fee 规则<br/>2. 判断逾期天数区间<br/>3. 阶梯罚息计算<br/>  1-14天: 1%/天<br/>  15天+: 2%/天<br/>4. 基数 × 费率 × 天数"]
+    Calc --> CalcDetail["计算逻辑：<br/>1. 读取 overdue_fee 规则<br/>2. 判断逾期天数区间<br/>3. 阶梯罚息计算<br/>  1-7天: 2%/天<br/>  8-30天: 2%/天<br/>  31天+: 3%/天<br/>4. 基数 × 费率 × 天数"]
     CalcDetail --> B["更新 overdue_records<br/>overdue_fee_amount = 新金额<br/>overdue_days = 新天数"]
     B --> UpdateItem["更新 schedule_item<br/>overdue_due = 罚息金额<br/>total_due = 重新计算<br/>status: overdue"]
     UpdateItem --> Remind["逾期提醒"]

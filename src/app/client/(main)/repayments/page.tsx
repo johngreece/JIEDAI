@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getClientSession } from "@/lib/auth";
+import { getActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 import { RepaymentRequestForm } from "@/components/client/RepaymentRequestForm";
@@ -14,6 +14,7 @@ import {
   type OverdueConfig,
   type RepaymentTier,
 } from "@/lib/interest-engine";
+import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
@@ -24,8 +25,19 @@ function money(value: number) {
   }).format(value);
 }
 
+function formatDateTime(value: Date | string) {
+  return new Date(value).toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
 export default async function ClientRepaymentsPage() {
-  const session = await getClientSession();
+  const session = await getActiveClientSession();
 
   if (!session) {
     return (
@@ -51,6 +63,9 @@ export default async function ClientRepaymentsPage() {
         id: true,
         applicationNo: true,
         amount: true,
+        customer: {
+          select: { weeklyInterestRateOverride: true },
+        },
         product: {
           select: {
             name: true,
@@ -162,19 +177,21 @@ export default async function ClientRepaymentsPage() {
       }
     } else if (application.product.pricingRules.length > 0) {
       const parsed = parseTiersFromPricingRules(application.product.pricingRules);
-      tiers = parsed.tiers;
-      overdueConfig = parsed.overdueConfig;
-      upfrontFeeRate = parsed.upfrontFeeRate;
-      channel = parsed.channel;
+      const effective = applyCustomerPricingOverride(parsed, application.customer);
+      tiers = effective.tiers;
+      overdueConfig = effective.overdueConfig;
+      upfrontFeeRate = effective.upfrontFeeRate;
+      channel = effective.channel;
     } else {
       const settingsRows = await prisma.systemSetting.findMany();
       const sysMap: Record<string, string | number> = {};
       for (const setting of settingsRows) sysMap[setting.key] = setting.value;
       const parsed = loadFeeConfig(sysMap, null);
-      tiers = parsed.tiers;
-      overdueConfig = parsed.overdueConfig;
-      upfrontFeeRate = parsed.upfrontFeeRate;
-      channel = parsed.channel;
+      const effective = applyCustomerPricingOverride(parsed, application.customer);
+      tiers = effective.tiers;
+      overdueConfig = effective.overdueConfig;
+      upfrontFeeRate = effective.upfrontFeeRate;
+      channel = effective.channel;
     }
 
     if (!dueDate) {
@@ -303,7 +320,7 @@ export default async function ClientRepaymentsPage() {
                   <div>
                     <p className="text-sm font-medium text-slate-900">第 {item.periodNumber} 期</p>
                     <p className="mt-1 text-xs text-slate-500">
-                      到期日 {new Date(item.dueDate).toLocaleDateString("zh-CN")} · {getStatusLabel(item.status)}
+                      到期时间 {formatDateTime(item.dueDate)} · {getStatusLabel(item.status)}
                     </p>
                   </div>
                   <div className="text-sm font-semibold text-slate-900">{money(Number(item.remaining))}</div>

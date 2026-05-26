@@ -259,7 +259,7 @@ export default function RealtimeTimer({
             </div>
           </div>
           <p className="mt-2 text-xs text-red-500">
-            逾期后按日复利滚动：第 1 到 7 天 1%/天，第 8 到 30 天 2%/天，第 31 天起 3%/天；未支付利息会并入本金继续计算。
+            逾期后按日复利滚动：第 1 到 7 天 2%/天，第 8 到 30 天 2%/天，第 31 天起 3%/天；未支付利息会并入本金继续计算。
           </p>
         </div>
       )}

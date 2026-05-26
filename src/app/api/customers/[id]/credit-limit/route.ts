@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, isAdmin } from "@/lib/auth";
+import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
@@ -9,14 +10,12 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
-  if (!session || !isAdmin(session)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requirePermission(["customer:view"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
-  const customer = await prisma.customer.findUnique({
-    where: { id },
+  const customer = await prisma.customer.findFirst({
+    where: { id, deletedAt: null },
     select: {
       id: true,
       name: true,
@@ -60,10 +59,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession();
-  if (!session || !isAdmin(session)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await requirePermission(["customer:edit"]);
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const body = await req.json();
@@ -75,6 +72,14 @@ export async function PATCH(
     if (isNaN(num) || num < 0) {
       return NextResponse.json({ error: "额度必须为正数" }, { status: 400 });
     }
+  }
+
+  const existing = await prisma.customer.findFirst({
+    where: { id, deletedAt: null },
+    select: { id: true, name: true, creditLimitOverride: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
   }
 
   const customer = await prisma.customer.update({
@@ -89,6 +94,20 @@ export async function PATCH(
       creditLimitOverride: true,
     },
   });
+
+  await writeAuditLog({
+    userId: session.sub,
+    action: "update",
+    entityType: "customer",
+    entityId: id,
+    oldValue: {
+      creditLimitOverride: existing.creditLimitOverride ? Number(existing.creditLimitOverride) : null,
+    },
+    newValue: {
+      creditLimitOverride: customer.creditLimitOverride ? Number(customer.creditLimitOverride) : null,
+    },
+    changeSummary: "Update customer credit limit override",
+  }).catch((error) => console.error("[AuditLog] customer-credit-limit", error));
 
   return NextResponse.json({
     id: customer.id,

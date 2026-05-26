@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getClientSession } from "@/lib/auth";
+import { requireActiveClientSession } from "@/lib/portal-session";
 import { confirmRepayment } from "@/lib/repayment-confirm";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +16,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getClientSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录客户端" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const body = await req.json().catch(() => ({}));
@@ -46,7 +44,6 @@ export async function POST(
       rejectReason: parsed.data.rejectReason,
       ipAddress: ip,
       deviceInfo: parsed.data.deviceInfo,
-      operatorId: session.sub,
     });
 
     return NextResponse.json({

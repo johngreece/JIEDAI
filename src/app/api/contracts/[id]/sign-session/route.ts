@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClientSession } from "@/lib/auth";
+import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { createContractSignAccessToken } from "@/lib/contract-sign-session";
 
@@ -9,10 +9,8 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getClientSession();
-  if (!session) {
-    return NextResponse.json({ error: "请先登录客户端" }, { status: 401 });
-  }
+  const session = await requireActiveClientSession();
+  if (session instanceof Response) return session;
 
   const { id } = await params;
   const contract = await prisma.contract.findUnique({
