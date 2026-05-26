@@ -20,6 +20,15 @@ type SettlementStatus =
 const DAY_MS = 24 * 60 * 60 * 1000;
 const EPSILON = 0.0001;
 
+type GeneratedSettlementNotice = {
+  settlementNo: string;
+  funderId: string;
+  funderName: string;
+  disbursementNo: string;
+  customerName: string | null;
+  interestAmount: number;
+};
+
 function roundMoney(value: Decimal.Value) {
   return new Decimal(value).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
 }
@@ -123,6 +132,7 @@ export class FunderInterestSettlementService {
     const plansByApplicationId = new Map(plans.map((plan) => [plan.applicationId, plan]));
     let created = 0;
     let skipped = 0;
+    const createdSettlements: GeneratedSettlementNotice[] = [];
 
     for (const disbursement of disbursements) {
       if (!disbursement.disbursedAt) continue;
@@ -206,14 +216,15 @@ export class FunderInterestSettlementService {
           continue;
         }
 
-        await prisma.funderInterestSettlement.create({
+        const ruleMode = profitShareRatio > 0 ? "PROFIT_SHARE" : funder.cooperationMode;
+        const createdSettlement = await prisma.funderInterestSettlement.create({
           data: {
             settlementNo: genSettlementNo(),
             funderId: funder.id,
             fundAccountId: disbursement.fundAccountId,
             disbursementId: disbursement.id,
             applicationId: disbursement.applicationId,
-            ruleMode: profitShareRatio > 0 ? "PROFIT_SHARE" : funder.cooperationMode,
+            ruleMode,
             cycleIndex: cycle.index,
             cycleStart: cycle.cycleStart,
             cycleEnd: cycle.cycleEnd,
@@ -233,11 +244,65 @@ export class FunderInterestSettlementService {
             }),
           },
         });
+        createdSettlements.push({
+          settlementNo: createdSettlement.settlementNo,
+          funderId: funder.id,
+          funderName: funder.name,
+          disbursementNo: disbursement.disbursementNo,
+          customerName: disbursement.application.customer?.name ?? null,
+          interestAmount: interestAmount.toNumber(),
+        });
         created += 1;
       }
     }
 
-    return { scannedDisbursements: disbursements.length, created, skipped };
+    const notifications = await this.notifyGeneratedDueSettlements(createdSettlements);
+    const createdAmount = roundMoney(
+      createdSettlements.reduce((sum, item) => sum + item.interestAmount, 0),
+    ).toNumber();
+
+    return {
+      scannedDisbursements: disbursements.length,
+      created,
+      skipped,
+      createdAmount,
+      notifiedFunders: notifications.funders,
+      notifiedAdmins: notifications.admins,
+    };
+  }
+
+  private static async notifyGeneratedDueSettlements(items: GeneratedSettlementNotice[]) {
+    if (items.length === 0) return { funders: 0, admins: 0 };
+
+    const funderResults = await Promise.allSettled(
+      items.map((item) =>
+        FunderNotificationService.send(
+          item.funderId,
+          "FUNDER_INTEREST_DUE",
+          "收益结算单已到期",
+          `结算单 ${item.settlementNo} 已到期，金额 ${money(item.interestAmount)}。平台标记打款后，请进入收益结算页确认是否到账。`,
+        ),
+      ),
+    );
+
+    const totalAmount = items.reduce((sum, item) => sum + item.interestAmount, 0);
+    const preview = items
+      .slice(0, 5)
+      .map((item) => {
+        const customer = item.customerName ? `${item.customerName}/` : "";
+        return `${item.funderName}/${customer}${item.disbursementNo}/${money(item.interestAmount)}`;
+      })
+      .join("；");
+    const adminResult = await InAppNotificationService.notifyAdmins({
+      type: "FUNDER_INTEREST_DUE",
+      title: "资金方收益结算单已到期",
+      content: `系统自动生成 ${items.length} 笔资金方收益结算单，合计 ${money(totalAmount)}。请进入收益结算页核对并标记打款。${preview ? `明细：${preview}` : ""}`,
+    }).catch(() => ({ created: 0 }));
+
+    return {
+      funders: funderResults.filter((result) => result.status === "fulfilled").length,
+      admins: adminResult.created,
+    };
   }
 
   static async listForAdmin(status?: string | null) {

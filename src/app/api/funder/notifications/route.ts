@@ -5,7 +5,7 @@ import { FunderNotificationService } from "@/services/funder-notification.servic
 export const dynamic = "force-dynamic";
 
 function toFunderAction(type: string) {
-  if (type === "WITHDRAWABLE_INTEREST") {
+  if (type === "WITHDRAWABLE_INTEREST" || type === "SETTLEMENT_UPCOMING" || type === "FUNDER_INTEREST_DUE") {
     return {
       actionUrl: "/funder/interest-settlements",
       actionLabel: "查看收益",

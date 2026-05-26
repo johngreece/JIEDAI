@@ -9,6 +9,10 @@
       "schedule": "0 */6 * * *"
     },
     {
+      "path": "/api/cron/funder-interest-settlements",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/cron/message-deliveries/retry",
       "schedule": "*/15 * * * *"
     }

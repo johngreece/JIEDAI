@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ClientNotificationService } from "@/services/client-notification.service";
+import { FunderInterestSettlementService } from "@/services/funder-interest-settlement.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
 import { ensureCronAuthorized } from "@/lib/cron-auth";
 
@@ -10,6 +11,7 @@ export async function GET(req: Request) {
   if (denied) return denied;
 
   try {
+    const settlementResult = await FunderInterestSettlementService.generateDueSettlements();
     const [clientResult, funderResult] = await Promise.all([
       ClientNotificationService.scanAll(),
       FunderNotificationService.scanInterestMaturity(),
@@ -17,6 +19,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       success: true,
+      funderInterestSettlements: settlementResult,
       client: clientResult,
       funder: funderResult,
       timestamp: new Date().toISOString(),

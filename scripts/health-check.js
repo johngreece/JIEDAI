@@ -41,7 +41,7 @@ const REQUIRED_ENV = [
   ["DATABASE_URL", "运行时数据库连接（推荐 pooler URL）"],
   ["DIRECT_URL", "Prisma migrate/seed 用直连"],
   ["JWT_SECRET", "JWT 签名密钥（非默认值）"],
-  ["CRON_SECRET", "三个 cron 路由强校验密钥"],
+  ["CRON_SECRET", "四个 cron 路由强校验密钥"],
   ["ALLOWED_ORIGINS", "CORS 白名单，逗号分隔"],
 ];
 
