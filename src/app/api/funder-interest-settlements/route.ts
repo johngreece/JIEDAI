@@ -18,11 +18,13 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const status = url.searchParams.get("status");
-  const items = await FunderInterestSettlementService.listForAdmin(status);
+  const normalizedStatus = status && status !== "all" ? status : null;
+  const items = await FunderInterestSettlementService.listForAdmin(normalizedStatus);
+  const summaryItems = normalizedStatus ? await FunderInterestSettlementService.listForAdmin(null) : items;
 
   return NextResponse.json({
     items,
-    summary: FunderInterestSettlementService.summarize(items),
+    summary: FunderInterestSettlementService.summarize(summaryItems),
   });
 }
 

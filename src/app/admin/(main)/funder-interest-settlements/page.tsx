@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
 type Settlement = {
@@ -60,6 +60,18 @@ const modeLabel: Record<string, string> = {
   PROFIT_SHARE: "按实际收益分润",
 };
 
+const statusFilters = [
+  { value: "all", label: "全部" },
+  { value: "DUE", label: "待平台打款" },
+  { value: "PAID_BY_PLATFORM", label: "已打款待确认" },
+  { value: "CONFIRMED_BY_FUNDER", label: "资金方已确认" },
+  { value: "FUNDER_REJECTED", label: "反馈未收到" },
+] as const;
+
+function isKnownStatusFilter(value: string | null) {
+  return statusFilters.some((item) => item.value === value);
+}
+
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -84,22 +96,41 @@ export default function AdminFunderInterestSettlementsPage() {
   const [data, setData] = useState<ApiPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const actionKeyRef = useRef<{ scope: string; key: string } | null>(null);
 
-  async function load() {
+  const load = useCallback(async (nextStatus = statusFilter ?? "all") => {
     setLoading(true);
     try {
-      const response = await fetch("/api/funder-interest-settlements");
+      const query = nextStatus === "all" ? "" : `?status=${encodeURIComponent(nextStatus)}`;
+      const response = await fetch(`/api/funder-interest-settlements${query}`);
       const payload = await response.json();
       setData(payload);
     } finally {
       setLoading(false);
     }
-  }
+  }, [statusFilter]);
 
   useEffect(() => {
-    void load();
+    const initialStatus = new URLSearchParams(window.location.search).get("status");
+    setStatusFilter(isKnownStatusFilter(initialStatus) ? initialStatus : "all");
   }, []);
+
+  useEffect(() => {
+    if (statusFilter) void load(statusFilter);
+  }, [load, statusFilter]);
+
+  function selectStatus(nextStatus: string) {
+    setStatusFilter(nextStatus);
+    actionKeyRef.current = null;
+    const url = new URL(window.location.href);
+    if (nextStatus === "all") {
+      url.searchParams.delete("status");
+    } else {
+      url.searchParams.set("status", nextStatus);
+    }
+    window.history.replaceState(null, "", url.toString());
+  }
 
   function getActionKey(scope: string) {
     if (actionKeyRef.current?.scope !== scope) {
@@ -156,7 +187,7 @@ export default function AdminFunderInterestSettlementsPage() {
           >
             生成到期结算单
           </button>
-          <button type="button" onClick={load} className="admin-btn admin-btn-secondary">
+          <button type="button" onClick={() => void load()} className="admin-btn admin-btn-secondary">
             刷新
           </button>
         </div>
@@ -167,6 +198,26 @@ export default function AdminFunderInterestSettlementsPage() {
         <Metric label="已打款待确认" value={money(summary?.paidPendingConfirmAmount ?? 0)} tone="blue" />
         <Metric label="资金方已确认" value={money(summary?.confirmedAmount ?? 0)} tone="emerald" />
         <Metric label="反馈未收到" value={money(summary?.rejectedAmount ?? 0)} tone="red" />
+      </section>
+
+      <section className="flex flex-wrap gap-2">
+        {statusFilters.map((item) => {
+          const active = (statusFilter ?? "all") === item.value;
+          return (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => selectStatus(item.value)}
+              className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                active
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {item.label}
+            </button>
+          );
+        })}
       </section>
 
       {loading ? <div className="py-8 text-center text-slate-400">加载中...</div> : null}

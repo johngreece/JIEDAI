@@ -4,6 +4,55 @@ import { requireAdmin } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
 
+function toAdminAction(type: string) {
+  if (type === "CLIENT_LOAN_APPLICATION_SUBMITTED") {
+    return {
+      actionUrl: "/admin/loan-applications",
+      actionLabel: "处理借款申请",
+    };
+  }
+
+  if (type === "CLIENT_REPAYMENT_REQUEST_SUBMITTED") {
+    return {
+      actionUrl: "/admin/repayments",
+      actionLabel: "核对还款",
+    };
+  }
+
+  if (type === "FUNDER_CAPITAL_INFLOW_REQUESTED") {
+    return {
+      actionUrl: "/admin/funders",
+      actionLabel: "审核入金",
+    };
+  }
+
+  if (type === "FUNDER_INTEREST_DUE") {
+    return {
+      actionUrl: "/admin/funder-interest-settlements?status=DUE",
+      actionLabel: "去标记打款",
+    };
+  }
+
+  if (type === "FUNDER_INTEREST_REJECTED") {
+    return {
+      actionUrl: "/admin/funder-interest-settlements?status=FUNDER_REJECTED",
+      actionLabel: "处理未收到",
+    };
+  }
+
+  if (type === "FUNDER_INTEREST_CONFIRMED") {
+    return {
+      actionUrl: "/admin/funder-interest-settlements?status=CONFIRMED_BY_FUNDER",
+      actionLabel: "查看确认记录",
+    };
+  }
+
+  return {
+    actionUrl: "/admin/dashboard",
+    actionLabel: "查看工作台",
+  };
+}
+
 export async function GET(req: Request) {
   const session = await requireAdmin();
   if (session instanceof Response) return session;
@@ -31,7 +80,13 @@ export async function GET(req: Request) {
     }),
   ]);
 
-  return NextResponse.json({ notifications, unread });
+  return NextResponse.json({
+    notifications: notifications.map((notification) => ({
+      ...notification,
+      ...toAdminAction(notification.type),
+    })),
+    unread,
+  });
 }
 
 export async function PATCH(req: Request) {

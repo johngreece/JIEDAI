@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 type NotificationItem = {
@@ -10,6 +11,8 @@ type NotificationItem = {
   templateCode: string | null;
   isRead: boolean;
   createdAt: string;
+  actionUrl: string;
+  actionLabel: string;
 };
 
 function formatDate(value: string) {
@@ -100,15 +103,26 @@ export default function AdminNotificationsPage() {
                       {item.templateCode ? ` · ${item.templateCode}` : ""}
                     </p>
                   </div>
-                  {!item.isRead ? (
-                    <button
-                      type="button"
-                      onClick={() => void markOne(item.id)}
-                      className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Link
+                      href={item.actionUrl}
+                      onClick={() => {
+                        if (!item.isRead) void markOne(item.id);
+                      }}
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 hover:no-underline"
                     >
-                      标记已读
-                    </button>
-                  ) : null}
+                      {item.actionLabel}
+                    </Link>
+                    {!item.isRead ? (
+                      <button
+                        type="button"
+                        onClick={() => void markOne(item.id)}
+                        className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                      >
+                        标记已读
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             ))}
