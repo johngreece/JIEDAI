@@ -356,6 +356,11 @@ export class FunderInterestSettlementService {
   }
 
   static async markPaidByPlatform(settlementId: string, operatorId: string, remark?: string) {
+    const paymentRemark = remark?.trim();
+    if (!paymentRemark) {
+      throw new Error("请填写平台打款流水号或付款备注");
+    }
+
     const settlement = await prisma.funderInterestSettlement.findUnique({
       where: { id: settlementId },
       include: { funder: { select: { name: true } } },
@@ -378,7 +383,7 @@ export class FunderInterestSettlementService {
         paidById: operatorId,
         rejectReason: null,
         rejectedAt: null,
-        remark: remark ?? settlement.remark,
+        remark: paymentRemark,
       },
     });
 
@@ -387,15 +392,19 @@ export class FunderInterestSettlementService {
         settlement.funderId,
         "FUNDER_INTEREST_PAID",
         "收益已打款，请确认",
-        `结算单 ${settlement.settlementNo} 已由平台标记为已打款，金额 ${money(Number(settlement.interestAmount))}。收到后请进入收益结算页确认。`,
+        `结算单 ${settlement.settlementNo} 已由平台标记为已打款，金额 ${money(Number(settlement.interestAmount))}。打款备注：${paymentRemark}。收到后请进入收益结算页确认。`,
       ),
       writeAuditLog({
         userId: operatorId,
         action: "confirm",
         entityType: "funder_interest_settlement",
         entityId: settlement.id,
-        oldValue: { status: settlement.status },
-        newValue: { status: updated.status, paidAt: paidAt.toISOString() },
+        oldValue: {
+          status: settlement.status,
+          remark: settlement.remark,
+          rejectReason: settlement.rejectReason,
+        },
+        newValue: { status: updated.status, paidAt: paidAt.toISOString(), remark: paymentRemark },
         changeSummary: "平台标记资金方收益已打款",
       }).catch(() => undefined),
     ]);

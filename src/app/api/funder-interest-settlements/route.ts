@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 
 const postSchema = z.object({
   action: z.enum(["generate_due", "mark_paid"]),
-  settlementId: z.string().optional(),
-  remark: z.string().max(500).optional(),
+  settlementId: z.string().trim().optional(),
+  remark: z.string().trim().max(500).optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -38,12 +38,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const settlementId = parsed.data.settlementId;
+  const paymentRemark = parsed.data.remark;
+  if (parsed.data.action === "mark_paid") {
+    if (!settlementId) {
+      return NextResponse.json({ error: "请选择要标记打款的结算单" }, { status: 400 });
+    }
+    if (!paymentRemark) {
+      return NextResponse.json({ error: "请填写平台打款流水号或付款备注" }, { status: 400 });
+    }
+  }
+
   const idemKey = getScopedIdempotencyKey(req, [
     "admin",
     session.sub,
     "funder-interest-settlement",
     parsed.data.action,
-    parsed.data.settlementId ?? "all",
+    settlementId ?? "all",
   ]);
   const cached = await checkIdempotencyKey(idemKey);
   if (cached) return NextResponse.json(cached);
@@ -53,9 +64,9 @@ export async function POST(req: NextRequest) {
       parsed.data.action === "generate_due"
         ? await FunderInterestSettlementService.generateDueSettlements()
         : await FunderInterestSettlementService.markPaidByPlatform(
-            parsed.data.settlementId ?? "",
+            settlementId ?? "",
             session.sub,
-            parsed.data.remark,
+            paymentRemark,
           );
 
     await saveIdempotencyResult(idemKey, result);

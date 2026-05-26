@@ -97,6 +97,7 @@ export default function AdminFunderInterestSettlementsPage() {
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [paymentDraft, setPaymentDraft] = useState<{ settlement: Settlement; remark: string } | null>(null);
   const actionKeyRef = useRef<{ scope: string; key: string } | null>(null);
 
   const load = useCallback(async (nextStatus = statusFilter ?? "all") => {
@@ -140,7 +141,7 @@ export default function AdminFunderInterestSettlementsPage() {
   }
 
   async function postAction(body: Record<string, unknown>, scope: string) {
-    if (processing) return;
+    if (processing) return false;
     setProcessing(true);
     try {
       const response = await fetch("/api/funder-interest-settlements", {
@@ -155,13 +156,34 @@ export default function AdminFunderInterestSettlementsPage() {
       if (!response.ok) {
         actionKeyRef.current = null;
         alert(result.error || "操作失败");
-        return;
+        return false;
       }
       actionKeyRef.current = null;
       await load();
+      return true;
     } finally {
       setProcessing(false);
     }
+  }
+
+  function openMarkPaid(item: Settlement) {
+    actionKeyRef.current = null;
+    setPaymentDraft({ settlement: item, remark: item.remark?.trim() ?? "" });
+  }
+
+  async function submitPaymentDraft() {
+    if (!paymentDraft) return;
+    const remark = paymentDraft.remark.trim();
+    if (!remark) {
+      alert("请填写平台打款流水号或付款备注");
+      return;
+    }
+
+    const ok = await postAction(
+      { action: "mark_paid", settlementId: paymentDraft.settlement.id, remark },
+      `funder-interest-paid-${paymentDraft.settlement.id}`,
+    );
+    if (ok) setPaymentDraft(null);
   }
 
   const items = data?.items ?? [];
@@ -239,26 +261,79 @@ export default function AdminFunderInterestSettlementsPage() {
                     <div className="mt-1 text-xs text-slate-500">
                       {item.customerName} / {item.disbursementNo} · 本金 {money(item.principal)} · 利率 {item.rate}%
                     </div>
+                    {item.remark ? <div className="mt-2 text-xs text-slate-600">打款备注：{item.remark}</div> : null}
                     {item.rejectReason ? <div className="mt-2 text-xs text-red-600">资金方反馈：{item.rejectReason}</div> : null}
                   </div>
                   <button
                     type="button"
                     className="admin-btn admin-btn-success admin-btn-sm"
                     disabled={processing}
-                    onClick={() =>
-                      postAction(
-                        { action: "mark_paid", settlementId: item.id },
-                        `funder-interest-paid-${item.id}`,
-                      )
-                    }
+                    onClick={() => openMarkPaid(item)}
                   >
-                    标记已打款
+                    登记打款信息
                   </button>
                 </div>
               </div>
             </div>
           ))}
         </section>
+      ) : null}
+
+      {paymentDraft ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6" role="dialog" aria-modal="true">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-lg font-semibold text-slate-900">登记平台打款</div>
+                <p className="mt-1 text-sm text-slate-500">
+                  {paymentDraft.settlement.funderName} · {money(paymentDraft.settlement.interestAmount)}
+                </p>
+              </div>
+              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadge[paymentDraft.settlement.status] ?? "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                {statusLabel[paymentDraft.settlement.status] ?? paymentDraft.settlement.status}
+              </span>
+            </div>
+            <div className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              {paymentDraft.settlement.customerName} / {paymentDraft.settlement.disbursementNo} · 到期 {dateTime(paymentDraft.settlement.dueDate)}
+            </div>
+            <label className="mt-4 block">
+              <span className="text-sm font-medium text-slate-700">打款流水号或付款备注</span>
+              <textarea
+                className="admin-field mt-2 min-h-[104px] text-sm"
+                placeholder="例如：SEPA 付款流水号、银行回执号、付款批次号"
+                value={paymentDraft.remark}
+                onChange={(event) => {
+                  actionKeyRef.current = null;
+                  setPaymentDraft((current) =>
+                    current ? { ...current, remark: event.target.value } : current,
+                  );
+                }}
+                autoFocus
+              />
+            </label>
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                className="admin-btn admin-btn-secondary"
+                disabled={processing}
+                onClick={() => {
+                  actionKeyRef.current = null;
+                  setPaymentDraft(null);
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn-success"
+                disabled={processing || !paymentDraft.remark.trim()}
+                onClick={() => void submitPaymentDraft()}
+              >
+                确认已打款
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       <section className="table-shell admin-table-shell">
@@ -280,13 +355,14 @@ export default function AdminFunderInterestSettlementsPage() {
                 <th className="px-4 py-3">利息</th>
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">平台打款</th>
+                <th className="px-4 py-3">打款备注</th>
                 <th className="px-4 py-3">资金方确认</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {items.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={10} className="px-4 py-8 text-center text-slate-400">
                     暂无收益结算单，可先点击“生成到期结算单”。
                   </td>
                 </tr>
@@ -315,6 +391,9 @@ export default function AdminFunderInterestSettlementsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500">{dateTime(item.paidAt)}</td>
+                    <td className="max-w-xs px-4 py-3 text-xs text-slate-500">
+                      <span className="break-words" title={item.remark ?? undefined}>{item.remark || "-"}</span>
+                    </td>
                     <td className="px-4 py-3 text-xs text-slate-500">{dateTime(item.confirmedAt)}</td>
                   </tr>
                 ))

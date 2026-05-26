@@ -24,6 +24,7 @@ type Settlement = {
   confirmedAt: string | null;
   rejectedAt: string | null;
   rejectReason: string | null;
+  remark: string | null;
 };
 
 type Payload = {
@@ -235,6 +236,11 @@ export default function FunderInterestSettlementsPage() {
                   <div className="mt-1 text-xs text-slate-500">
                     周期 {dateTime(item.cycleStart)} 至 {dateTime(item.cycleEnd)} · 平台打款 {dateTime(item.paidAt)}
                   </div>
+                  {item.remark ? (
+                    <div className="mt-2 rounded-lg border border-blue-100 bg-white/70 px-3 py-2 text-xs text-slate-600">
+                      平台打款备注：{item.remark}
+                    </div>
+                  ) : null}
                 </div>
                 {rejectingId === item.id ? (
                   <div className="flex w-full flex-col gap-2 lg:w-80">
@@ -315,6 +321,7 @@ export default function FunderInterestSettlementsPage() {
                   <th className="px-4 py-3 text-left">本金</th>
                   <th className="px-4 py-3 text-left">利息</th>
                   <th className="px-4 py-3 text-left">状态</th>
+                  <th className="px-4 py-3 text-left">平台备注</th>
                 </tr>
               </thead>
               <tbody>
@@ -335,6 +342,9 @@ export default function FunderInterestSettlementsPage() {
                       <span className={`rounded-full px-2 py-0.5 text-xs ${statusBadge[item.status] ?? "bg-slate-100 text-slate-600"}`}>
                         {statusLabel[item.status] ?? item.status}
                       </span>
+                    </td>
+                    <td className="max-w-xs px-4 py-3 text-xs text-slate-500">
+                      <span className="break-words" title={item.remark ?? undefined}>{item.remark || "-"}</span>
                     </td>
                   </tr>
                 ))}
