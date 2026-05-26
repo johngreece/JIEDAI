@@ -12,6 +12,15 @@
   --safe-left: env(safe-area-inset-left, 0px);
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #020617;
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   color: rgb(var(--foreground-rgb));
   background: linear-gradient(
@@ -25,10 +34,14 @@ body {
   -moz-osx-font-smoothing: grayscale;
   min-width: 320px;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
 
-html {
-  background: #020617;
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
 }
 
 button,
@@ -40,16 +53,16 @@ textarea {
 
 @supports (padding: max(0px)) {
   .safe-px {
-    padding-left: max(1rem, var(--safe-left));
-    padding-right: max(1rem, var(--safe-right));
+    padding-left: max(0px, var(--safe-left));
+    padding-right: max(0px, var(--safe-right));
   }
 
   .safe-pb {
-    padding-bottom: max(1rem, var(--safe-bottom));
+    padding-bottom: max(0px, var(--safe-bottom));
   }
 
   .safe-pt {
-    padding-top: max(1rem, var(--safe-top));
+    padding-top: max(0px, var(--safe-top));
   }
 }
 
@@ -1033,6 +1046,24 @@ a:hover { text-decoration: underline; }
   gap: 0.7rem;
 }
 
+.admin-mobile-only {
+  display: inline-flex;
+}
+
+.admin-desktop-only {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .admin-mobile-only {
+    display: none;
+  }
+
+  .admin-desktop-only {
+    display: inline-flex;
+  }
+}
+
 .admin-topbar-chip {
   display: inline-flex;
   align-items: center;
@@ -1121,5 +1152,287 @@ a:hover { text-decoration: underline; }
 
   .admin-topbar-actions {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 767px) {
+  .panel-soft,
+  .stat-tile,
+  .dashboard-panel,
+  .dashboard-subcard,
+  .dashboard-row,
+  .dashboard-soft-row,
+  .dashboard-lane,
+  .dashboard-list-link,
+  .dashboard-tone-card,
+  .table-shell,
+  .admin-section-card,
+  .admin-form-shell {
+    border-radius: 1rem;
+  }
+
+  .app-shell-main {
+    padding: 0.75rem;
+    padding-bottom: calc(6.25rem + var(--safe-bottom));
+  }
+
+  .app-surface {
+    border-radius: 1rem;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+  }
+
+  .app-surface form button[type="submit"] {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .app-runtime-banner {
+    border-radius: 1rem;
+  }
+
+  .mobile-bottom-nav {
+    padding: 0.55rem 0.65rem calc(0.55rem + var(--safe-bottom));
+  }
+
+  .mobile-bottom-nav__inner {
+    gap: 0.35rem;
+    padding: 0.4rem;
+    border-radius: 1rem;
+  }
+
+  .mobile-bottom-nav__inner--dense {
+    gap: 0.25rem;
+    padding-inline: 0.3rem;
+  }
+
+  .mobile-bottom-nav__item {
+    min-height: 2.45rem;
+    padding-inline: 0.2rem;
+  }
+
+  .mobile-bottom-nav__item span {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .admin-workspace-shell {
+    min-height: 100svh;
+    gap: 0;
+    padding: 0.5rem;
+  }
+
+  .admin-workspace-main {
+    width: 100%;
+  }
+
+  .admin-workspace-topbar {
+    position: sticky;
+    top: var(--safe-top);
+    z-index: 35;
+    padding-bottom: 0.45rem;
+  }
+
+  .admin-topbar-shell {
+    gap: 0.75rem;
+    padding: 0.8rem;
+    border-radius: 1.15rem;
+  }
+
+  .admin-topbar-copy {
+    width: 100%;
+  }
+
+  .admin-breadcrumbs {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 0.1rem;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-topbar-heading__title {
+    font-size: 1.28rem;
+  }
+
+  .admin-topbar-heading__meta {
+    font-size: 0.78rem;
+  }
+
+  .admin-topbar-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .admin-topbar-actions .admin-btn,
+  .admin-topbar-actions .admin-topbar-chip {
+    flex: 1 1 0;
+  }
+
+  .admin-content-stage {
+    min-height: calc(100svh - 1rem);
+    padding: 0.65rem;
+    border-radius: 1.2rem;
+  }
+
+  .admin-content-inner {
+    padding: 0;
+  }
+
+  .admin-sidebar-surface {
+    border-radius: 1.35rem;
+  }
+
+  .admin-page-header {
+    gap: 0.85rem;
+    padding: 1rem;
+    border-radius: 1.2rem;
+  }
+
+  .admin-page-header__eyebrow {
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+  }
+
+  .admin-page-header__title {
+    font-size: 1.35rem;
+  }
+
+  .admin-page-header__description {
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+
+  .admin-toolbar,
+  .admin-table-toolbar,
+  .admin-pagination,
+  .admin-section-card__header {
+    align-items: stretch;
+    padding: 0.8rem;
+  }
+
+  .admin-toolbar-group,
+  .admin-filter-tabs {
+    width: 100%;
+  }
+
+  .admin-toolbar-group > * {
+    flex: 1 1 100%;
+  }
+
+  .admin-toolbar-group .admin-field,
+  .admin-toolbar-group .admin-btn {
+    width: 100%;
+  }
+
+  .admin-filter-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.1rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-filter-chip {
+    flex: 0 0 auto;
+    min-height: 2.35rem;
+    padding: 0.5rem 0.85rem;
+  }
+
+  .admin-stat-grid,
+  .admin-kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem;
+  }
+
+  .admin-stat-card,
+  .admin-kpi-strip__item {
+    padding: 0.85rem;
+  }
+
+  .admin-stat-card__value {
+    font-size: 1.15rem;
+  }
+
+  .admin-btn {
+    min-height: 2.6rem;
+    white-space: nowrap;
+  }
+
+  .admin-pagination__controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .admin-pagination__controls .admin-btn {
+    flex: 1 1 0;
+  }
+
+  .admin-section-card__body,
+  .admin-form-shell {
+    padding: 1rem;
+  }
+
+  .input-base,
+  .admin-field,
+  input,
+  select,
+  textarea {
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .dashboard-action-chip {
+    min-height: 2.5rem;
+    padding: 0.58rem 0.85rem;
+  }
+
+  .dashboard-pill,
+  .dashboard-chip {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .overflow-x-auto {
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+  }
+
+  .overflow-x-auto > table {
+    min-width: 44rem;
+  }
+
+  .overflow-x-auto > table th,
+  .overflow-x-auto > table td {
+    white-space: nowrap;
+  }
+
+  .overflow-x-auto > table td .truncate {
+    max-width: 12rem;
+  }
+
+  pre {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 359px) {
+  .admin-stat-grid,
+  .admin-kpi-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-bottom-nav {
+    padding-inline: 0.45rem;
+  }
+
+  .mobile-bottom-nav__item span {
+    font-size: 10px;
   }
 }

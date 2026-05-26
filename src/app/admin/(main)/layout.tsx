@@ -58,7 +58,7 @@ export default function AdminMainLayout({ children }: AdminMainLayoutProps) {
   useEffect(() => {
     const syncLayout = () => {
       const width = window.innerWidth;
-      setCollapsed(width < 1440);
+      setCollapsed(width >= 1100 && width < 1440);
       if (width >= 1100) {
         setMobileOpen(false);
       }
@@ -105,15 +105,16 @@ export default function AdminMainLayout({ children }: AdminMainLayoutProps) {
               </div>
               <button
                 type="button"
+                aria-label="打开管理菜单"
                 onClick={() => setMobileOpen(true)}
-                className="admin-btn admin-btn-secondary admin-btn-sm lg:hidden"
+                className="admin-btn admin-btn-secondary admin-btn-sm admin-mobile-only"
               >
                 菜单
               </button>
               <button
                 type="button"
                 onClick={() => setCollapsed((current) => !current)}
-                className="admin-btn admin-btn-secondary admin-btn-sm hidden lg:inline-flex"
+                className="admin-btn admin-btn-secondary admin-btn-sm admin-desktop-only"
               >
                 {collapsed ? "展开导航" : "收起导航"}
               </button>

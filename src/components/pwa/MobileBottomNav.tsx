@@ -19,11 +19,12 @@ export function MobileBottomNav({
   accentClassName = "text-cyan-300",
 }: MobileBottomNavProps) {
   const pathname = usePathname();
+  const dense = items.length > 4;
 
   return (
-    <nav className="mobile-bottom-nav md:hidden">
+    <nav className="mobile-bottom-nav md:hidden" aria-label="移动端主导航">
       <div
-        className="mobile-bottom-nav__inner"
+        className={`mobile-bottom-nav__inner ${dense ? "mobile-bottom-nav__inner--dense" : ""}`}
         style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
       >
         {items.map((item) => {
@@ -35,11 +36,12 @@ export function MobileBottomNav({
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className={`mobile-bottom-nav__item ${
-                active ? `${accentClassName} bg-white/12` : "text-slate-300"
+                active ? `${accentClassName} bg-white/10` : "text-slate-300"
               }`}
             >
-              <span className="text-[11px] font-semibold tracking-wide">
+              <span className={`${dense ? "text-[10px]" : "text-[11px]"} font-semibold tracking-wide`}>
                 {item.shortLabel ?? item.label}
               </span>
             </Link>

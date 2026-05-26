@@ -87,7 +87,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
       <aside
         data-admin-sidebar
         className={`admin-sidebar-surface fixed inset-y-4 left-4 z-50 flex flex-col overflow-hidden transition-all duration-300 lg:sticky lg:top-4 lg:z-30 lg:h-[calc(100vh-2rem)] ${
-          collapsed ? "w-[92px]" : "w-[224px]"
+          collapsed ? "w-[92px]" : "w-[min(calc(100vw-2rem),320px)] lg:w-[224px]"
         } ${
           mobileOpen ? "translate-x-0" : "-translate-x-[120%] lg:translate-x-0"
         }`}
@@ -102,6 +102,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
             <button
               type="button"
               onClick={onToggleCollapse}
+              aria-label={collapsed ? "展开导航" : "收起导航"}
               className="hidden rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-white lg:inline-flex"
             >
               {collapsed ? ">" : "<"}
@@ -109,6 +110,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
             <button
               type="button"
               onClick={onClose}
+              aria-label="关闭管理菜单"
               className="rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-white lg:hidden"
             >
               关闭
