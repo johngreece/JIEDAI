@@ -101,6 +101,8 @@ export async function GET(
         where: {
           planId: plan.id,
           status: { in: [...INTEREST_FREEZE_REPAYMENT_STATUSES] },
+          interestFrozenAt: { not: null },
+          frozenPayableAmount: { not: null },
         },
         orderBy: { createdAt: "desc" },
         select: {

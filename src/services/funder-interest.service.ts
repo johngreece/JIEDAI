@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
+import { getNextCalendarMonthBoundary } from "@/lib/calendar-period";
+import { orderWithdrawalFundAccountIds } from "@/lib/fund-account-withdrawal";
+import { getFunderDisplayRate, resolveFunderRuleMode } from "@/lib/funder-cooperation";
+import { writeDebitFundAccountLedgerEntryFromCandidates } from "@/services/fund-account-ledger.service";
 
 type WithdrawalType = "PRINCIPAL" | "INTEREST" | "PRINCIPAL_AND_INTEREST";
 
@@ -73,6 +76,37 @@ function safeDate(value: Date | null | undefined) {
   return value ? new Date(value) : null;
 }
 
+function calculateCalendarMonthlyInterest(params: {
+  principal: number;
+  monthlyRate: number;
+  startDate: Date;
+  endDate: Date;
+}) {
+  if (params.endDate <= params.startDate) return 0;
+
+  let total = 0;
+  let index = 1;
+  let cycleStart = new Date(params.startDate);
+
+  while (cycleStart < params.endDate) {
+    const cycleEnd = getNextCalendarMonthBoundary(params.startDate, cycleStart).boundary;
+    const effectiveEnd = cycleEnd < params.endDate ? cycleEnd : params.endDate;
+    const scheduledDays = diffDaysPrecise(cycleStart, cycleEnd);
+    const elapsedDays = diffDaysPrecise(cycleStart, effectiveEnd);
+
+    if (scheduledDays > 0) {
+      total += params.principal * (params.monthlyRate / 100) * (elapsedDays / scheduledDays);
+    }
+
+    if (params.endDate <= cycleEnd) break;
+    cycleStart = cycleEnd;
+    index += 1;
+    if (index > 600) break;
+  }
+
+  return round2(total);
+}
+
 export class FunderInterestService {
   static async getEarnings(funderId: string): Promise<FunderEarnings> {
     const funder = await prisma.funder.findUniqueOrThrow({
@@ -138,6 +172,14 @@ export class FunderInterestService {
     }
 
     const now = new Date();
+    const funderRule = {
+      cooperationMode: funder.cooperationMode,
+      monthlyRate: Number(funder.monthlyRate),
+      weeklyRate: Number(funder.weeklyRate),
+      profitShareRatio: Number(funder.profitShareRatio || 0),
+    };
+    const funderRuleMode = resolveFunderRuleMode(funderRule);
+    const funderDisplayRate = getFunderDisplayRate(funderRule);
 
     const allDisbursements = await prisma.disbursement.findMany({
       where: {
@@ -188,6 +230,8 @@ export class FunderInterestService {
                   dueDate: true,
                   totalDue: true,
                   remaining: true,
+                  interest: true,
+                  fee: true,
                   status: true,
                 },
                 take: 1,
@@ -271,20 +315,26 @@ export class FunderInterestService {
 
       let earnedInterest = 0;
       let rate = 0;
-      let nextSettlementDate = addDays(startDate, 30);
+      let nextSettlementDate = addDays(startDate, 7);
 
-      if (funder.cooperationMode === "FIXED_MONTHLY") {
+      if (funderRuleMode === "FIXED_MONTHLY") {
         rate = toNumber(funder.monthlyRate);
-        earnedInterest = round2(principal * (rate / 100) * (activeDays / 30));
-        const elapsedCycles = Math.floor(activeDays / 30);
-        nextSettlementDate = addDays(startDate, (elapsedCycles + 1) * 30);
+        earnedInterest = calculateCalendarMonthlyInterest({
+          principal,
+          monthlyRate: rate,
+          startDate,
+          endDate,
+        });
+        nextSettlementDate = getNextCalendarMonthBoundary(startDate, endDate).boundary;
+      } else if (funderRuleMode === "PROFIT_SHARE") {
+        const profitShareRatio = toNumber(funder.profitShareRatio || 0);
+        rate = funderDisplayRate;
+        earnedInterest = round2(realizedIncome * profitShareRatio);
+        const elapsedCycles = Math.floor(activeDays / 7);
+        nextSettlementDate = addDays(startDate, (elapsedCycles + 1) * 7);
       } else {
         rate = toNumber(funder.weeklyRate);
-        const profitShareRatio = toNumber(funder.profitShareRatio || 0);
-        earnedInterest =
-          profitShareRatio > 0
-            ? round2(realizedIncome * profitShareRatio)
-            : round2(principal * (rate / 100) * (activeDays / 7));
+        earnedInterest = round2(principal * (rate / 100) * (activeDays / 7));
         const elapsedCycles = Math.floor(activeDays / 7);
         nextSettlementDate = addDays(startDate, (elapsedCycles + 1) * 7);
       }
@@ -309,10 +359,15 @@ export class FunderInterestService {
       const expectedCollection = nextPlanItem
         ? toNumber(nextPlanItem.remaining || nextPlanItem.totalDue || 0)
         : 0;
+      const expectedCustomerIncome = nextPlanItem
+        ? toNumber(nextPlanItem.interest) + toNumber(nextPlanItem.fee)
+        : 0;
       const expectedInterest =
-        funder.cooperationMode === "FIXED_MONTHLY"
+        funderRuleMode === "FIXED_MONTHLY"
           ? round2(principal * (toNumber(funder.monthlyRate) / 100))
-          : round2(principal * (toNumber(funder.weeklyRate) / 100));
+          : funderRuleMode === "PROFIT_SHARE"
+            ? round2(expectedCustomerIncome * toNumber(funder.profitShareRatio || 0))
+            : round2(principal * (toNumber(funder.weeklyRate) / 100));
 
       upcomingSettlements.push({
         disbursementId: disbursement.id,
@@ -515,6 +570,31 @@ export class FunderInterestService {
     }
 
     return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id FROM funders WHERE id = ${withdrawal.funderId} FOR UPDATE
+      `;
+
+      if (withdrawal.funder.withdrawalCooldownDays > 0) {
+        const latestApproved = await tx.funderWithdrawal.findFirst({
+          where: {
+            funderId: withdrawal.funderId,
+            status: "APPROVED",
+            id: { not: withdrawal.id },
+          },
+          orderBy: [{ approvedAt: "desc" }, { id: "desc" }],
+        });
+
+        if (latestApproved?.approvedAt) {
+          const cooldownEnd = addDays(latestApproved.approvedAt, withdrawal.funder.withdrawalCooldownDays);
+          if (new Date() < cooldownEnd) {
+            const remainDays = Math.ceil((cooldownEnd.getTime() - Date.now()) / DAY_MS);
+            throw new Error(
+              `Cannot approve: funder is still within withdrawal cooldown (${remainDays} day(s) remaining)`,
+            );
+          }
+        }
+      }
+
       const accounts = await tx.fundAccount.findMany({
         where: {
           funderId: withdrawal.funderId,
@@ -523,18 +603,8 @@ export class FunderInterestService {
         orderBy: [{ balance: "desc" }, { createdAt: "asc" }],
       });
 
-      const preferredCandidates = withdrawal.accountId
-        ? [
-            ...accounts.filter((account) => account.id === withdrawal.accountId),
-            ...accounts.filter((account) => account.id !== withdrawal.accountId),
-          ]
-        : accounts;
-
-      const chosenAccount = preferredCandidates.find(
-        (account) => toNumber(account.balance) >= toNumber(withdrawal.amount) - EPSILON,
-      );
-
-      if (!chosenAccount) {
+      const candidateFundAccountIds = orderWithdrawalFundAccountIds(accounts, withdrawal.accountId);
+      if (candidateFundAccountIds.length === 0) {
         throw new Error("No active fund account has enough available balance for this withdrawal");
       }
 
@@ -543,7 +613,6 @@ export class FunderInterestService {
         where: { id: withdrawalId, status: "PENDING" },
         data: {
           status: "APPROVED",
-          accountId: chosenAccount.id,
           approvedAt: now,
           approvedBy: adminId,
         },
@@ -553,10 +622,9 @@ export class FunderInterestService {
         throw new Error("This withdrawal request has already been processed");
       }
 
-      await writeFundAccountLedgerEntry(tx, {
-        fundAccountId: chosenAccount.id,
+      const ledgerResult = await writeDebitFundAccountLedgerEntryFromCandidates(tx, {
+        candidateFundAccountIds,
         type: "WITHDRAWAL",
-        direction: "DEBIT",
         amount: Number(withdrawal.amount),
         referenceType: "funder_withdrawal",
         referenceId: withdrawal.id,
@@ -569,17 +637,14 @@ export class FunderInterestService {
         },
       });
 
-      await tx.fundAccount.update({
-        where: { id: chosenAccount.id },
-        data: {
-          balance: { decrement: withdrawal.amount },
-          totalOutflow: { increment: withdrawal.amount },
-        },
+      await tx.funderWithdrawal.update({
+        where: { id: withdrawal.id },
+        data: { accountId: ledgerResult.fundAccountId },
       });
 
       return {
         ok: true,
-        accountId: chosenAccount.id,
+        accountId: ledgerResult.fundAccountId,
         funderId: withdrawal.funderId,
         withdrawalId: withdrawal.id,
         amount: Number(withdrawal.amount),

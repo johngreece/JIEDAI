@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
@@ -32,6 +32,12 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
   const clearSubmitKey = () => {
     submitKeyRef.current = null;
   };
+
+  useEffect(() => {
+    if (!submitting) {
+      setAmount(outstandingAmount > 0 ? String(outstandingAmount) : "");
+    }
+  }, [outstandingAmount, submitting]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -93,21 +99,19 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
 
       <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={submit}>
         <label className="space-y-1.5 text-sm">
-          <span className="text-slate-600">申请还款金额</span>
+          <span className="text-slate-600">本次结清金额</span>
           <input
             className="input-base"
             type="number"
             step="0.01"
-            min={0.01}
+            min={outstandingAmount}
             max={outstandingAmount}
             value={amount}
-            onChange={(event) => {
-              clearSubmitKey();
-              setAmount(event.target.value);
-            }}
+            readOnly
             disabled={submitting || blocked}
             required
           />
+          <span className="block text-xs text-slate-500">客户端自助还款按全额结清处理；部分还款请联系管理端人工登记。</span>
         </label>
 
         <label className="space-y-1.5 text-sm">

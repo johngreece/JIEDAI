@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { FUNDER_COOPERATION_LABELS, resolveFunderRuleMode } from "@/lib/funder-cooperation";
 
 /**
  * 资金方合同模板引擎
@@ -29,10 +30,10 @@ const FIXED_MONTHLY_TEMPLATE = `
 
 第三条 利息计算与支付
 
-1. 利息按自然月计算，每满30天为一个计息周期。
-2. 月利率为 {{monthlyRate}}%，按投入总额计算。
+1. 利息按实际日历月计算，每满一个自然月为一个计息周期。
+2. 月利率为 {{monthlyRate}}%，按投入总额计算；2月按28/29天，30天月按30天，31天月按31天。
 3. 利息自资金实际到账之日起计算。
-4. 满一个月后，乙方可申请提取利息或本息。
+4. 满一个自然月后，乙方可申请提取利息或本息；提前退出或提前结清的零头按所在自然月实际天数折算。
 
 第四条 提前退出
 
@@ -59,7 +60,7 @@ const FIXED_MONTHLY_TEMPLATE = `
 `;
 
 const VOLUME_BASED_TEMPLATE = `
-资金合作协议（业务量结算模式）
+资金合作协议（固定周息模式）
 
 甲方（平台方）：财大气粗总公司
 乙方（资金方）：{{funderName}}
@@ -72,7 +73,7 @@ const VOLUME_BASED_TEMPLATE = `
 
 第一条 合作模式
 
-本协议采用【业务量结算】合作模式。甲方仅按实际使用乙方资金发放贷款的金额，以7天为周期、周利率 {{weeklyRate}}% 向乙方支付利息。
+本协议采用【固定周息】合作模式。甲方仅按实际使用乙方资金发放贷款的金额，以7天为周期、周利率 {{weeklyRate}}% 向乙方支付利息。
 
 第二条 资金使用
 
@@ -112,6 +113,59 @@ const VOLUME_BASED_TEMPLATE = `
 日期：_____________         日期：_____________
 `;
 
+const PROFIT_SHARE_TEMPLATE = `
+资金合作协议（按实际收益分润模式）
+
+甲方（平台方）：财大气粗总公司
+乙方（资金方）：{{funderName}}
+联系人：{{contactPerson}}
+联系电话：{{contactPhone}}
+
+签订日期：{{signDate}}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+第一条 合作模式
+
+本协议采用【按实际收益分润】合作模式。甲方按客户已确认回款中的利息、服务费、罚息等实际收益，以分润比例 {{profitSharePercent}}% 向乙方支付收益。
+
+第二条 资金使用
+
+1. 乙方将资金注入甲方指定的资金账户。
+2. 甲方根据业务需求使用乙方资金进行贷款发放。
+3. 未被使用的闲置资金不产生收益，乙方可按平台规则申请提回。
+
+第三条 收益计算与支付
+
+1. 收益以客户实际确认回款中的收益部分为计算基础。
+2. 分润比例为 {{profitSharePercent}}%，本金回收部分不作为分润收益。
+3. 系统生成收益结算单后，甲方登记打款信息，乙方在资金端确认是否到账。
+4. 如乙方反馈未到账，结算单退回待核对状态，双方以银行流水和平台记录为准核对。
+
+第四条 资金提取
+
+1. 闲置资金：乙方可按账户可用余额申请提回。
+2. 已放出资金：需等待贷款回款或按双方另行确认的退出规则处理。
+3. 提现冷却期：两次提现之间至少间隔 {{cooldownDays}} 天。
+
+第五条 风险分担
+
+{{riskClause}}
+
+第六条 保密条款
+
+双方对本协议内容及合作过程中知悉的对方商业信息承担保密义务。
+
+第七条 争议解决
+
+本协议的签订、履行及争议解决适用中华人民共和国法律。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+甲方签章：_____________    乙方签章：_____________
+日期：_____________         日期：_____________
+`;
+
 export class FunderContractService {
   /**
    * 根据资金方信息生成合同内容
@@ -121,10 +175,19 @@ export class FunderContractService {
       where: { id: funderId },
     });
 
+    const ruleMode = resolveFunderRuleMode({
+      cooperationMode: funder.cooperationMode,
+      monthlyRate: Number(funder.monthlyRate),
+      weeklyRate: Number(funder.weeklyRate),
+      profitShareRatio: Number(funder.profitShareRatio || 0),
+    });
+
     const template =
-      funder.cooperationMode === "FIXED_MONTHLY"
+      ruleMode === "FIXED_MONTHLY"
         ? FIXED_MONTHLY_TEMPLATE
-        : VOLUME_BASED_TEMPLATE;
+        : ruleMode === "PROFIT_SHARE"
+          ? PROFIT_SHARE_TEMPLATE
+          : VOLUME_BASED_TEMPLATE;
 
     const riskClause = funder.riskSharing
       ? `乙方参与风险分担。如借款人发生逾期或坏账，乙方按 ${(Number(funder.riskShareRatio) * 100).toFixed(1)}% 的比例承担损失，该损失金额从应付利息中扣除。`
@@ -136,19 +199,17 @@ export class FunderContractService {
       .replace(/\{\{contactPhone\}\}/g, funder.contactPhone ?? "")
       .replace(/\{\{monthlyRate\}\}/g, String(Number(funder.monthlyRate)))
       .replace(/\{\{weeklyRate\}\}/g, String(Number(funder.weeklyRate)))
+      .replace(/\{\{profitSharePercent\}\}/g, (Number(funder.profitShareRatio || 0) * 100).toFixed(2))
       .replace(/\{\{cooldownDays\}\}/g, String(funder.withdrawalCooldownDays))
       .replace(/\{\{riskClause\}\}/g, riskClause)
       .replace(/\{\{signDate\}\}/g, new Date().toISOString().split("T")[0]);
 
-    const title =
-      funder.cooperationMode === "FIXED_MONTHLY"
-        ? `资金合作协议（固定月息）— ${funder.name}`
-        : `资金合作协议（业务量结算）— ${funder.name}`;
+    const title = `资金合作协议（${FUNDER_COOPERATION_LABELS[ruleMode]}）— ${funder.name}`;
 
     return prisma.funderContract.create({
       data: {
         funderId: funder.id,
-        cooperationMode: funder.cooperationMode,
+        cooperationMode: ruleMode,
         title,
         content,
         status: "DRAFT",

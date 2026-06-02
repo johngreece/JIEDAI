@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { isSuperAdmin } from "@/lib/auth";
+import { FUNDER_COOPERATION_MODES } from "@/lib/funder-cooperation";
 import { prisma } from "@/lib/prisma";
 import { paginatedResponse, parsePagination, toPrismaArgs } from "@/lib/pagination";
 import { requirePermission } from "@/lib/rbac";
@@ -16,7 +17,7 @@ const createSchema = z.object({
   contactEmail: z.string().email().optional().or(z.literal("")),
   profitShareRatio: z.number().min(0).max(1).optional(),
   remark: z.string().optional(),
-  cooperationMode: z.enum(["FIXED_MONTHLY", "VOLUME_BASED"]).default("FIXED_MONTHLY"),
+  cooperationMode: z.enum(FUNDER_COOPERATION_MODES).default("FIXED_MONTHLY"),
   monthlyRate: z.number().min(0).max(100).default(2),
   weeklyRate: z.number().min(0).max(100).default(1.5),
   loginPhone: z.string().min(1).optional(),
@@ -25,6 +26,14 @@ const createSchema = z.object({
   riskSharing: z.boolean().default(false),
   riskShareRatio: z.number().min(0).max(1).default(0),
   withdrawalCooldownDays: z.number().int().min(0).default(0),
+}).superRefine((data, ctx) => {
+  if (data.cooperationMode === "PROFIT_SHARE" && !data.profitShareRatio) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["profitShareRatio"],
+      message: "按实际收益分润模式必须填写大于 0 且不超过 1 的分润比例",
+    });
+  }
 });
 
 async function requireSuperAdminSession(requiredPermissions: string[]) {
@@ -100,6 +109,9 @@ export async function POST(req: Request) {
 
   const { loginPassword, ...rest } = parsed.data;
   const createData: Record<string, unknown> = { ...rest };
+  if (createData.cooperationMode !== "PROFIT_SHARE") {
+    createData.profitShareRatio = 0;
+  }
   if (loginPassword) {
     createData.passwordHash = await bcrypt.hash(loginPassword, 10);
   }

@@ -6,9 +6,19 @@ import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } f
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
+  amountsMatchWithinTolerance,
   calculateLiveOutstandingFromSnapshot,
   extractPaidDates,
+  hasExplicitInterestFreeze,
 } from "@/lib/repayment-runtime";
+import {
+  formatRepaymentAllocationComponentError,
+  parseRepaymentAllocationComponentError,
+  serializeRepaymentAllocationComponentError,
+  validateRepaymentAllocationComponentCaps,
+  type RepaymentAllocationInput,
+  type RepaymentAllocationScheduleItem,
+} from "@/lib/repayment-allocation";
 
 export const dynamic = "force-dynamic";
 
@@ -22,18 +32,6 @@ const allocateSchema = z.object({
   ).min(1),
   comment: z.string().optional(),
 });
-
-type ScheduleItemLite = {
-  id: string;
-  periodNumber: number;
-  remaining: unknown;
-};
-
-type AllocationInput = {
-  itemId: string;
-  amount: number;
-  type: "PRINCIPAL" | "INTEREST" | "FEE" | "PENALTY";
-};
 
 export async function POST(
   req: Request,
@@ -75,14 +73,14 @@ export async function POST(
     return NextResponse.json({ error: "当前状态不允许分配" }, { status: 400 });
   }
 
-  const allocations = input.allocations as AllocationInput[];
+  const allocations = input.allocations as RepaymentAllocationInput[];
   const itemIds = allocations.map((item) => item.itemId);
   const uniqueItemIds = [...new Set(itemIds)];
 
   const scheduleItems = await prisma.repaymentScheduleItem.findMany({
     where: { id: { in: uniqueItemIds }, planId: repayment.planId },
   });
-  const typedScheduleItems = scheduleItems as ScheduleItemLite[];
+  const typedScheduleItems = scheduleItems as RepaymentAllocationScheduleItem[];
 
   if (typedScheduleItems.length !== uniqueItemIds.length) {
     return NextResponse.json(
@@ -92,8 +90,13 @@ export async function POST(
   }
 
   const allocatedTotal = allocations.reduce((sum, item) => sum + item.amount, 0);
-  if (allocatedTotal - Number(repayment.amount) > 0.000001) {
-    return NextResponse.json({ error: "分配总额不能大于还款金额" }, { status: 400 });
+  if (!amountsMatchWithinTolerance(allocatedTotal, repayment.amount)) {
+    return NextResponse.json(
+      {
+        error: `分配总额必须等于还款单金额，当前已分配 ${allocatedTotal.toFixed(2)}，还款单金额 ${Number(repayment.amount).toFixed(2)}`,
+      },
+      { status: 400 }
+    );
   }
 
   const reservedAllocations = await prisma.repaymentAllocation.findMany({
@@ -106,6 +109,7 @@ export async function POST(
     select: {
       itemId: true,
       amount: true,
+      type: true,
     },
   });
 
@@ -117,7 +121,7 @@ export async function POST(
     );
   });
 
-  const itemMap = new Map<string, ScheduleItemLite>(
+  const itemMap = new Map<string, RepaymentAllocationScheduleItem>(
     typedScheduleItems.map((item) => [item.id, item])
   );
 
@@ -208,6 +212,33 @@ export async function POST(
     }
   }
 
+  const confirmedAllocations = await prisma.repaymentAllocation.findMany({
+    where: {
+      itemId: { in: uniqueItemIds },
+      repayment: {
+        status: "CONFIRMED",
+      },
+    },
+    select: {
+      itemId: true,
+      amount: true,
+      type: true,
+    },
+  });
+  const componentCapError = validateRepaymentAllocationComponentCaps({
+    allocations,
+    itemMap,
+    dynamicAvailableByItem,
+    confirmedRows: confirmedAllocations,
+    pendingRows: reservedAllocations,
+  });
+  if (componentCapError) {
+    return NextResponse.json(
+      { error: formatRepaymentAllocationComponentError(componentCapError) },
+      { status: 400 }
+    );
+  }
+
   const principalPart = allocations
     .filter((item) => item.type === "PRINCIPAL")
     .reduce((sum, item) => sum + item.amount, 0);
@@ -220,7 +251,8 @@ export async function POST(
   const penaltyPart = allocations
     .filter((item) => item.type === "PENALTY")
     .reduce((sum, item) => sum + item.amount, 0);
-  const freezeAt = repayment.interestFrozenAt ?? repayment.receivedAt ?? new Date();
+  const shouldPreserveInterestFreeze = hasExplicitInterestFreeze(repayment);
+  const freezeAt = shouldPreserveInterestFreeze ? repayment.interestFrozenAt ?? repayment.receivedAt ?? new Date() : null;
 
   let updated;
   try {
@@ -248,7 +280,7 @@ export async function POST(
             penaltyPart,
             status: "PENDING_CONFIRM",
             interestFrozenAt: freezeAt,
-            frozenPayableAmount: repayment.frozenPayableAmount ?? repayment.amount,
+            frozenPayableAmount: shouldPreserveInterestFreeze ? repayment.frozenPayableAmount : null,
             matchComment: input.comment ?? "系统分配完成，等待客户确认付款",
           },
         });
@@ -275,6 +307,7 @@ export async function POST(
           select: {
             itemId: true,
             amount: true,
+            type: true,
           },
         });
 
@@ -297,6 +330,30 @@ export async function POST(
           if (requestedAmount - available > 0.000001) {
             throw new Error(`ALLOCATION_OVER_LIMIT:${scheduleItem.periodNumber}:${available.toFixed(2)}`);
           }
+        }
+
+        const latestConfirmedAllocations = await tx.repaymentAllocation.findMany({
+          where: {
+            itemId: { in: uniqueItemIds },
+            repayment: {
+              status: "CONFIRMED",
+            },
+          },
+          select: {
+            itemId: true,
+            amount: true,
+            type: true,
+          },
+        });
+        const latestComponentCapError = validateRepaymentAllocationComponentCaps({
+          allocations,
+          itemMap,
+          dynamicAvailableByItem,
+          confirmedRows: latestConfirmedAllocations,
+          pendingRows: latestReservedAllocations,
+        });
+        if (latestComponentCapError) {
+          throw new Error(serializeRepaymentAllocationComponentError(latestComponentCapError));
         }
 
         await tx.repaymentAllocation.createMany({
@@ -327,6 +384,13 @@ export async function POST(
       const [, periodNumber, available] = message.split(":");
       return NextResponse.json(
         { error: `期次 ${periodNumber} 可分配金额不足，当前可用 ${available}` },
+        { status: 409 }
+      );
+    }
+    const componentError = parseRepaymentAllocationComponentError(message);
+    if (componentError) {
+      return NextResponse.json(
+        { error: formatRepaymentAllocationComponentError(componentError) },
         { status: 409 }
       );
     }

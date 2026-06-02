@@ -207,6 +207,8 @@ export default async function ClientDashboardPage() {
       where: {
         plan: { applicationId: application.id },
         status: { in: ["MANUAL_REVIEW", "PENDING_CONFIRM", "CUSTOMER_CONFIRMED"] },
+        interestFrozenAt: { not: null },
+        frozenPayableAmount: { not: null },
       },
       orderBy: { updatedAt: "desc" },
       select: {

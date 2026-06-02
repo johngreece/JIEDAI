@@ -4,6 +4,7 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import { isSuperAdmin } from "@/lib/auth";
 import { ACTIVE_LOAN_STATUSES, OPEN_FUNDER_WITHDRAWAL_STATUSES } from "@/lib/business-status";
+import { FUNDER_COOPERATION_MODES } from "@/lib/funder-cooperation";
 import { writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -19,7 +20,7 @@ const updateSchema = z.object({
   profitShareRatio: z.number().min(0).max(1).optional(),
   isActive: z.boolean().optional(),
   remark: z.string().optional(),
-  cooperationMode: z.enum(["FIXED_MONTHLY", "VOLUME_BASED"]).optional(),
+  cooperationMode: z.enum(FUNDER_COOPERATION_MODES).optional(),
   monthlyRate: z.number().min(0).max(100).optional(),
   weeklyRate: z.number().min(0).max(100).optional(),
   loginPhone: z.string().min(1).optional(),
@@ -99,6 +100,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: "资金方不存在" }, { status: 404 });
   }
 
+  const nextCooperationMode = parsed.data.cooperationMode ?? existing.cooperationMode;
+  const nextProfitShareRatio =
+    parsed.data.profitShareRatio ?? Number(existing.profitShareRatio || 0);
+  if (nextCooperationMode === "PROFIT_SHARE" && nextProfitShareRatio <= 0) {
+    return NextResponse.json(
+      { error: "按实际收益分润模式必须填写大于 0 且不超过 1 的分润比例" },
+      { status: 400 },
+    );
+  }
+
   if (parsed.data.name || parsed.data.loginPhone) {
     const duplicate = await prisma.funder.findFirst({
       where: {
@@ -118,6 +129,9 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
   const { loginPassword, ...updateFields } = parsed.data;
   const updateData: Record<string, unknown> = { ...updateFields };
+  if (updateData.cooperationMode && updateData.cooperationMode !== "PROFIT_SHARE") {
+    updateData.profitShareRatio = 0;
+  }
   if (loginPassword) {
     updateData.passwordHash = await bcrypt.hash(loginPassword, 10);
   }

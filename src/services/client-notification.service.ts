@@ -223,6 +223,8 @@ export class ClientNotificationService {
           where: {
             planId: plan.id,
             status: { in: [...INTEREST_FREEZE_REPAYMENT_STATUSES] },
+            interestFrozenAt: { not: null },
+            frozenPayableAmount: { not: null },
           },
           orderBy: { updatedAt: "desc" },
           select: {
@@ -230,6 +232,7 @@ export class ClientNotificationService {
             amount: true,
             repaymentNo: true,
             status: true,
+            frozenPayableAmount: true,
           },
         })
       : null;
@@ -365,13 +368,13 @@ export class ClientNotificationService {
           activeFrozenRepayment.status === "CUSTOMER_CONFIRMED"
             ? "后台正在确认到账"
             : "还款申请正在处理",
-        content: `你的还款 ${activeFrozenRepayment.repaymentNo} 正在处理中，金额 ${money(
-          Number(activeFrozenRepayment.amount)
+        content: `你的还款 ${activeFrozenRepayment.repaymentNo} 正在处理中，锁定应还 ${money(
+          Number(activeFrozenRepayment.frozenPayableAmount ?? activeFrozenRepayment.amount)
         )}。系统已按提交时刻临时暂停新增利息；如果后台标记未收款，暂停期间会补算，本金会恢复继续计息。`,
         meta: {
           severity: "info",
           stage: "pending_receipt",
-          amount: Number(activeFrozenRepayment.amount),
+          amount: Number(activeFrozenRepayment.frozenPayableAmount ?? activeFrozenRepayment.amount),
         },
         deliverExternal: options?.deliverExternal,
       });

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
+import { describeFunderRule } from "@/lib/funder-cooperation";
 
 interface Withdrawal {
   id: string;
@@ -22,6 +23,7 @@ interface WithdrawalData {
     cooperationMode: string;
     monthlyRate: number;
     weeklyRate: number;
+    profitShareRatio: number;
     withdrawalCooldownDays: number;
   } | null;
   withdrawals: Withdrawal[];
@@ -126,10 +128,10 @@ export default function FunderWithdrawalsPage() {
     return withdrawableInterest + withdrawablePrincipal;
   }, [form.type, withdrawableInterest, withdrawablePrincipal]);
 
-  const modeText =
-    data?.funder?.cooperationMode === "FIXED_MONTHLY"
-      ? `固定月结，按月利率 ${data.funder.monthlyRate}% 结算。`
-      : `周收益模式，按周利率 ${data?.funder?.weeklyRate ?? 0}% 结算。`;
+  const funderRule = data?.funder ? describeFunderRule(data.funder) : null;
+  const modeText = funderRule
+    ? `${funderRule.title}，${funderRule.rateText}。`
+    : "暂未读取到资金方合作规则。";
   const clearSubmitKey = () => {
     submitKeyRef.current = null;
   };

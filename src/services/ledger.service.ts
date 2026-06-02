@@ -132,10 +132,19 @@ export async function writeLedgerEntry(
   const amount = new Decimal(params.amount.toString());
 
   // 获取当前余额（按客户维度，如果有 customerId）
+  if (params.customerId) {
+    const [lockedCustomer] = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM customers WHERE id = ${params.customerId} FOR UPDATE
+    `;
+    if (!lockedCustomer) {
+      throw new Error("Customer not found");
+    }
+  }
+
   const lastEntry = params.customerId
     ? await tx.ledgerEntry.findFirst({
         where: { customerId: params.customerId },
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       })
     : null;
 
@@ -258,7 +267,7 @@ export async function getCustomerLedger(params: {
   const [items, total] = await Promise.all([
     prisma.ledgerEntry.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
@@ -387,7 +396,7 @@ export async function getLedgerList(params: {
     includeCustomerLedger
       ? prisma.ledgerEntry.findMany({
           where: customerWhere,
-          orderBy: { createdAt: "desc" },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: fetchSize,
           include: {
             customer: { select: { id: true, name: true, phone: true } },
@@ -408,7 +417,7 @@ export async function getLedgerList(params: {
     includeFunderLedger
       ? prisma.fundAccountJournal.findMany({
           where: funderWhere,
-          orderBy: { createdAt: "desc" },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: fetchSize,
           include: {
             fundAccount: {
@@ -514,7 +523,7 @@ export async function getLedgerList(params: {
     })),
   ].sort((a, b) => {
     const diff = b.createdAt.getTime() - a.createdAt.getTime();
-    return diff !== 0 ? diff : b.entryNo.localeCompare(a.entryNo);
+    return diff !== 0 ? diff : b.id.localeCompare(a.id);
   });
 
   const items = normalizedItems.slice(offset, offset + pageSize);

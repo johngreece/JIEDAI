@@ -4,11 +4,22 @@ import { useMemo, useRef, useState } from "react";
 
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 import type { RepaymentPlanPrefetchItem, RepaymentPrefetchItem } from "@/lib/admin-prefetch";
+import {
+  REPAYMENT_ALLOCATION_TYPE_LABELS,
+  type RepaymentAllocationType,
+} from "@/lib/repayment-allocation";
+import {
+  calculateRepaymentRegistrationOutstanding,
+  OPEN_REPAYMENT_SCHEDULE_STATUSES,
+} from "@/lib/repayment-registration";
 
 type ScheduleItem = {
   id: string;
   periodNumber: number;
   dueDate: string;
+  principal: number;
+  interest: number;
+  fee: number;
   totalDue: number;
   remaining: number;
   status: string;
@@ -17,7 +28,7 @@ type ScheduleItem = {
 type AllocationDraft = {
   itemId: string;
   amount: string;
-  type: "PRINCIPAL" | "INTEREST" | "FEE" | "PENALTY";
+  type: RepaymentAllocationType;
 };
 
 const EMPTY_ALLOCATION_ROW: AllocationDraft = {
@@ -26,6 +37,8 @@ const EMPTY_ALLOCATION_ROW: AllocationDraft = {
   type: "PRINCIPAL",
 };
 
+const OPEN_SCHEDULE_STATUSES = new Set<string>(OPEN_REPAYMENT_SCHEDULE_STATUSES);
+
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",
@@ -33,6 +46,30 @@ function money(value: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function amountsMatchWithinTolerance(left: number, right: number, tolerance = 0.01) {
+  return Math.abs(left - right) <= tolerance;
+}
+
+function buildSuggestedAllocations(amount: number, item?: ScheduleItem | null): AllocationDraft[] {
+  if (!item || amount <= 0) return [{ ...EMPTY_ALLOCATION_ROW, amount: amount > 0 ? String(amount) : "" }];
+
+  const rows: AllocationDraft[] = [];
+  let remaining = amount;
+  const addRow = (type: AllocationDraft["type"], value: number) => {
+    const safeValue = Math.min(remaining, Math.max(0, value));
+    if (safeValue <= 0.000001) return;
+    rows.push({ itemId: item.id, type, amount: safeValue.toFixed(2) });
+    remaining -= safeValue;
+  };
+
+  addRow("FEE", item.fee);
+  addRow("INTEREST", item.interest);
+  addRow("PRINCIPAL", item.principal);
+  addRow("PENALTY", remaining);
+
+  return rows.length > 0 ? rows : [{ ...EMPTY_ALLOCATION_ROW, itemId: item.id, amount: amount.toFixed(2) }];
 }
 
 type RepaymentsPageClientProps = {
@@ -50,6 +87,9 @@ export function RepaymentsPageClient({
   const [repayments, setRepayments] = useState(initialRepayments);
   const [pendingQueue, setPendingQueue] = useState(initialPendingQueue);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
+  const [registrationSchedule, setRegistrationSchedule] = useState<ScheduleItem[]>([]);
+  const [registrationSchedulePlanId, setRegistrationSchedulePlanId] = useState("");
+  const [registrationScheduleLoading, setRegistrationScheduleLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [allocatingId, setAllocatingId] = useState<string | null>(null);
   const allocateKeyRef = useRef<string | null>(null);
@@ -97,6 +137,16 @@ export function RepaymentsPageClient({
 
   async function createRepayment(event: React.FormEvent) {
     event.preventDefault();
+    const registrationAmount = Number(form.amount);
+    const registrationOutstanding = calculateRepaymentRegistrationOutstanding(registrationSchedule);
+    if (
+      form.planId &&
+      registrationSchedulePlanId === form.planId &&
+      registrationAmount - registrationOutstanding > 0.01
+    ) {
+      alert(`登记金额不能超过当前可还余额，当前最多可登记 ${money(registrationOutstanding)}。`);
+      return;
+    }
 
     const response = await fetch("/api/repayments", {
       method: "POST",
@@ -119,17 +169,39 @@ export function RepaymentsPageClient({
     }
 
     setForm({ planId: "", amount: "", paymentMethod: "BANK_TRANSFER", remark: "" });
+    setRegistrationSchedule([]);
+    setRegistrationSchedulePlanId("");
     await loadAll();
   }
 
-  async function loadSchedule(planId: string) {
+  async function loadRegistrationSchedule(planId: string) {
+    setRegistrationScheduleLoading(true);
+    setRegistrationSchedulePlanId("");
+    try {
+      const response = await fetch(`/api/repayment-plans/${planId}/schedule`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        alert(data.error ?? "加载计划可还余额失败");
+        setRegistrationSchedule([]);
+        return;
+      }
+      setRegistrationSchedule(data.items ?? []);
+      setRegistrationSchedulePlanId(planId);
+    } finally {
+      setRegistrationScheduleLoading(false);
+    }
+  }
+
+  async function loadSchedule(planId: string): Promise<ScheduleItem[]> {
     const response = await fetch(`/api/repayment-plans/${planId}/schedule`);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       alert(data.error ?? "加载期次失败");
-      return;
+      return [];
     }
-    setSchedule(data.items ?? []);
+    const items = data.items ?? [];
+    setSchedule(items);
+    return items;
   }
 
   async function allocate(event: React.FormEvent) {
@@ -139,6 +211,17 @@ export function RepaymentsPageClient({
     const normalizedItems = allocForm.items.filter((item) => item.itemId && item.amount && Number(item.amount) > 0);
     if (!allocForm.repaymentId || normalizedItems.length === 0) {
       alert("请先选择还款单，并至少填写一条有效分配。");
+      return;
+    }
+    const repaymentForAllocation = pendingRegister.find((item) => item.id === allocForm.repaymentId);
+    const normalizedTotal = normalizedItems.reduce((sum, item) => sum + Number(item.amount), 0);
+    if (
+      repaymentForAllocation &&
+      !amountsMatchWithinTolerance(normalizedTotal, repaymentForAllocation.amount)
+    ) {
+      alert(
+        `分配总额必须等于还款单金额。当前已分配 ${money(normalizedTotal)}，还款单金额 ${money(repaymentForAllocation.amount)}。`
+      );
       return;
     }
 
@@ -236,7 +319,19 @@ export function RepaymentsPageClient({
   );
 
   const selectedRepayment = pendingRegister.find((item) => item.id === allocForm.repaymentId) ?? null;
+  const registrationOutstanding = calculateRepaymentRegistrationOutstanding(registrationSchedule);
+  const registrationAmount = Number(form.amount || 0);
+  const registrationScheduleReady = !!form.planId && registrationSchedulePlanId === form.planId;
+  const registrationOverLimit =
+    registrationScheduleReady && registrationAmount > 0 && registrationAmount - registrationOutstanding > 0.01;
+  const registrationHasNoOutstanding = registrationScheduleReady && registrationOutstanding <= 0.01;
   const allocationDraftTotal = allocForm.items.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const allocationDifference = selectedRepayment ? allocationDraftTotal - selectedRepayment.amount : 0;
+  const allocationMatchesRepayment =
+    !selectedRepayment || amountsMatchWithinTolerance(allocationDraftTotal, selectedRepayment.amount);
+  const allocatableSchedule = schedule.filter(
+    (item) => OPEN_SCHEDULE_STATUSES.has(item.status) && item.remaining > 0.000001,
+  );
   const waitingForCustomer = pendingQueue.filter((item) => item.status === "PENDING_CONFIRM");
   const waitingForReceipt = pendingQueue.filter((item) => item.status === "CUSTOMER_CONFIRMED");
 
@@ -289,7 +384,13 @@ export function RepaymentsPageClient({
             <select
               required
               value={form.planId}
-              onChange={(event) => setForm((current) => ({ ...current, planId: event.target.value }))}
+              onChange={(event) => {
+                const planId = event.target.value;
+                setForm((current) => ({ ...current, planId, amount: "" }));
+                setRegistrationSchedule([]);
+                setRegistrationSchedulePlanId("");
+                if (planId) void loadRegistrationSchedule(planId);
+              }}
               className="admin-field text-sm"
             >
               <option value="">请选择计划</option>
@@ -299,6 +400,15 @@ export function RepaymentsPageClient({
                 </option>
               ))}
             </select>
+            {form.planId ? (
+              <span className="block text-xs text-slate-500">
+                {registrationScheduleLoading
+                  ? "正在读取当前可还余额..."
+                  : registrationScheduleReady
+                    ? `当前最多可登记 ${money(registrationOutstanding)}`
+                    : "选择计划后系统会读取当前可还余额"}
+              </span>
+            ) : null}
           </label>
 
           <label className="space-y-1 text-sm">
@@ -307,10 +417,20 @@ export function RepaymentsPageClient({
               required
               type="number"
               step="0.01"
+              max={registrationScheduleReady ? registrationOutstanding.toFixed(2) : undefined}
               value={form.amount}
               onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
               className="admin-field text-sm"
             />
+            {registrationOverLimit ? (
+              <span className="block text-xs font-medium text-rose-600">
+                金额超过当前可还余额，请调整到 {money(registrationOutstanding)} 以内。
+              </span>
+            ) : registrationHasNoOutstanding ? (
+              <span className="block text-xs font-medium text-amber-600">
+                该计划当前没有可登记的未还余额。
+              </span>
+            ) : null}
           </label>
 
           <label className="space-y-1 text-sm">
@@ -336,7 +456,17 @@ export function RepaymentsPageClient({
           </label>
 
           <div className="md:col-span-2">
-            <button className="admin-btn admin-btn-primary">登记还款</button>
+            <button
+              disabled={
+                registrationScheduleLoading ||
+                registrationOverLimit ||
+                registrationHasNoOutstanding ||
+                (!!form.planId && !registrationScheduleReady)
+              }
+              className="admin-btn admin-btn-primary"
+            >
+              登记还款
+            </button>
           </div>
         </form>
       </section>
@@ -358,17 +488,33 @@ export function RepaymentsPageClient({
               onChange={(event) => {
                 clearAllocateKey();
                 const repayment = pendingRegister.find((item) => item.id === event.target.value);
+                setSchedule([]);
                 setAllocForm({
                   repaymentId: event.target.value,
                   items: [
                     {
-                      itemId: schedule[0]?.id ?? "",
+                      itemId: "",
                       amount: repayment ? String(repayment.amount) : "",
                       type: "PRINCIPAL",
                     },
                   ],
                 });
-                if (repayment) void loadSchedule(repayment.plan.id);
+                if (repayment) {
+                  void loadSchedule(repayment.plan.id).then((items) => {
+                    const firstOpenItem =
+                      items.find((item) => OPEN_SCHEDULE_STATUSES.has(item.status) && item.remaining > 0.000001) ??
+                      items[0] ??
+                      null;
+                    setAllocForm((current) =>
+                      current.repaymentId === event.target.value
+                        ? {
+                            ...current,
+                            items: buildSuggestedAllocations(repayment.amount, firstOpenItem),
+                          }
+                        : current,
+                    );
+                  });
+                }
               }}
               className="admin-field text-sm"
             >
@@ -392,6 +538,11 @@ export function RepaymentsPageClient({
                 {selectedRepayment ? ` / 应分配 ${money(selectedRepayment.amount)}` : ""}
               </div>
             </div>
+            {selectedRepayment && !allocationMatchesRepayment ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-700">
+                分配总额必须与还款单金额一致，当前差额 {money(Math.abs(allocationDifference))}。
+              </div>
+            ) : null}
 
             <div className="mt-4 space-y-3">
               {allocForm.items.map((row, index) => (
@@ -411,9 +562,9 @@ export function RepaymentsPageClient({
                     className="admin-field text-sm"
                   >
                     <option value="">请选择期次</option>
-                    {schedule.map((item) => (
+                    {allocatableSchedule.map((item) => (
                       <option key={item.id} value={item.id}>
-                        第 {item.periodNumber} 期 | 剩余 {money(item.remaining)} | {new Date(item.dueDate).toLocaleDateString("zh-CN")}
+                        第 {item.periodNumber} 期 | 剩余 {money(item.remaining)} | 本金 {money(item.principal)} | 利息 {money(item.interest)} | 费用 {money(item.fee)}
                       </option>
                     ))}
                   </select>
@@ -431,10 +582,11 @@ export function RepaymentsPageClient({
                     }}
                     className="admin-field text-sm"
                   >
-                    <option value="PRINCIPAL">本金</option>
-                    <option value="INTEREST">利息</option>
-                    <option value="FEE">费用</option>
-                    <option value="PENALTY">罚息</option>
+                    {Object.entries(REPAYMENT_ALLOCATION_TYPE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
                   </select>
 
                   <input
@@ -481,7 +633,7 @@ export function RepaymentsPageClient({
                   clearAllocateKey();
                   setAllocForm((current) => ({
                     ...current,
-                    items: [...current.items, { itemId: schedule[0]?.id ?? "", amount: "", type: "INTEREST" }],
+                    items: [...current.items, { itemId: allocatableSchedule[0]?.id ?? "", amount: "", type: "INTEREST" }],
                   }));
                 }}
                 className="admin-btn admin-btn-secondary admin-btn-sm"
@@ -495,13 +647,7 @@ export function RepaymentsPageClient({
                     clearAllocateKey();
                     setAllocForm((current) => ({
                       ...current,
-                      items: [
-                        {
-                          itemId: schedule[0]?.id ?? current.items[0]?.itemId ?? "",
-                          amount: String(selectedRepayment.amount),
-                          type: "PRINCIPAL",
-                        },
-                      ],
+                      items: buildSuggestedAllocations(selectedRepayment.amount, allocatableSchedule[0] ?? null),
                     }));
                   }}
                   className="admin-btn admin-btn-secondary admin-btn-sm"
@@ -513,7 +659,7 @@ export function RepaymentsPageClient({
           </div>
 
           <div className="md:col-span-2">
-            <button disabled={!!allocatingId} className="admin-btn admin-btn-primary">
+            <button disabled={!!allocatingId || !allocationMatchesRepayment} className="admin-btn admin-btn-primary">
               {allocatingId ? "分配中..." : "执行分配"}
             </button>
           </div>

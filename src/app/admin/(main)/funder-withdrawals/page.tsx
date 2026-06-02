@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
+import { FUNDER_COOPERATION_LABELS } from "@/lib/funder-cooperation";
 
 interface Withdrawal {
   id: string;
@@ -37,10 +38,9 @@ const statusBadge: Record<string, string> = {
   REJECTED: "bg-red-50 text-red-700 border-red-200",
 };
 
-const modeLabel: Record<string, string> = {
-  FIXED_MONTHLY: "固定月息",
-  VOLUME_BASED: "业务量",
-};
+function modeLabel(mode: string) {
+  return FUNDER_COOPERATION_LABELS[mode as keyof typeof FUNDER_COOPERATION_LABELS] ?? mode;
+}
 
 function fmt(n: number) {
   return "EUR " + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -144,7 +144,7 @@ export default function FunderWithdrawalsPage() {
                   <div>
                     <div className="font-medium text-slate-900">{item.funderName}</div>
                     <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5">{modeLabel[item.cooperationMode] ?? item.cooperationMode}</span>
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5">{modeLabel(item.cooperationMode)}</span>
                       <span>{typeLabel[item.type] ?? item.type}</span>
                       <span>·</span>
                       <span className="text-sm font-medium text-slate-800">{fmt(item.amount)}</span>
@@ -210,7 +210,7 @@ export default function FunderWithdrawalsPage() {
                 processed.map((item) => (
                   <tr key={item.id}>
                     <td className="px-4 py-3 font-medium text-slate-900">{item.funderName}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{modeLabel[item.cooperationMode] ?? item.cooperationMode}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{modeLabel(item.cooperationMode)}</td>
                     <td className="px-4 py-3">{typeLabel[item.type] ?? item.type}</td>
                     <td className="px-4 py-3 font-medium">{fmt(item.amount)}</td>
                     <td className="px-4 py-3 text-amber-600">{fmt(item.interestAmount)}</td>

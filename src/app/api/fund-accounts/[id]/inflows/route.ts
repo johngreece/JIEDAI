@@ -5,7 +5,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
+import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 
 export const dynamic = "force-dynamic";
 
@@ -110,11 +110,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
-    await writeFundAccountLedgerEntry(tx, {
+    const ledgerResult = await writeFundAccountLedgerEntryAndUpdateAccount(tx, {
       fundAccountId: id,
       type: "CAPITAL_INFLOW",
       direction: "CREDIT",
       amount: parsed.data.amount,
+      totalInflowDelta: parsed.data.amount,
       referenceType: "capital_inflow",
       referenceId: inflow.id,
       operatorId: session.sub,
@@ -126,15 +127,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
-    const accountUpdate = await tx.fundAccount.update({
-      where: { id },
-      data: {
-        balance: { increment: parsed.data.amount },
-        totalInflow: { increment: parsed.data.amount },
-      },
-    });
-
-    return { inflow, accountUpdate };
+    return { inflow, accountUpdate: ledgerResult.account };
   });
 
   await writeAuditLog({

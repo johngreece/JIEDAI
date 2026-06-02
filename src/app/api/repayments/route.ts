@@ -6,6 +6,17 @@ import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } f
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
+import {
+  amountsMatchWithinTolerance,
+  calculateLiveOutstandingFromSnapshot,
+  extractPaidDates,
+} from "@/lib/repayment-runtime";
+import {
+  calculateRepaymentRegistrationOutstanding,
+  isOpenRepaymentScheduleStatus,
+  isRepaymentAmountWithinRegistrationOutstanding,
+  REPAYMENT_REGISTRATION_BLOCKING_STATUSES,
+} from "@/lib/repayment-registration";
 
 export const dynamic = "force-dynamic";
 
@@ -128,7 +139,21 @@ export async function POST(req: Request) {
     created = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const plan = await tx.repaymentPlan.findUnique({
         where: { id: input.planId },
-        select: { id: true, status: true, version: true },
+        select: {
+          id: true,
+          status: true,
+          version: true,
+          applicationId: true,
+          rulesSnapshotJson: true,
+          scheduleItems: {
+            select: {
+              id: true,
+              status: true,
+              remaining: true,
+            },
+            orderBy: { periodNumber: "asc" },
+          },
+        },
       });
       if (!plan) throw new Error("PLAN_NOT_FOUND");
       if (plan.status !== "ACTIVE") throw new Error("PLAN_NOT_ACTIVE");
@@ -144,11 +169,66 @@ export async function POST(req: Request) {
         where: {
           planId: input.planId,
           status: {
-            in: ["PENDING", "MATCHED", "MANUAL_REVIEW", "PENDING_CONFIRM", "CUSTOMER_CONFIRMED"],
+            in: [...REPAYMENT_REGISTRATION_BLOCKING_STATUSES],
           },
         },
       });
       if (pendingRepayment) throw new Error("HAS_PENDING");
+
+      const confirmedRepayments = await tx.repayment.findMany({
+        where: {
+          planId: input.planId,
+          status: "CONFIRMED",
+        },
+        select: { amount: true },
+      });
+      const confirmedAmount = confirmedRepayments.reduce((sum, item) => sum + Number(item.amount), 0);
+      const singleOpenItem =
+        plan.scheduleItems.length === 1 && isOpenRepaymentScheduleStatus(plan.scheduleItems[0].status)
+          ? plan.scheduleItems[0]
+          : null;
+      let outstandingLimit = calculateRepaymentRegistrationOutstanding(plan.scheduleItems);
+
+      if (singleOpenItem) {
+        const [application, overdueRecord] = await Promise.all([
+          tx.loanApplication.findUnique({
+            where: { id: plan.applicationId },
+            select: {
+              amount: true,
+              disbursement: {
+                select: { disbursedAt: true },
+              },
+            },
+          }),
+          tx.overdueRecord.findFirst({
+            where: {
+              scheduleItemId: singleOpenItem.id,
+              status: "OVERDUE",
+            },
+            orderBy: { createdAt: "desc" },
+            select: { overdueFeeDetail: true },
+          }),
+        ]);
+
+        const liveOutstanding = application
+          ? calculateLiveOutstandingFromSnapshot({
+              rulesSnapshotJson: plan.rulesSnapshotJson,
+              principal: Number(application.amount),
+              disbursedAt: application.disbursement?.disbursedAt,
+              paymentTime: new Date(),
+              paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),
+            })
+          : null;
+
+        if (liveOutstanding != null) {
+          outstandingLimit = Math.max(0, liveOutstanding - confirmedAmount);
+        }
+      }
+
+      if (!isRepaymentAmountWithinRegistrationOutstanding(input.amount, outstandingLimit)) {
+        if (amountsMatchWithinTolerance(outstandingLimit, 0)) throw new Error("NO_OUTSTANDING");
+        throw new Error(`AMOUNT_OVER_OUTSTANDING:${outstandingLimit.toFixed(2)}`);
+      }
 
       return tx.repayment.create({
         data: {
@@ -173,6 +253,14 @@ export async function POST(req: Request) {
     if (msg === "PLAN_NOT_ACTIVE") return NextResponse.json({ error: "仅 ACTIVE 计划可登记还款" }, { status: 400 });
     if (msg === "PLAN_CHANGED") return NextResponse.json({ error: "还款计划状态已变化，请刷新后重试" }, { status: 409 });
     if (msg === "HAS_PENDING") return NextResponse.json({ error: "该计划已有待处理的还款，请先处理" }, { status: 409 });
+    if (msg === "NO_OUTSTANDING") return NextResponse.json({ error: "该计划当前没有可登记的未还余额" }, { status: 400 });
+    if (msg.startsWith("AMOUNT_OVER_OUTSTANDING:")) {
+      const available = Number(msg.split(":")[1] ?? 0);
+      return NextResponse.json(
+        { error: `登记金额不能超过当前可还余额，当前最多可登记 ${available.toFixed(2)}` },
+        { status: 400 }
+      );
+    }
     return NextResponse.json({ error: "还款登记失败" }, { status: 500 });
   }
 

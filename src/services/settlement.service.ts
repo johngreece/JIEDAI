@@ -1,4 +1,6 @@
 import Decimal from "decimal.js";
+import { addCalendarMonths, diffDaysPrecise } from "@/lib/calendar-period";
+import { describeFunderRate, resolveFunderRuleMode } from "@/lib/funder-cooperation";
 import { prisma } from "@/lib/prisma";
 
 export interface SettlementPeriod {
@@ -80,6 +82,35 @@ function overlapDays(startA: Date, endA: Date, startB: Date, endB: Date) {
   const start = Math.max(startA.getTime(), startB.getTime());
   const end = Math.min(endA.getTime(), endB.getTime());
   return Math.max(0, (end - start) / DAY_MS);
+}
+
+function calculateMonthlyOverlapShare(params: {
+  principal: number;
+  monthlyRate: number;
+  disbursedAt: Date;
+  activeEnd: Date;
+  periodStart: Date;
+  periodEnd: Date;
+}) {
+  let total = 0;
+  let index = 1;
+  let cycleStart = new Date(params.disbursedAt);
+
+  while (cycleStart < params.activeEnd && cycleStart < params.periodEnd) {
+    const cycleEnd = addCalendarMonths(params.disbursedAt, index);
+    const scheduledDays = diffDaysPrecise(cycleStart, cycleEnd);
+    const days = overlapDays(cycleStart, cycleEnd, params.periodStart, params.periodEnd);
+
+    if (scheduledDays > 0 && days > 0) {
+      total += params.principal * (params.monthlyRate / 100) * (days / scheduledDays);
+    }
+
+    cycleStart = cycleEnd;
+    index += 1;
+    if (index > 600) break;
+  }
+
+  return total;
 }
 
 async function calculateFunderShareRows(period: SettlementPeriod) {
@@ -188,19 +219,20 @@ async function calculateFunderShareRows(period: SettlementPeriod) {
   >();
 
   for (const funder of funders) {
+    const funderRule = {
+      cooperationMode: funder.cooperationMode,
+      monthlyRate: Number(funder.monthlyRate),
+      weeklyRate: Number(funder.weeklyRate),
+      profitShareRatio: Number(funder.profitShareRatio || 0),
+    };
+    const ruleMode = resolveFunderRuleMode(funderRule);
     const ratioNumber =
-      funder.cooperationMode === "FIXED_MONTHLY"
+      ruleMode === "FIXED_MONTHLY"
         ? toNumber(funder.monthlyRate) / 100
-        : toNumber(funder.profitShareRatio || 0) > 0
+        : ruleMode === "PROFIT_SHARE"
           ? toNumber(funder.profitShareRatio || 0)
           : toNumber(funder.weeklyRate) / 100;
-
-    const ratioLabel =
-      funder.cooperationMode === "FIXED_MONTHLY"
-        ? `${toNumber(funder.monthlyRate).toFixed(2)}%/30d`
-        : toNumber(funder.profitShareRatio || 0) > 0
-          ? `${(toNumber(funder.profitShareRatio || 0) * 100).toFixed(1)}%`
-          : `${toNumber(funder.weeklyRate).toFixed(2)}%/7d`;
+    const ratioLabel = describeFunderRate(funderRule);
 
     rows.set(funder.id, {
       funderId: funder.id,
@@ -246,7 +278,15 @@ async function calculateFunderShareRows(period: SettlementPeriod) {
       0,
     );
 
-    if (funder.cooperationMode !== "FIXED_MONTHLY" && toNumber(funder.profitShareRatio || 0) > 0) {
+    const funderRule = {
+      cooperationMode: funder.cooperationMode,
+      monthlyRate: Number(funder.monthlyRate),
+      weeklyRate: Number(funder.weeklyRate),
+      profitShareRatio: Number(funder.profitShareRatio || 0),
+    };
+    const ruleMode = resolveFunderRuleMode(funderRule);
+
+    if (ruleMode === "PROFIT_SHARE") {
       row.periodIncomeNumber += periodIncome;
       row.shareAmountNumber += periodIncome * toNumber(funder.profitShareRatio || 0);
       continue;
@@ -264,8 +304,15 @@ async function calculateFunderShareRows(period: SettlementPeriod) {
 
     if (days <= 0) continue;
 
-    if (funder.cooperationMode === "FIXED_MONTHLY") {
-      const shareAmount = principal * (toNumber(funder.monthlyRate) / 100) * (days / 30);
+    if (ruleMode === "FIXED_MONTHLY") {
+      const shareAmount = calculateMonthlyOverlapShare({
+        principal,
+        monthlyRate: toNumber(funder.monthlyRate),
+        disbursedAt: new Date(disbursement.disbursedAt),
+        activeEnd: effectiveEnd,
+        periodStart: start,
+        periodEnd: end,
+      });
       row.periodIncomeNumber += shareAmount;
       row.shareAmountNumber += shareAmount;
     } else {

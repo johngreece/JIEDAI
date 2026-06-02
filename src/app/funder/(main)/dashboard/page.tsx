@@ -23,7 +23,9 @@ interface DashboardData {
     }>;
   };
   ruleGuide: {
+    mode: string;
     title: string;
+    rateText: string;
     formula: string;
     settlement: string;
   };
@@ -147,7 +149,6 @@ export default function FunderDashboardPage() {
   }
 
   const { funder, earnings, withdrawals, recentDisbursements, ruleGuide, interestSettlementSummary, interestSettlements } = data;
-  const isMonthly = funder.cooperationMode === "FIXED_MONTHLY";
 
   return (
     <div className="space-y-8">
@@ -157,7 +158,7 @@ export default function FunderDashboardPage() {
             <p className="text-sm text-slate-500">资金方收益面板</p>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">投资概览</h1>
             <p className="mt-1 text-sm text-slate-600">
-              当前模式：{ruleGuide.title}，{isMonthly ? `月利率 ${funder.monthlyRate}%` : `周利率 ${funder.weeklyRate}%`}
+              当前模式：{ruleGuide.title}，{ruleGuide.rateText}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

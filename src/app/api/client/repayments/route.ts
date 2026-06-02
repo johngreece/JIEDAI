@@ -17,6 +17,7 @@ import {
   type RepaymentTier,
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
+import { isFullPayoffAmount } from "@/lib/repayment-runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -214,9 +215,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "当前借款没有待还金额" }, { status: 400 });
   }
 
-  if (input.amount - outstandingAmount > 0.000001) {
+  if (!isFullPayoffAmount(input.amount, outstandingAmount)) {
     return NextResponse.json(
-      { error: `申请还款金额不能超过当前待还金额 ${money(outstandingAmount)}` },
+      { error: `客户端自助还款需要一次性提交当前全部应还金额 ${money(outstandingAmount)}，部分还款请联系管理端人工登记。` },
       { status: 400 }
     );
   }

@@ -10,12 +10,13 @@ import { Prisma } from "@prisma/client";
 import { writeAuditLog } from "./audit";
 import { prisma } from "./prisma";
 import { recordRepaymentLedger } from "@/services/ledger.service";
-import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
+import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 import { resolveOverdue } from "@/services/overdue.service";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 import {
   calculateLiveOutstandingFromSnapshot,
   extractPaidDates,
+  hasExplicitInterestFreeze,
 } from "@/lib/repayment-runtime";
 
 export type RepaymentStatus =
@@ -95,6 +96,7 @@ export async function confirmRepayment(params: {
   }
 
   const now = new Date();
+  const shouldPreserveInterestFreeze = hasExplicitInterestFreeze(repayment);
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.repaymentConfirmation.upsert({
@@ -125,10 +127,12 @@ export async function confirmRepayment(params: {
       data: {
         status: targetStatus,
         interestFrozenAt:
-          targetStatus === "CUSTOMER_CONFIRMED" ? repayment.interestFrozenAt ?? now : repayment.interestFrozenAt,
+          targetStatus === "CUSTOMER_CONFIRMED" && shouldPreserveInterestFreeze
+            ? repayment.interestFrozenAt ?? now
+            : repayment.interestFrozenAt,
         frozenPayableAmount:
-          targetStatus === "CUSTOMER_CONFIRMED"
-            ? repayment.frozenPayableAmount ?? repayment.amount
+          targetStatus === "CUSTOMER_CONFIRMED" && shouldPreserveInterestFreeze
+            ? repayment.frozenPayableAmount
             : repayment.frozenPayableAmount,
         matchComment:
           targetStatus === "CUSTOMER_CONFIRMED"
@@ -377,11 +381,15 @@ export async function settleRepaymentReceipt(params: {
     }
 
     if (application.disbursement?.fundAccountId) {
-      await writeFundAccountLedgerEntry(tx, {
+      await writeFundAccountLedgerEntryAndUpdateAccount(tx, {
         fundAccountId: application.disbursement.fundAccountId,
         type: "REPAYMENT",
         direction: "CREDIT",
         amount: Number(repayment.amount),
+        totalProfitDelta:
+          Number(repayment.interestPart) +
+          Number(repayment.feePart) +
+          Number(repayment.penaltyPart),
         referenceType: "repayment",
         referenceId: repayment.id,
         operatorId: params.operatorId,
@@ -392,19 +400,6 @@ export async function settleRepaymentReceipt(params: {
           interestPart: Number(repayment.interestPart),
           feePart: Number(repayment.feePart),
           penaltyPart: Number(repayment.penaltyPart),
-        },
-      });
-
-      await tx.fundAccount.update({
-        where: { id: application.disbursement.fundAccountId },
-        data: {
-          balance: { increment: Number(repayment.amount) },
-          totalProfit: {
-            increment:
-              Number(repayment.interestPart) +
-              Number(repayment.feePart) +
-              Number(repayment.penaltyPart),
-          },
         },
       });
     }

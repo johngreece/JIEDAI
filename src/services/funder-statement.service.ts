@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { FUNDER_COOPERATION_LABELS } from "@/lib/funder-cooperation";
 
 interface StatementRow {
   date: string;
@@ -101,6 +102,10 @@ function describeInterestSettlement(
 
 function csvCell(value: string | number) {
   return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+function modeLabel(mode: string) {
+  return FUNDER_COOPERATION_LABELS[mode as keyof typeof FUNDER_COOPERATION_LABELS] ?? mode;
 }
 
 export class FunderStatementService {
@@ -279,7 +284,7 @@ export class FunderStatementService {
     const header = [
       `资金方对账单 - ${statement.funderName}`,
       `期间: ${statement.periodStart} 至 ${statement.periodEnd}`,
-      `合作模式: ${statement.cooperationMode}`,
+      `合作模式: ${modeLabel(statement.cooperationMode)}`,
       `期初余额: €${statement.openingBalance.toFixed(2)}`,
       `期末余额: €${statement.closingBalance.toFixed(2)}`,
       `总入账: €${statement.totalInflow.toFixed(2)}  总出账: €${statement.totalOutflow.toFixed(2)}  本期收益入账: €${statement.totalInterest.toFixed(2)}  总提现: €${statement.totalWithdrawn.toFixed(2)}`,

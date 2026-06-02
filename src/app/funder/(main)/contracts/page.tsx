@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { FUNDER_COOPERATION_LABELS } from "@/lib/funder-cooperation";
 
 interface FunderContract {
   id: string;
@@ -13,13 +14,16 @@ interface FunderContract {
   createdAt: string;
 }
 
-const MODE_MAP: Record<string, string> = { FIXED_MONTHLY: "固定月息", VOLUME_BASED: "业务量结算" };
 const STATUS_MAP: Record<string, string> = { DRAFT: "草稿", ACTIVE: "生效中", EXPIRED: "已过期" };
 const STATUS_BADGE: Record<string, string> = {
   DRAFT: "bg-slate-100 text-slate-600",
   ACTIVE: "bg-emerald-100 text-emerald-700",
   EXPIRED: "bg-red-100 text-red-600",
 };
+
+function modeLabel(mode: string) {
+  return FUNDER_COOPERATION_LABELS[mode as keyof typeof FUNDER_COOPERATION_LABELS] ?? mode;
+}
 
 export default function ContractsPage() {
   const [contracts, setContracts] = useState<FunderContract[]>([]);
@@ -55,7 +59,7 @@ export default function ContractsPage() {
         <div className="rounded-xl border border-slate-200 bg-white p-6">
           <h2 className="text-lg font-bold text-slate-900 mb-1">{detail.title}</h2>
           <div className="flex gap-3 text-xs text-slate-400 mb-4">
-            <span>{MODE_MAP[detail.cooperationMode] ?? detail.cooperationMode}</span>
+            <span>{modeLabel(detail.cooperationMode)}</span>
             <span>·</span>
             <span className={`rounded-full px-2 py-0.5 ${STATUS_BADGE[detail.status] ?? ""}`}>{STATUS_MAP[detail.status] ?? detail.status}</span>
             <span>·</span>
@@ -92,7 +96,7 @@ export default function ContractsPage() {
               <div>
                 <div className="font-medium text-slate-900">{c.title}</div>
                 <div className="flex gap-3 mt-1 text-xs text-slate-400">
-                  <span>{MODE_MAP[c.cooperationMode] ?? c.cooperationMode}</span>
+                  <span>{modeLabel(c.cooperationMode)}</span>
                   <span>{new Date(c.createdAt).toLocaleDateString("zh-CN")}</span>
                   {c.generatedBy && <span>由 {c.generatedBy}</span>}
                 </div>

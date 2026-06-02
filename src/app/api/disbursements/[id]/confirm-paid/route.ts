@@ -9,7 +9,7 @@ import {
   getClientProfileCompletion,
 } from "@/lib/client-profile";
 import { recordDisbursementLedger } from "@/services/ledger.service";
-import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
+import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 import {
   calcNetDisbursement,
   calcRepaymentAmount,
@@ -209,11 +209,12 @@ export async function POST(
       operatorId: session.sub,
     });
 
-    await writeFundAccountLedgerEntry(tx, {
+    await writeFundAccountLedgerEntryAndUpdateAccount(tx, {
       fundAccountId: disbursement.fundAccountId,
       type: "DISBURSEMENT",
       direction: "DEBIT",
       amount: disbursement.netAmount,
+      totalOutflowDelta: disbursement.netAmount,
       referenceType: "disbursement",
       referenceId: disbursement.id,
       operatorId: session.sub,
@@ -223,14 +224,6 @@ export async function POST(
         grossAmount: Number(disbursement.amount),
         feeAmount: Number(disbursement.feeAmount),
         netAmount: Number(disbursement.netAmount),
-      },
-    });
-
-    await tx.fundAccount.update({
-      where: { id: disbursement.fundAccountId },
-      data: {
-        balance: { decrement: disbursement.netAmount },
-        totalOutflow: { increment: disbursement.netAmount },
       },
     });
 

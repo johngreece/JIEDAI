@@ -1,8 +1,15 @@
 import Decimal from "decimal.js";
 import { Prisma } from "@prisma/client";
+import { addDays, buildCalendarMonthCycles, diffDaysPrecise } from "@/lib/calendar-period";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
-import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
+import {
+  FUNDER_COOPERATION_LABELS,
+  getFunderCycleDays,
+  getFunderDisplayRate,
+  resolveFunderRuleMode,
+} from "@/lib/funder-cooperation";
+import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 
@@ -17,7 +24,6 @@ export const FUNDER_INTEREST_SETTLEMENT_STATUS = {
 type SettlementStatus =
   (typeof FUNDER_INTEREST_SETTLEMENT_STATUS)[keyof typeof FUNDER_INTEREST_SETTLEMENT_STATUS];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const EPSILON = 0.0001;
 
 type SettlementListFilters = {
@@ -69,14 +75,6 @@ function roundMoney(value: Decimal.Value) {
   return new Decimal(value).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
 }
 
-function addDays(date: Date, days: number) {
-  return new Date(date.getTime() + days * DAY_MS);
-}
-
-function diffDays(from: Date, to: Date) {
-  return Math.max(0, (to.getTime() - from.getTime()) / DAY_MS);
-}
-
 function toNumber(value: unknown) {
   return Number(value || 0);
 }
@@ -109,11 +107,7 @@ const statusLabel: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
-const modeLabel: Record<string, string> = {
-  FIXED_MONTHLY: "固定月息",
-  VOLUME_BASED: "固定周息",
-  PROFIT_SHARE: "按实际收益分润",
-};
+const modeLabel: Record<string, string> = { ...FUNDER_COOPERATION_LABELS };
 
 function csvCell(value: string | number | null | undefined) {
   return `"${String(value ?? "").replace(/"/g, '""')}"`;
@@ -277,32 +271,55 @@ export class FunderInterestSettlementService {
       const endLimit = isSettled && lastRepaymentAt && lastRepaymentAt < now ? lastRepaymentAt : now;
       if (endLimit <= start) continue;
 
-      const isMonthly = funder.cooperationMode === "FIXED_MONTHLY";
-      const periodDays = isMonthly ? 30 : 7;
-      const rate = isMonthly ? toNumber(funder.monthlyRate) : toNumber(funder.weeklyRate);
-      const profitShareRatio = !isMonthly ? toNumber(funder.profitShareRatio || 0) : 0;
+      const funderRule = {
+        cooperationMode: funder.cooperationMode,
+        monthlyRate: Number(funder.monthlyRate),
+        weeklyRate: Number(funder.weeklyRate),
+        profitShareRatio: Number(funder.profitShareRatio || 0),
+      };
+      const ruleMode = resolveFunderRuleMode(funderRule);
+      const periodDays = getFunderCycleDays(funderRule) ?? 7;
+      const rate = getFunderDisplayRate(funderRule);
+      const profitShareRatio = ruleMode === "PROFIT_SHARE" ? toNumber(funder.profitShareRatio || 0) : 0;
       const principal = roundMoney(disbursement.netAmount.toString());
-      const fullCycles = Math.floor(diffDays(start, endLimit) / periodDays);
-      const cycles: Array<{ index: number; cycleStart: Date; cycleEnd: Date; finalPartial: boolean }> = [];
+      const fixedDayCycles = () => {
+        const fullCycles = Math.floor(diffDaysPrecise(start, endLimit) / periodDays);
+        const cycles: Array<{
+          index: number;
+          cycleStart: Date;
+          cycleEnd: Date;
+          scheduledDays: number;
+          elapsedDays: number;
+          finalPartial: boolean;
+        }> = [];
 
-      for (let index = 1; index <= fullCycles; index += 1) {
-        cycles.push({
-          index,
-          cycleStart: addDays(start, (index - 1) * periodDays),
-          cycleEnd: addDays(start, index * periodDays),
-          finalPartial: false,
-        });
-      }
+        for (let index = 1; index <= fullCycles; index += 1) {
+          cycles.push({
+            index,
+            cycleStart: addDays(start, (index - 1) * periodDays),
+            cycleEnd: addDays(start, index * periodDays),
+            scheduledDays: periodDays,
+            elapsedDays: periodDays,
+            finalPartial: false,
+          });
+        }
 
-      const lastFullEnd = addDays(start, fullCycles * periodDays);
-      if (isSettled && endLimit > lastFullEnd && diffDays(lastFullEnd, endLimit) > EPSILON) {
-        cycles.push({
-          index: fullCycles + 1,
-          cycleStart: lastFullEnd,
-          cycleEnd: endLimit,
-          finalPartial: true,
-        });
-      }
+        const lastFullEnd = addDays(start, fullCycles * periodDays);
+        if (isSettled && endLimit > lastFullEnd && diffDaysPrecise(lastFullEnd, endLimit) > EPSILON) {
+          cycles.push({
+            index: fullCycles + 1,
+            cycleStart: lastFullEnd,
+            cycleEnd: endLimit,
+            scheduledDays: periodDays,
+            elapsedDays: diffDaysPrecise(lastFullEnd, endLimit),
+            finalPartial: true,
+          });
+        }
+        return cycles;
+      };
+      const cycles = ruleMode === "FIXED_MONTHLY"
+        ? buildCalendarMonthCycles(start, endLimit, isSettled)
+        : fixedDayCycles();
 
       for (const cycle of cycles) {
         if (cycle.cycleEnd > now) continue;
@@ -320,7 +337,7 @@ export class FunderInterestSettlementService {
           continue;
         }
 
-        const cycleDays = diffDays(cycle.cycleStart, cycle.cycleEnd);
+        const cycleDays = cycle.elapsedDays;
         const incomeInCycle = repayments
           .filter((repayment) => {
             if (!repayment.receivedAt) return false;
@@ -337,14 +354,13 @@ export class FunderInterestSettlementService {
 
         const interestAmount = profitShareRatio > 0
           ? roundMoney(new Decimal(incomeInCycle).mul(profitShareRatio))
-          : roundMoney(principal.mul(rate).div(100).mul(cycleDays).div(periodDays));
+          : roundMoney(principal.mul(rate).div(100).mul(cycleDays).div(cycle.scheduledDays));
 
         if (!interestAmount.gt(0)) {
           skipped += 1;
           continue;
         }
 
-        const ruleMode = profitShareRatio > 0 ? "PROFIT_SHARE" : funder.cooperationMode;
         const createdSettlement = await prisma.funderInterestSettlement.create({
           data: {
             settlementNo: genSettlementNo(),
@@ -362,8 +378,9 @@ export class FunderInterestSettlementService {
             interestAmount: interestAmount.toNumber(),
             status: FUNDER_INTEREST_SETTLEMENT_STATUS.DUE,
             metadataJson: JSON.stringify({
-              periodDays,
+              periodDays: cycle.scheduledDays,
               cycleDays,
+              scheduledDays: cycle.scheduledDays,
               finalPartial: cycle.finalPartial,
               profitShareRatio,
               incomeInCycle,
@@ -516,17 +533,38 @@ export class FunderInterestSettlementService {
     }
 
     const paidAt = new Date();
-    const updated = await prisma.funderInterestSettlement.update({
-      where: { id: settlementId },
-      data: {
-        status: FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM,
-        paidAt,
-        paidById: operatorId,
-        rejectReason: null,
-        rejectedAt: null,
-        remark: paymentRemark,
+    const updated = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const claimed = await tx.funderInterestSettlement.updateMany({
+          where: {
+            id: settlementId,
+            status: {
+              in: [
+                FUNDER_INTEREST_SETTLEMENT_STATUS.DUE,
+                FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED,
+              ],
+            },
+          },
+          data: {
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM,
+            paidAt,
+            paidById: operatorId,
+            rejectReason: null,
+            rejectedAt: null,
+            remark: paymentRemark,
+          },
+        });
+
+        if (claimed.count !== 1) {
+          throw new Error("收益结算单状态已变化，请刷新后重试");
+        }
+
+        return tx.funderInterestSettlement.findUniqueOrThrow({
+          where: { id: settlementId },
+        });
       },
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     await Promise.all([
       FunderNotificationService.send(
@@ -559,74 +597,93 @@ export class FunderInterestSettlementService {
     });
 
     if (!settlement) throw new Error("资金方收益结算单不存在");
-    if (settlement.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM) {
-      throw new Error("只有平台已打款的结算单才能确认收到");
-    }
 
     const now = new Date();
-    const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const existingJournal = await tx.fundAccountJournal.findFirst({
-        where: {
-          referenceType: "funder_interest_settlement",
-          referenceId: settlement.id,
-        },
-        select: { id: true },
-      });
+    const result = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const latest = await tx.funderInterestSettlement.findFirst({
+          where: { id: settlementId, funderId },
+        });
 
-      if (!existingJournal) {
-        await writeFundAccountLedgerEntry(tx, {
-          fundAccountId: settlement.fundAccountId,
-          type: "INTEREST_SETTLEMENT",
-          direction: "CREDIT",
-          amount: Number(settlement.interestAmount),
-          referenceType: "funder_interest_settlement",
-          referenceId: settlement.id,
-          description: `收益结算入账：${settlement.settlementNo}，周期 ${dateOnly(settlement.cycleStart)} 至 ${dateOnly(settlement.cycleEnd)}`,
-          metadata: {
+        if (!latest) throw new Error("资金方收益结算单不存在");
+        if (latest.status === FUNDER_INTEREST_SETTLEMENT_STATUS.CONFIRMED_BY_FUNDER) {
+          return { settlement: latest, confirmedNow: false };
+        }
+        if (latest.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM) {
+          throw new Error("只有平台已打款的结算单才能确认收到");
+        }
+
+        const claimed = await tx.funderInterestSettlement.updateMany({
+          where: {
+            id: latest.id,
             funderId,
-            settlementNo: settlement.settlementNo,
-            disbursementId: settlement.disbursementId,
-            applicationId: settlement.applicationId,
-            ruleMode: settlement.ruleMode,
-            rate: Number(settlement.rate),
-            principal: Number(settlement.principal),
-            interestAmount: Number(settlement.interestAmount),
-            dueDate: settlement.dueDate.toISOString(),
-            cycleStart: settlement.cycleStart.toISOString(),
-            cycleEnd: settlement.cycleEnd.toISOString(),
-            paidAt: settlement.paidAt?.toISOString() ?? null,
-            paymentRemark: settlement.remark ?? null,
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM,
           },
-        });
-
-        await tx.fundAccount.update({
-          where: { id: settlement.fundAccountId },
           data: {
-            balance: { increment: Number(settlement.interestAmount) },
-            totalProfit: { increment: Number(settlement.interestAmount) },
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.CONFIRMED_BY_FUNDER,
+            confirmedAt: now,
+            rejectedAt: null,
+            rejectReason: null,
           },
         });
-      }
+        if (claimed.count !== 1) {
+          throw new Error("收益结算单状态已变化，请刷新后重试");
+        }
 
-      return tx.funderInterestSettlement.update({
-        where: { id: settlement.id },
-        data: {
-          status: FUNDER_INTEREST_SETTLEMENT_STATUS.CONFIRMED_BY_FUNDER,
-          confirmedAt: now,
-          rejectedAt: null,
-          rejectReason: null,
-        },
-      });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        const existingJournal = await tx.fundAccountJournal.findFirst({
+          where: {
+            referenceType: "funder_interest_settlement",
+            referenceId: latest.id,
+          },
+          select: { id: true },
+        });
 
-    await InAppNotificationService.notifyAdmins({
-      type: "FUNDER_INTEREST_CONFIRMED",
-      templateCode: `FUNDER_INTEREST_CONFIRMED_${settlement.id}`,
-      title: "资金方已确认收益到账",
-      content: `资金方确认结算单 ${settlement.settlementNo} 已到账，金额 ${money(Number(settlement.interestAmount))}。`,
-    }).catch(() => undefined);
+        if (!existingJournal) {
+          await writeFundAccountLedgerEntryAndUpdateAccount(tx, {
+            fundAccountId: latest.fundAccountId,
+            type: "INTEREST_SETTLEMENT",
+            direction: "CREDIT",
+            amount: Number(latest.interestAmount),
+            totalProfitDelta: Number(latest.interestAmount),
+            referenceType: "funder_interest_settlement",
+            referenceId: latest.id,
+            description: `收益结算入账：${latest.settlementNo}，周期 ${dateOnly(latest.cycleStart)} 至 ${dateOnly(latest.cycleEnd)}`,
+            metadata: {
+              funderId,
+              settlementNo: latest.settlementNo,
+              disbursementId: latest.disbursementId,
+              applicationId: latest.applicationId,
+              ruleMode: latest.ruleMode,
+              rate: Number(latest.rate),
+              principal: Number(latest.principal),
+              interestAmount: Number(latest.interestAmount),
+              dueDate: latest.dueDate.toISOString(),
+              cycleStart: latest.cycleStart.toISOString(),
+              cycleEnd: latest.cycleEnd.toISOString(),
+              paidAt: latest.paidAt?.toISOString() ?? null,
+              paymentRemark: latest.remark ?? null,
+            },
+          });
+        }
 
-    return serializeSettlement(updated);
+        const updated = await tx.funderInterestSettlement.findUniqueOrThrow({
+          where: { id: latest.id },
+        });
+        return { settlement: updated, confirmedNow: true };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    if (result.confirmedNow) {
+      await InAppNotificationService.notifyAdmins({
+        type: "FUNDER_INTEREST_CONFIRMED",
+        templateCode: `FUNDER_INTEREST_CONFIRMED_${settlement.id}`,
+        title: "资金方已确认收益到账",
+        content: `资金方确认结算单 ${settlement.settlementNo} 已到账，金额 ${money(Number(settlement.interestAmount))}。`,
+      }).catch(() => undefined);
+    }
+
+    return serializeSettlement(result.settlement);
   }
 
   static async rejectByFunder(settlementId: string, funderId: string, reason: string) {
@@ -635,27 +692,55 @@ export class FunderInterestSettlementService {
     });
 
     if (!settlement) throw new Error("资金方收益结算单不存在");
-    if (settlement.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM) {
-      throw new Error("只有平台已打款的结算单才能反馈未收到");
+
+    const result = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const latest = await tx.funderInterestSettlement.findFirst({
+          where: { id: settlementId, funderId },
+        });
+
+        if (!latest) throw new Error("资金方收益结算单不存在");
+        if (latest.status === FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED) {
+          return { settlement: latest, rejectedNow: false };
+        }
+        if (latest.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM) {
+          throw new Error("只有平台已打款的结算单才能反馈未收到");
+        }
+
+        const claimed = await tx.funderInterestSettlement.updateMany({
+          where: {
+            id: latest.id,
+            funderId,
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM,
+          },
+          data: {
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED,
+            rejectedAt: new Date(),
+            rejectReason: reason,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new Error("收益结算单状态已变化，请刷新后重试");
+        }
+
+        const updated = await tx.funderInterestSettlement.findUniqueOrThrow({
+          where: { id: latest.id },
+        });
+        return { settlement: updated, rejectedNow: true };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    if (result.rejectedNow) {
+      await InAppNotificationService.notifyAdmins({
+        type: "FUNDER_INTEREST_REJECTED",
+        templateCode: `FUNDER_INTEREST_REJECTED_${settlement.id}`,
+        title: "资金方反馈收益未到账",
+        content: `资金方反馈结算单 ${settlement.settlementNo} 未收到，金额 ${money(Number(settlement.interestAmount))}。原因：${reason}`,
+      }).catch(() => undefined);
     }
 
-    const updated = await prisma.funderInterestSettlement.update({
-      where: { id: settlement.id },
-      data: {
-        status: FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED,
-        rejectedAt: new Date(),
-        rejectReason: reason,
-      },
-    });
-
-    await InAppNotificationService.notifyAdmins({
-      type: "FUNDER_INTEREST_REJECTED",
-      templateCode: `FUNDER_INTEREST_REJECTED_${settlement.id}`,
-      title: "资金方反馈收益未到账",
-      content: `资金方反馈结算单 ${settlement.settlementNo} 未收到，金额 ${money(Number(settlement.interestAmount))}。原因：${reason}`,
-    }).catch(() => undefined);
-
-    return serializeSettlement(updated);
+    return serializeSettlement(result.settlement);
   }
 
   static summarize(items: Array<{ status: string; interestAmount: number }>) {

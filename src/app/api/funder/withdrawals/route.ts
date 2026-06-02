@@ -17,6 +17,7 @@ export async function GET() {
       cooperationMode: true,
       monthlyRate: true,
       weeklyRate: true,
+      profitShareRatio: true,
       withdrawalCooldownDays: true,
     },
   });
@@ -34,6 +35,7 @@ export async function GET() {
           cooperationMode: funder.cooperationMode,
           monthlyRate: Number(funder.monthlyRate),
           weeklyRate: Number(funder.weeklyRate),
+          profitShareRatio: Number(funder.profitShareRatio || 0),
           withdrawalCooldownDays: funder.withdrawalCooldownDays,
         }
       : null,

@@ -4,7 +4,7 @@ import { isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
-import { writeFundAccountLedgerEntry } from "@/services/fund-account-ledger.service";
+import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
 
 export const dynamic = "force-dynamic";
@@ -169,11 +169,12 @@ export async function PATCH(
         where: { id: inflowId },
       });
 
-      await writeFundAccountLedgerEntry(tx, {
+      const ledgerResult = await writeFundAccountLedgerEntryAndUpdateAccount(tx, {
         fundAccountId: accountId,
         type: "CAPITAL_INFLOW",
         direction: "CREDIT",
         amount: confirmed.amount,
+        totalInflowDelta: confirmed.amount,
         referenceType: "capital_inflow",
         referenceId: confirmed.id,
         operatorId: session.sub,
@@ -185,19 +186,7 @@ export async function PATCH(
         },
       });
 
-      const accountUpdate = await tx.fundAccount.update({
-        where: { id: accountId },
-        data: {
-          balance: { increment: confirmed.amount },
-          totalInflow: { increment: confirmed.amount },
-        },
-        select: {
-          balance: true,
-          totalInflow: true,
-        },
-      });
-
-      return { confirmed, accountUpdate };
+      return { confirmed, accountUpdate: ledgerResult.account };
     });
   } catch (error) {
     return NextResponse.json(
@@ -310,11 +299,12 @@ export async function DELETE(
       const cancelled = await tx.capitalInflow.findUniqueOrThrow({ where: { id: inflowId } });
 
       if (shouldReverseBalance) {
-        await writeFundAccountLedgerEntry(tx, {
+        const ledgerResult = await writeFundAccountLedgerEntryAndUpdateAccount(tx, {
           fundAccountId: accountId,
           type: "ADJUSTMENT",
           direction: "DEBIT",
           amount: inflow.amount,
+          totalInflowDelta: Number(inflow.amount) * -1,
           referenceType: "capital_inflow_reversal",
           referenceId: inflowId,
           operatorId: session.sub,
@@ -326,15 +316,7 @@ export async function DELETE(
           },
         });
 
-        const accountUpdate = await tx.fundAccount.update({
-          where: { id: accountId },
-          data: {
-            balance: { decrement: inflow.amount },
-            totalInflow: { decrement: inflow.amount },
-          },
-        });
-
-        return { cancelled, accountUpdate };
+        return { cancelled, accountUpdate: ledgerResult.account };
       }
 
       return { cancelled, accountUpdate: account };

@@ -7,6 +7,7 @@
  */
 
 import Decimal from "decimal.js";
+import { addCalendarMonths } from "@/lib/calendar-period";
 
 export type ScheduleInput = {
   principal: number | Decimal;
@@ -38,17 +39,53 @@ export type ScheduleResult = {
 /**
  * 计算每期到期日
  */
-function calcDueDate(startDate: Date, period: number, termUnit: "MONTH" | "DAY", totalPeriods: number): Date {
+function calcDayPeriodEndDay(period: number, totalPeriods: number, termValue: number): number {
+  const safeTermDays = Math.max(1, termValue);
+  const safeTotalPeriods = Math.max(1, totalPeriods);
+
+  if (safeTotalPeriods === 1) return safeTermDays;
+
+  const daysPerPeriod = Math.ceil(safeTermDays / safeTotalPeriods);
+  return period === safeTotalPeriods ? safeTermDays : Math.min(safeTermDays, daysPerPeriod * period);
+}
+
+function calcDayPeriodDays(period: number, totalPeriods: number, termValue: number): number {
+  const currentEndDay = calcDayPeriodEndDay(period, totalPeriods, termValue);
+  const previousEndDay = period <= 1 ? 0 : calcDayPeriodEndDay(period - 1, totalPeriods, termValue);
+  return Math.max(0, currentEndDay - previousEndDay);
+}
+
+function calcPeriodRate(
+  annualRate: Decimal,
+  termUnit: "MONTH" | "DAY",
+  termValue: number,
+  period: number,
+  totalPeriods: number
+): Decimal {
+  if (termUnit === "MONTH") return annualRate.div(12);
+  return annualRate.mul(calcDayPeriodDays(period, totalPeriods, termValue)).div(365);
+}
+
+function calcDueDate(
+  startDate: Date,
+  period: number,
+  termUnit: "MONTH" | "DAY",
+  totalPeriods: number,
+  termValue: number
+): Date {
   const d = new Date(startDate);
   if (termUnit === "MONTH") {
-    d.setMonth(d.getMonth() + period);
+    return addCalendarMonths(startDate, period);
   } else {
     // DAY: 按等分天数推算每期
-    const totalDays = totalPeriods; // termValue 就是总天数
-    const daysPerPeriod = Math.ceil(totalDays / totalPeriods);
-    d.setDate(d.getDate() + daysPerPeriod * period);
+    d.setDate(d.getDate() + calcDayPeriodEndDay(period, totalPeriods, termValue));
   }
   return d;
+}
+
+function calcOneTimeRate(annualRate: Decimal, termUnit: "MONTH" | "DAY", termValue: number): Decimal {
+  if (termUnit === "MONTH") return annualRate.div(12).mul(termValue);
+  return annualRate.mul(termValue).div(365);
 }
 
 /**
@@ -63,24 +100,21 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
 
   // 确定总期数和每期利率
   let totalPeriods: number;
-  let periodRate: Decimal;
 
   if (termUnit === "MONTH") {
     totalPeriods = termValue;
-    periodRate = annualRate.div(12); // 月利率
   } else {
     // DAY: 按天计息，合并为 1 期（短期借款）或按 30 天拆期
     if (termValue <= 90) {
       totalPeriods = 1;
-      periodRate = annualRate.mul(termValue).div(365);
     } else {
       totalPeriods = Math.ceil(termValue / 30);
-      periodRate = annualRate.mul(30).div(365);
     }
   }
 
   // 至少 1 期
   totalPeriods = Math.max(1, totalPeriods);
+  const getPeriodRate = (period: number) => calcPeriodRate(annualRate, termUnit, termValue, period, totalPeriods);
 
   const items: ScheduleItem[] = [];
   let totalInterest = new Decimal(0);
@@ -88,11 +122,11 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
   switch (input.repaymentMethod) {
     case "ONE_TIME": {
       // 到期一次还清：1 期，利息 = 本金 × 期利率
-      const interest = principal.mul(periodRate).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+      const interest = principal.mul(calcOneTimeRate(annualRate, termUnit, termValue)).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
       totalInterest = interest;
       items.push({
         periodNumber: 1,
-        dueDate: calcDueDate(input.startDate, totalPeriods, termUnit, totalPeriods),
+        dueDate: calcDueDate(input.startDate, totalPeriods, termUnit, totalPeriods, termValue),
         principal,
         interest,
         fee: feeAmount,
@@ -104,7 +138,9 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
 
     case "EQUAL_INSTALLMENT": {
       // 等额本息: M = P * r * (1+r)^n / ((1+r)^n - 1)
-      if (periodRate.isZero()) {
+      const periodRates = Array.from({ length: totalPeriods }, (_, index) => getPeriodRate(index + 1));
+
+      if (periodRates.every((rate) => rate.isZero())) {
         // 零利率时按等额本金处理
         const perPrincipal = principal.div(totalPeriods).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
         for (let i = 1; i <= totalPeriods; i++) {
@@ -115,7 +151,7 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
           const fee = i === 1 ? feeAmount : new Decimal(0);
           items.push({
             periodNumber: i,
-            dueDate: calcDueDate(input.startDate, i, termUnit, totalPeriods),
+            dueDate: calcDueDate(input.startDate, i, termUnit, totalPeriods, termValue),
             principal: thisPrincipal,
             interest: new Decimal(0),
             fee,
@@ -123,23 +159,28 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
           });
         }
       } else {
-        const r = periodRate;
-        const rPow = r.plus(1).pow(totalPeriods);
-        const monthlyPayment = principal.mul(r).mul(rPow).div(rPow.minus(1)).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+        let cumulativeDiscountBase = new Decimal(1);
+        let discountSum = new Decimal(0);
+        for (const rate of periodRates) {
+          cumulativeDiscountBase = cumulativeDiscountBase.mul(rate.plus(1));
+          discountSum = discountSum.plus(new Decimal(1).div(cumulativeDiscountBase));
+        }
+        const periodicPayment = principal.div(discountSum).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
 
         let remainingPrincipal = principal;
         for (let i = 1; i <= totalPeriods; i++) {
+          const r = periodRates[i - 1];
           const interest = remainingPrincipal.mul(r).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
           const isLast = i === totalPeriods;
           const thisPrincipal = isLast
             ? remainingPrincipal
-            : monthlyPayment.minus(interest).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+            : periodicPayment.minus(interest).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
           remainingPrincipal = remainingPrincipal.minus(thisPrincipal);
           totalInterest = totalInterest.plus(interest);
           const fee = i === 1 ? feeAmount : new Decimal(0);
           items.push({
             periodNumber: i,
-            dueDate: calcDueDate(input.startDate, i, termUnit, totalPeriods),
+            dueDate: calcDueDate(input.startDate, i, termUnit, totalPeriods, termValue),
             principal: thisPrincipal,
             interest,
             fee,
@@ -159,13 +200,13 @@ export function generateSchedule(input: ScheduleInput): ScheduleResult {
         const thisPrincipal = isLast
           ? remainingPrincipal
           : perPrincipal;
-        const interest = remainingPrincipal.mul(periodRate).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
+        const interest = remainingPrincipal.mul(getPeriodRate(i)).toDecimalPlaces(4, Decimal.ROUND_HALF_UP);
         remainingPrincipal = remainingPrincipal.minus(thisPrincipal);
         totalInterest = totalInterest.plus(interest);
         const fee = i === 1 ? feeAmount : new Decimal(0);
         items.push({
           periodNumber: i,
-          dueDate: calcDueDate(input.startDate, i, termUnit, totalPeriods),
+          dueDate: calcDueDate(input.startDate, i, termUnit, totalPeriods, termValue),
           principal: thisPrincipal,
           interest,
           fee,

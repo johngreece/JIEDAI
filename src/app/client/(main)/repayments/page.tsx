@@ -16,6 +16,7 @@ import {
   type RepaymentTier,
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
+import { getFrozenPayableAmount, hasExplicitInterestFreeze } from "@/lib/repayment-runtime";
 
 function money(value: number) {
   return new Intl.NumberFormat("zh-CN", {
@@ -152,7 +153,7 @@ export default async function ClientRepaymentsPage() {
   const waitingForAdminReview = repayments.filter((item) => item.status === "MANUAL_REVIEW");
   const rejectedRepayments = repayments.filter((item) => item.status === "REJECTED");
   const activeInterestFreeze =
-    waitingForAdminReview[0] || waitingForCustomer[0] || waitingForReceipt[0] || null;
+    repayments.find((item) => hasExplicitInterestFreeze(item)) ?? null;
   let outstandingAmount = plan
     ? plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining), 0)
     : 0;
@@ -225,7 +226,7 @@ export default async function ClientRepaymentsPage() {
     }).totalRepayment;
   }
   if (activeInterestFreeze) {
-    outstandingAmount = Number(activeInterestFreeze.frozenPayableAmount ?? activeInterestFreeze.amount);
+    outstandingAmount = getFrozenPayableAmount(activeInterestFreeze) ?? outstandingAmount;
   }
   const blocked = waitingForAdminReview.length > 0 || waitingForCustomer.length > 0 || waitingForReceipt.length > 0;
   const blockedReason = waitingForAdminReview.length > 0

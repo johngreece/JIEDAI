@@ -263,6 +263,7 @@ model FundAccountJournal {
 
   @@index([fundAccountId, createdAt])
   @@index([referenceType, referenceId])
+  @@unique([referenceType, referenceId])
   @@index([type, createdAt])
   @@index([direction, createdAt])
   @@index([operatorId])
@@ -840,6 +841,7 @@ model LedgerEntry {
   @@index([operatorId])
   @@index([createdAt])
   @@index([direction])
+  @@unique([type, referenceType, referenceId])
   @@map("ledger_entries")
 }
 

@@ -16,21 +16,52 @@ export const INTEREST_FREEZE_REPAYMENT_STATUSES = [
 
 export function getInterestFrozenAt(repayment: {
   interestFrozenAt?: Date | null;
-  receivedAt?: Date | null;
-  createdAt?: Date | null;
 } | null | undefined): Date | null {
   if (!repayment) return null;
-  return repayment.interestFrozenAt ?? repayment.receivedAt ?? repayment.createdAt ?? null;
+  return repayment.interestFrozenAt ?? null;
 }
 
 export function getFrozenPayableAmount(repayment: {
-  amount: unknown;
   frozenPayableAmount?: unknown | null;
 } | null | undefined): number | null {
   if (!repayment) return null;
-  const value = repayment.frozenPayableAmount ?? repayment.amount;
+  if (repayment.frozenPayableAmount == null) return null;
+  const value = repayment.frozenPayableAmount;
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : null;
+}
+
+export function hasExplicitInterestFreeze(repayment: {
+  status?: string | null;
+  interestFrozenAt?: Date | null;
+  frozenPayableAmount?: unknown | null;
+} | null | undefined): boolean {
+  if (!repayment) return false;
+  if (!(INTEREST_FREEZE_REPAYMENT_STATUSES as readonly string[]).includes(repayment.status ?? "")) return false;
+  return repayment.interestFrozenAt != null && getFrozenPayableAmount(repayment) != null;
+}
+
+export function amountsMatchWithinTolerance(left: unknown, right: unknown, tolerance = 0.01): boolean {
+  const leftAmount = Number(left);
+  const rightAmount = Number(right);
+  const safeTolerance = Math.max(0, tolerance);
+
+  if (!Number.isFinite(leftAmount) || !Number.isFinite(rightAmount)) return false;
+  return Math.abs(leftAmount - rightAmount) <= safeTolerance;
+}
+
+export function isFullPayoffAmount(
+  submittedAmount: unknown,
+  outstandingAmount: unknown,
+  tolerance = 0.01
+): boolean {
+  const submitted = Number(submittedAmount);
+  const outstanding = Number(outstandingAmount);
+
+  if (!Number.isFinite(submitted) || !Number.isFinite(outstanding)) return false;
+  if (submitted <= 0 || outstanding <= 0) return false;
+
+  return amountsMatchWithinTolerance(submitted, outstanding, tolerance);
 }
 
 export function extractPaidDates(detail: string | null | undefined): string[] {

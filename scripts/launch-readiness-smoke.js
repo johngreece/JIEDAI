@@ -89,9 +89,25 @@ async function createActiveFixture(adminJar, tag) {
       phone: customerPhone,
       passwordHash: customerHash,
       idNumber: `LR${Date.now()}${Math.floor(Math.random() * 1000)}`,
+      taxNumber: `AFM${Date.now()}`,
+      passportNumber: `P${Date.now()}`,
+      residencePermitNumber: `RP${Date.now()}`,
+      residencePermitExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      profileCompletedAt: new Date(),
       address: "Launch readiness fixture",
     },
     select: { id: true, phone: true, name: true },
+  });
+
+  await prisma.customerKyc.createMany({
+    data: ["CHINA_ID", "PASSPORT", "GREEK_RESIDENCE_PERMIT"].map((kycType) => ({
+      customerId: customer.id,
+      kycType,
+      documentUrl: `data:image/png;base64,launch-readiness-${kycType}`,
+      status: "UPLOADED",
+      expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      remark: `Launch readiness ${tag}`,
+    })),
   });
 
   const funderPhone = buildPhone("693", `${Date.now()}2`);

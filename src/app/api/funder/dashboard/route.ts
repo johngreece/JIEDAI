@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireActiveFunderSession } from "@/lib/portal-session";
+import { describeFunderRule } from "@/lib/funder-cooperation";
 import { prisma } from "@/lib/prisma";
 import { FunderInterestService } from "@/services/funder-interest.service";
 import { FunderInterestSettlementService } from "@/services/funder-interest-settlement.service";
@@ -71,20 +72,12 @@ export async function GET() {
       })
     : [];
 
-  const ruleGuide =
-    funder.cooperationMode === "FIXED_MONTHLY"
-      ? {
-          title: "固定月息",
-          formula: `按实际放款本金 × 月利率 ${Number(funder.monthlyRate)}% 计算，每满 30 天形成一笔利息。`,
-          settlement: "本金可按账户余额申请提现，利息在满周期后可提。",
-        }
-      : {
-          title: "周收益",
-          formula: `按实际放款本金 × 周利率 ${Number(funder.weeklyRate)}% 估算，每满 7 天滚动计算。`,
-          settlement: Number(funder.profitShareRatio || 0) > 0
-            ? "若启用分润比例，则实际收益以客户回款中的费用和罚息分成为准。"
-            : "未启用分润比例时，按周利率直接结算收益。",
-        };
+  const ruleGuide = describeFunderRule({
+    cooperationMode: funder.cooperationMode,
+    monthlyRate: Number(funder.monthlyRate),
+    weeklyRate: Number(funder.weeklyRate),
+    profitShareRatio: Number(funder.profitShareRatio || 0),
+  });
 
   return NextResponse.json({
     funder: {

@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
+import {
+  FUNDER_COOPERATION_LABELS,
+  FUNDER_COOPERATION_OPTIONS,
+  describeFunderRate,
+} from "@/lib/funder-cooperation";
 import type { FunderPrefetchItem } from "@/lib/admin-prefetch";
 
 type FundAccount = {
@@ -38,16 +43,15 @@ const TYPE_MAP: Record<string, string> = {
   PLATFORM: "平台",
 };
 
-const MODE_MAP: Record<string, string> = {
-  FIXED_MONTHLY: "固定月息",
-  VOLUME_BASED: "业务量结算",
-};
-
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-IE", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function cooperationModeLabel(mode: string) {
+  return FUNDER_COOPERATION_LABELS[mode as keyof typeof FUNDER_COOPERATION_LABELS] ?? mode;
 }
 
 function inflowStatusLabel(status: string) {
@@ -149,7 +153,7 @@ export function FundersPageClient({ initialItems }: FundersPageClientProps) {
                 <th className="px-4 py-3">名称</th>
                 <th className="px-4 py-3">类型</th>
                 <th className="px-4 py-3">合作模式</th>
-                <th className="px-4 py-3">利率</th>
+                <th className="px-4 py-3">利率/分润</th>
                 <th className="px-4 py-3">优先级</th>
                 <th className="px-4 py-3">联系人</th>
                 <th className="px-4 py-3">登录手机号</th>
@@ -168,9 +172,9 @@ export function FundersPageClient({ initialItems }: FundersPageClientProps) {
                   <tr key={item.id}>
                     <td className="px-4 py-3 font-medium text-slate-900">{item.name}</td>
                     <td className="px-4 py-3 text-slate-600">{TYPE_MAP[item.type] ?? item.type}</td>
-                    <td className="px-4 py-3 text-slate-600">{MODE_MAP[item.cooperationMode] ?? item.cooperationMode}</td>
+                    <td className="px-4 py-3 text-slate-600">{cooperationModeLabel(item.cooperationMode)}</td>
                     <td className="px-4 py-3 text-slate-700">
-                      {item.cooperationMode === "FIXED_MONTHLY" ? `${item.monthlyRate}% / 月` : `${item.weeklyRate}% / 7天`}
+                      {describeFunderRate(item)}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{item.priority}</td>
                     <td className="px-4 py-3 text-slate-700">{item.contactPerson ?? "-"}{item.contactPhone ? ` (${item.contactPhone})` : ""}</td>
@@ -268,17 +272,22 @@ function FunderForm({
       <div className="admin-form-grid md:grid-cols-3">
         <Field label="名称" value={form.name} onChange={(value) => setForm({ ...form, name: value })} />
         <SelectField label="类型" value={form.type} onChange={(value) => setForm({ ...form, type: value })} options={[{ value: "INDIVIDUAL", label: "个人" }, { value: "COMPANY", label: "企业" }, { value: "PLATFORM", label: "平台" }]} />
-        <Field label="分润比例" type="number" value={String(form.profitShareRatio)} onChange={(value) => setForm({ ...form, profitShareRatio: Number(value) })} />
+        <Field label="分润比例(0-1)" type="number" min="0" max="1" step="0.01" value={String(form.profitShareRatio)} onChange={(value) => setForm({ ...form, profitShareRatio: Number(value) })} />
         <Field label="联系人" value={form.contactPerson} onChange={(value) => setForm({ ...form, contactPerson: value })} />
         <Field label="联系电话" value={form.contactPhone} onChange={(value) => setForm({ ...form, contactPhone: value })} />
         <Field label="优先级" type="number" value={String(form.priority)} onChange={(value) => setForm({ ...form, priority: Number(value) })} />
       </div>
 
       <div className="mt-4 admin-form-grid md:grid-cols-4">
-        <SelectField label="合作模式" value={form.cooperationMode} onChange={(value) => setForm({ ...form, cooperationMode: value })} options={[{ value: "FIXED_MONTHLY", label: "固定月息" }, { value: "VOLUME_BASED", label: "业务量结算" }]} />
-        <Field label="月利率" type="number" value={String(form.monthlyRate)} onChange={(value) => setForm({ ...form, monthlyRate: Number(value) })} />
-        <Field label="周利率" type="number" value={String(form.weeklyRate)} onChange={(value) => setForm({ ...form, weeklyRate: Number(value) })} />
-        <Field label="提现冷却天数" type="number" value={String(form.withdrawalCooldownDays)} onChange={(value) => setForm({ ...form, withdrawalCooldownDays: Number(value) })} />
+        <SelectField
+          label="合作模式"
+          value={form.cooperationMode}
+          onChange={(value) => setForm({ ...form, cooperationMode: value, profitShareRatio: value === "PROFIT_SHARE" ? form.profitShareRatio : 0 })}
+          options={FUNDER_COOPERATION_OPTIONS}
+        />
+        <Field label="月利率" type="number" min="0" step="0.01" value={String(form.monthlyRate)} onChange={(value) => setForm({ ...form, monthlyRate: Number(value) })} />
+        <Field label="周利率" type="number" min="0" step="0.01" value={String(form.weeklyRate)} onChange={(value) => setForm({ ...form, weeklyRate: Number(value) })} />
+        <Field label="提现冷却天数" type="number" min="0" value={String(form.withdrawalCooldownDays)} onChange={(value) => setForm({ ...form, withdrawalCooldownDays: Number(value) })} />
       </div>
 
       <div className="mt-4 admin-form-grid md:grid-cols-3">
@@ -286,7 +295,7 @@ function FunderForm({
           <input type="checkbox" checked={form.riskSharing} onChange={(e) => setForm({ ...form, riskSharing: e.target.checked })} />
           开启风险分担
         </label>
-        <Field label="风险分担比例" type="number" value={String(form.riskShareRatio)} onChange={(value) => setForm({ ...form, riskShareRatio: Number(value) })} />
+        <Field label="风险分担比例" type="number" min="0" max="1" step="0.01" value={String(form.riskShareRatio)} onChange={(value) => setForm({ ...form, riskShareRatio: Number(value) })} />
         <div />
       </div>
 
@@ -641,11 +650,27 @@ function AccountManager({
   );
 }
 
-function Field({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  min,
+  max,
+  step,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  min?: string;
+  max?: string;
+  step?: string;
+}) {
   return (
     <label className="block text-sm">
       <span className="mb-1 block font-medium text-slate-700">{label}</span>
-      <input type={type} className="admin-field" value={value} onChange={(e) => onChange(e.target.value)} />
+      <input type={type} min={min} max={max} step={step} className="admin-field" value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }
