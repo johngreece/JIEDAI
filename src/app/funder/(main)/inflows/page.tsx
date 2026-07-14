@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
@@ -49,15 +51,6 @@ const statusBadge: Record<string, string> = {
   CONFIRMED: "bg-emerald-100 text-emerald-700",
   CANCELLED: "bg-red-100 text-red-700",
 };
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function formatDate(value: string | null) {
   if (!value) return "-";

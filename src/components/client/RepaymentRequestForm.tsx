@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
@@ -9,15 +11,6 @@ type Props = {
   blocked: boolean;
   blockedReason?: string | null;
 };
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason }: Props) {
   const router = useRouter();

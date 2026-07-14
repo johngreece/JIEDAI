@@ -6,6 +6,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
 import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
+import { formatMoney as money } from "@/lib/system-config";
 
 export const dynamic = "force-dynamic";
 
@@ -20,15 +21,6 @@ async function requireSuperAdminSession() {
   if (session instanceof Response) return session;
   if (!isSuperAdmin(session)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   return session;
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 export async function PATCH(

@@ -18,6 +18,7 @@ import {
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 import { isFullPayoffAmount } from "@/lib/repayment-runtime";
+import { formatMoney as money } from "@/lib/system-config";
 
 export const dynamic = "force-dynamic";
 
@@ -29,15 +30,6 @@ const createSchema = z.object({
 
 function genRepaymentNo() {
   return `RPY${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 export async function POST(req: NextRequest) {

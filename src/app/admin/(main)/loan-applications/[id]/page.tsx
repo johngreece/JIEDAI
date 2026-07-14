@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney } from "@/lib/system-config";
+
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -78,15 +80,6 @@ type ProfileCompletion = {
   missingDocTypes: Array<{ type: string; label: string }>;
   issueLabels: string[];
 };
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 export default function LoanApplicationDetailPage() {
   const params = useParams<{ id: string }>();

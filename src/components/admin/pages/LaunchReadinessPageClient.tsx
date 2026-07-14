@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney } from "@/lib/system-config";
+
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -76,15 +78,6 @@ type ScenarioResult = {
     createdAt: string;
   }>;
 };
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value || 0);
-}
 
 function formatDate(value: string | null) {
   if (!value) return "-";

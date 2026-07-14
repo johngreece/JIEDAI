@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { DocumentScanner } from "@/components/DocumentScanner";
@@ -64,15 +66,6 @@ const EMPTY_FORM: ProfileForm = {
   residencePermitNumber: "",
   residencePermitExpiry: "",
 };
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 export default function ClientProfilePage() {
   const searchParams = useSearchParams();

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 import { isPublicClientProductCode } from "@/lib/public-loan-products";
 import { getClientProfileCompletion } from "@/lib/client-profile";
+import { formatMoney as money } from "@/lib/system-config";
 
 export const dynamic = "force-dynamic";
 
@@ -20,15 +21,6 @@ const createSchema = z.object({
 
 function genApplicationNo() {
   return `LA${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 export async function POST(req: NextRequest) {

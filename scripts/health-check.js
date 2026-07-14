@@ -155,8 +155,9 @@ function runCmd(label, cmd) {
   const ok3 = ok2 ? await checkDatabase() : (record("db.connect", false, "Prisma client 异常，跳过 DB 检查"), false);
   console.log("");
 
-  const ok4 = await runCmd("typecheck (tsc --noEmit)", "npx tsc --noEmit");
-  const ok5 = await runCmd("vitest run", "npx vitest run --reporter=dot");
+  const ok4 = await runCmd("system invariants", "npm run check:invariants");
+  const ok5 = await runCmd("typecheck (tsc --noEmit)", "npm run typecheck");
+  const ok6 = await runCmd("vitest run", "npx vitest run --reporter=dot");
 
   console.log("\n=== 汇总 ===");
   const failed = results.filter((r) => !r.ok);

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { formatMoney as money } from "@/lib/system-config";
 
 interface Tier {
   maxDays: number;
@@ -41,15 +42,6 @@ interface RealtimeData {
   frozenAt: string | null;
   frozenRepaymentNo: string | null;
   frozenRepaymentStatus: string | null;
-}
-
-function money(value: number): string {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 function formatElapsedClient(ms: number): string {

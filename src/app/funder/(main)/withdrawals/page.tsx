@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 import { describeFunderRule } from "@/lib/funder-cooperation";
+import { formatMoney as fmt } from "@/lib/system-config";
 
 interface Withdrawal {
   id: string;
@@ -48,15 +49,6 @@ const statusBadge: Record<string, string> = {
   APPROVED: "bg-emerald-100 text-emerald-700",
   REJECTED: "bg-red-100 text-red-700",
 };
-
-function fmt(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function fmtDate(value: string | null) {
   if (!value) return "-";

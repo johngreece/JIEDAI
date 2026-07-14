@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useCallback, useEffect, useState } from "react";
 
 type LedgerItem = {
@@ -51,15 +53,6 @@ const TYPE_OPTIONS = [
   { value: "WITHDRAWAL", label: "资金方提现" },
   { value: "ADJUSTMENT", label: "调账" },
 ] as const;
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 export default function LedgerPage() {
   const [items, setItems] = useState<LedgerItem[]>([]);

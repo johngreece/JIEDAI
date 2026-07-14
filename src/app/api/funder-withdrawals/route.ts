@@ -4,17 +4,9 @@ import { FunderInterestService } from "@/services/funder-interest.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { requirePermission } from "@/lib/rbac";
+import { formatMoney as money } from "@/lib/system-config";
 
 export const dynamic = "force-dynamic";
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 /* GET — 管理端查看所有提现申请 */
 export async function GET() {

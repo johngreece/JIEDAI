@@ -18,6 +18,7 @@ import {
   extractPaidDates,
   hasExplicitInterestFreeze,
 } from "@/lib/repayment-runtime";
+import { formatMoney as money } from "@/lib/system-config";
 
 export type RepaymentStatus =
   | "PENDING"
@@ -29,15 +30,6 @@ export type RepaymentStatus =
   | "MANUAL_REVIEW";
 
 const EPSILON = 0.0001;
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 const ALLOWED_TRANSITIONS: Record<RepaymentStatus, RepaymentStatus[]> = {
   PENDING: ["MATCHED", "MANUAL_REVIEW"],

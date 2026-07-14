@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useMemo, useRef, useState } from "react";
 
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
@@ -38,15 +40,6 @@ const EMPTY_ALLOCATION_ROW: AllocationDraft = {
 };
 
 const OPEN_SCHEDULE_STATUSES = new Set<string>(OPEN_REPAYMENT_SCHEDULE_STATUSES);
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function amountsMatchWithinTolerance(left: number, right: number, tolerance = 0.01) {
   return Math.abs(left - right) <= tolerance;

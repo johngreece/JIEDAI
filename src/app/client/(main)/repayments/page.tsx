@@ -17,15 +17,7 @@ import {
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 import { getFrozenPayableAmount, hasExplicitInterestFreeze } from "@/lib/repayment-runtime";
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+import { formatMoney as money } from "@/lib/system-config";
 
 function formatDateTime(value: Date | string) {
   return new Date(value).toLocaleString("zh-CN", {

@@ -14,6 +14,9 @@
     "postinstall": "prisma generate",
     "start": "npx next start -p 3001",
     "lint": "npx next lint",
+    "typecheck": "tsc --noEmit",
+    "check:invariants": "node scripts/check-system-invariants.js",
+    "verify": "npm run check:invariants && npm run typecheck && npm test",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -36,6 +39,7 @@
     "health-check": "node scripts/health-check.js"
   },
   "dependencies": {
+    "@next/env": "15.5.14",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^3.0.3",
     "decimal.js": "^10.4.3",

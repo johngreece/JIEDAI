@@ -12,6 +12,7 @@ import {
 import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
+import { formatMoney as money } from "@/lib/system-config";
 
 export const FUNDER_INTEREST_SETTLEMENT_STATUS = {
   DUE: "DUE",
@@ -81,15 +82,6 @@ function toNumber(value: unknown) {
 
 function genSettlementNo() {
   return `FS${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 function dateOnly(value: Date) {

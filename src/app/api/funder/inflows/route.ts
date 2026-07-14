@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { formatMoney as money } from "@/lib/system-config";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { requireActiveFunderSession } from "@/lib/portal-session";
 import { fileToDataUrl, createProofAttachment } from "@/lib/proof-attachment";
@@ -20,15 +21,6 @@ const inflowSchema = z.object({
 });
 
 type InflowInput = z.infer<typeof inflowSchema>;
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 async function parseInflowRequest(req: NextRequest): Promise<{
   input: InflowInput;

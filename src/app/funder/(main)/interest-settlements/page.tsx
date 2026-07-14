@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
@@ -74,15 +76,6 @@ const statusFilters = [
 
 function isKnownStatusFilter(value: string | null) {
   return statusFilters.some((item) => item.value === value);
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 function dateTime(value: string | null) {

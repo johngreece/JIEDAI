@@ -10,6 +10,7 @@ import {
   getClientProfileCompletion,
   serializeClientProfileCompletion,
 } from "@/lib/client-profile";
+import { formatMoney as money } from "@/lib/system-config";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +19,6 @@ const approveSchema = z.object({
   approvedAmount: z.number().positive().optional(),
   comment: z.string().optional(),
 });
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 export async function POST(
   req: Request,

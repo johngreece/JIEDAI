@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { formatMoney } from "@/lib/system-config";
 
 interface DashboardData {
   funder: {
@@ -97,15 +98,6 @@ interface DashboardData {
     disbursedAt: string | null;
     customerName: string;
   }>;
-}
-
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 function formatDate(value: string | null) {

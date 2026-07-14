@@ -23,15 +23,7 @@ import {
   type RepaymentTier,
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+import { formatMoney as money } from "@/lib/system-config";
 
 function formatDate(value: Date | string | null | undefined) {
   if (!value) return "-";
