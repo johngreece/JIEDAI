@@ -5,6 +5,7 @@ import { formatMoney } from "@/lib/system-config";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ContractHtmlFrame } from "@/components/ContractHtmlFrame";
 import RealtimeTimer from "@/components/RealtimeTimer";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
@@ -822,10 +823,11 @@ export default function LoanApplicationDetailPage() {
               </button>
             </div>
           </div>
-          <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white p-4">
-            <div
-              dangerouslySetInnerHTML={{ __html: preview.content }}
-              className="prose prose-sm max-w-none"
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <ContractHtmlFrame
+              content={preview.content}
+              title="合同生成预览"
+              className="h-[70vh] min-h-[36rem]"
             />
           </div>
           </div>

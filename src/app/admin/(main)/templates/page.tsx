@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ContractHtmlFrame } from "@/components/ContractHtmlFrame";
 
 type Template = {
   id: string;
@@ -81,7 +82,13 @@ export default function TemplatesPage() {
             <button onClick={() => setFullContent(null)} className="admin-btn admin-btn-secondary admin-btn-sm">关闭</button>
           </div>
           <div className="admin-section-card__body">
-            <div className="prose prose-sm max-w-none rounded-[1.2rem] border border-slate-200 bg-white p-4" dangerouslySetInnerHTML={{ __html: fullContent.content }} />
+            <div className="overflow-hidden rounded-[1.2rem] border border-slate-200 bg-white">
+              <ContractHtmlFrame
+                content={fullContent.content}
+                title="合同模板内容预览"
+                className="h-[60vh] min-h-[32rem]"
+              />
+            </div>
           </div>
         </section>
       ) : null}

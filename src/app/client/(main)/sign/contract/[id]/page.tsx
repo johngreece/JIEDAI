@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { ContractHtmlFrame } from "@/components/ContractHtmlFrame";
 import { SignCanvas } from "@/components/SignCanvas";
 
 type ContractData = {
@@ -221,8 +222,12 @@ export default function ClientContractSignPage() {
         <span className="text-sm text-slate-600">合同号：{contract.contractNo}</span>
       </div>
 
-      <div className="table-shell mb-4 max-h-[45vh] overflow-auto rounded-lg p-4">
-        <div dangerouslySetInnerHTML={{ __html: contract.content || "" }} className="prose prose-sm max-w-none" />
+      <div className="table-shell mb-4 overflow-hidden rounded-lg">
+        <ContractHtmlFrame
+          content={contract.content || ""}
+          title={`合同 ${contract.contractNo}`}
+          className="h-[45vh] min-h-[24rem]"
+        />
       </div>
 
       {requireMobileFlow ? (

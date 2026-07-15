@@ -90,7 +90,25 @@ for (const file of sourceFiles) {
   ) {
     errors.push(`${file} hard-codes a currency outside src/lib/system-config.ts`);
   }
+  if (!/\.test\.[jt]sx?$/.test(file) && source.includes("dangerouslySetInnerHTML")) {
+    errors.push(`${file} renders raw HTML; stored contract HTML must use ContractHtmlFrame`);
+  }
 }
+
+const contractFrameSource = read("src/components/ContractHtmlFrame.tsx");
+const contractDocumentSource = read("src/lib/contract-html.ts");
+check(
+  contractFrameSource.includes('sandbox=""') &&
+    contractFrameSource.includes('referrerPolicy="no-referrer"'),
+  "contract HTML iframe must remain sandboxed and suppress referrers"
+);
+check(
+  contractDocumentSource.includes("default-src 'none'") &&
+    contractDocumentSource.includes("script-src 'none'") &&
+    contractDocumentSource.includes("connect-src 'none'") &&
+    contractDocumentSource.includes("form-action 'none'"),
+  "contract HTML iframe must retain its fail-closed Content Security Policy"
+);
 
 const privateUploadFiles = [
   "src/app/api/client/documents/route.ts",
