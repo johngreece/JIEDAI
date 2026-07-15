@@ -4,6 +4,7 @@ import { describeFunderRule } from "@/lib/funder-cooperation";
 import { prisma } from "@/lib/prisma";
 import { FunderInterestService } from "@/services/funder-interest.service";
 import { FunderInterestSettlementService } from "@/services/funder-interest-settlement.service";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,9 @@ export async function GET() {
           feeAmount: true,
           status: true,
           disbursedAt: true,
+          batchNo: true,
+          payerBank: true,
+          payerAccount: true,
           application: {
             select: {
               customer: { select: { name: true } },
@@ -71,6 +75,31 @@ export async function GET() {
         },
       })
     : [];
+  const recentDisbursementIds = recentDisbursements.map((item) => item.id);
+  const disbursementProofs = recentDisbursementIds.length
+    ? await prisma.attachment.findMany({
+        where: {
+          entityType: "disbursement",
+          entityId: { in: recentDisbursementIds },
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          entityId: true,
+          fileName: true,
+          fileUrl: true,
+          mimeType: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const proofsByDisbursementId = new Map<string, typeof disbursementProofs>();
+  for (const proof of disbursementProofs) {
+    const current = proofsByDisbursementId.get(proof.entityId) ?? [];
+    current.push(proof);
+    proofsByDisbursementId.set(proof.entityId, current);
+  }
 
   const ruleGuide = describeFunderRule({
     cooperationMode: funder.cooperationMode,
@@ -117,6 +146,10 @@ export async function GET() {
       feeAmount: Number(item.feeAmount),
       status: item.status,
       disbursedAt: item.disbursedAt,
+      transactionId: item.batchNo,
+      payerBank: item.payerBank,
+      payerAccount: item.payerAccount,
+      proofs: (proofsByDisbursementId.get(item.id) ?? []).map(serializeProofAttachment),
       customerName: item.application?.customer?.name ?? "-",
     })),
   });

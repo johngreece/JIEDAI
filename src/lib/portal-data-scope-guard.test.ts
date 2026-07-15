@@ -87,7 +87,7 @@ describe("portal object data scope guard", () => {
     expect(service).toContain("where: { id: contractId, funderId }");
   });
 
-  it("authorizes private KYC and capital-inflow proof downloads by object ownership", () => {
+  it("authorizes private KYC and financial proof downloads by object ownership", () => {
     const customerDocument = readSource(
       "src/app/api/customer-documents/[id]/file/route.ts",
     );
@@ -100,6 +100,8 @@ describe("portal object data scope guard", () => {
     expect(attachment).toContain('requirePermission(["ledger:view"])');
     expect(attachment).toContain("ensureActiveFunderSession(session)");
     expect(attachment).toContain("fundAccount: { funderId: session.sub }");
-    expect(attachment).toContain('entityType: "capital_inflow"');
+    expect(attachment).toContain('entityType: { in: ["capital_inflow", "disbursement"] }');
+    expect(attachment).toContain("prisma.capitalInflow.findFirst({");
+    expect(attachment).toContain("prisma.disbursement.findFirst({");
   });
 });

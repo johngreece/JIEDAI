@@ -4,6 +4,16 @@ import Decimal from "decimal.js";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLogInTransaction } from "@/lib/audit";
 import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
+import { parseDisbursementEvidenceRequest } from "@/lib/disbursement-evidence";
+import {
+  createProofAttachment,
+  serializeProofAttachment,
+  storeProofFile,
+} from "@/lib/proof-attachment";
+import {
+  deletePrivateFile,
+  privateStorageErrorResponse,
+} from "@/lib/private-file-storage";
 import {
   formatClientProfileCompletionError,
   getClientProfileCompletion,
@@ -33,6 +43,18 @@ function genPlanNo() {
   return `RP${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 }
 
+function isBankTransactionConstraintError(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+    return false;
+  }
+
+  const target = Array.isArray(error.meta?.target)
+    ? error.meta.target.join(" ")
+    : String(error.meta?.target ?? "");
+
+  return target.includes("fund_account_id") && target.includes("batch_no");
+}
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -55,6 +77,34 @@ export async function POST(
 
   if (current.status !== "PENDING") {
     return NextResponse.json({ error: "当前状态不允许确认打款" }, { status: 400 });
+  }
+
+  const parsedEvidence = await parseDisbursementEvidenceRequest(req);
+  if (!parsedEvidence.success) {
+    return NextResponse.json(
+      { error: parsedEvidence.error, details: parsedEvidence.details },
+      { status: 400 },
+    );
+  }
+
+  const { input: evidenceInput, proofFile } = parsedEvidence.data;
+  let proofFileUrl = evidenceInput.proofUrl ?? "";
+  let proofFileName =
+    evidenceInput.proofFileName || `bank-evidence-${evidenceInput.transactionId}`;
+  let proofFileSize = 0;
+  let proofMimeType = evidenceInput.proofMimeType || "text/uri-list";
+  let uploadedPrivateFileReference: string | null = null;
+
+  if (proofFile) {
+    try {
+      proofFileUrl = await storeProofFile(proofFile, `disbursements/${id}`);
+      uploadedPrivateFileReference = proofFileUrl;
+      proofFileName = proofFile.name || proofFileName;
+      proofFileSize = proofFile.size;
+      proofMimeType = proofFile.type || "application/octet-stream";
+    } catch (error) {
+      return privateStorageErrorResponse(error, "Bank evidence upload failed");
+    }
   }
 
   let result;
@@ -110,6 +160,12 @@ export async function POST(
                 feePaymentMode: true,
               },
             },
+          },
+        },
+        fundAccount: {
+          select: {
+            accountNo: true,
+            bankName: true,
           },
         },
       },
@@ -197,6 +253,18 @@ export async function POST(
       ? getLoanContractRepaymentComponents(contractTerms)
       : null;
 
+    const duplicateTransaction = await tx.disbursement.findFirst({
+      where: {
+        id: { not: id },
+        fundAccountId: pendingDisbursement.fundAccountId,
+        batchNo: evidenceInput.transactionId,
+      },
+      select: { id: true },
+    });
+    if (duplicateTransaction) {
+      throw new Error("DISBURSEMENT_TRANSACTION_ID_DUPLICATE");
+    }
+
     const claimed = await tx.disbursement.updateMany({
       where: { id, status: "PENDING" },
       data: {
@@ -205,6 +273,9 @@ export async function POST(
         operatorId: session.sub,
         feeAmount: upfrontFeeAmount,
         netAmount,
+        batchNo: evidenceInput.transactionId,
+        payerAccount: pendingDisbursement.fundAccount.accountNo,
+        payerBank: pendingDisbursement.fundAccount.bankName,
       },
     });
     if (claimed.count !== 1) {
@@ -212,6 +283,16 @@ export async function POST(
     }
 
     const disbursement = await tx.disbursement.findUniqueOrThrow({ where: { id } });
+    const proofAttachment = await createProofAttachment(tx, {
+      entityType: "disbursement",
+      entityId: disbursement.id,
+      fileName: proofFileName,
+      fileUrl: proofFileUrl,
+      fileSize: proofFileSize,
+      mimeType: proofMimeType,
+      uploadedBy: session.sub,
+      category: "DISBURSEMENT_PROOF",
+    });
 
     await transitionLoanApplication(tx, {
       applicationId: disbursement.applicationId,
@@ -319,6 +400,8 @@ export async function POST(
         grossAmount: Number(disbursement.amount),
         feeAmount: Number(disbursement.feeAmount),
         netAmount: Number(disbursement.netAmount),
+        transactionId: evidenceInput.transactionId,
+        proofAttachmentId: proofAttachment.id,
       },
     });
 
@@ -333,13 +416,22 @@ export async function POST(
         disbursedAt: disbursement.disbursedAt?.toISOString() ?? null,
         principal,
         contractTermsSource: contractTerms.source,
+        transactionId: evidenceInput.transactionId,
+        payerBank: disbursement.payerBank,
+        payerAccount: disbursement.payerAccount,
+        proofAttachmentId: proofAttachment.id,
       },
-      changeSummary: "确认已打款并同步生成还款规则快照",
+      changeSummary: "Confirm bank transfer with transaction evidence and generate repayment plan",
     });
 
-    return disbursement;
+    return { disbursement, proofAttachment };
     });
   } catch (error) {
+    if (uploadedPrivateFileReference) {
+      await deletePrivateFile(uploadedPrivateFileReference).catch((cleanupError) => {
+        console.error("[disbursement-confirm-paid] failed to clean uploaded evidence", cleanupError);
+      });
+    }
     const message = error instanceof Error ? error.message : "";
     if (
       message === "DISBURSEMENT_STATUS_CHANGED" ||
@@ -355,11 +447,25 @@ export async function POST(
     if (message === "SIGNED_CONTRACT_MISSING") {
       return NextResponse.json({ error: "已签主合同缺失，不能确认打款" }, { status: 409 });
     }
+    if (
+      message === "DISBURSEMENT_TRANSACTION_ID_DUPLICATE" ||
+      isBankTransactionConstraintError(error)
+    ) {
+      return NextResponse.json(
+        { error: "This bank transaction ID is already used for the selected fund account" },
+        { status: 409 },
+      );
+    }
     console.error("[disbursement-confirm-paid]", error);
     return NextResponse.json({ error: "确认打款失败" }, { status: 500 });
   }
 
-  const responseBody = { id: result.id, status: result.status };
+  const responseBody = {
+    id: result.disbursement.id,
+    status: result.disbursement.status,
+    transactionId: result.disbursement.batchNo,
+    proof: serializeProofAttachment(result.proofAttachment),
+  };
   return NextResponse.json(responseBody);
   });
 }

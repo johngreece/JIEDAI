@@ -30,9 +30,14 @@ export async function GET(
 
   const { id } = await params;
   const attachment = await prisma.attachment.findFirst({
-    where: { id, entityType: "capital_inflow", deletedAt: null },
+    where: {
+      id,
+      entityType: { in: ["capital_inflow", "disbursement"] },
+      deletedAt: null,
+    },
     select: {
       id: true,
+      entityType: true,
       entityId: true,
       fileName: true,
       fileUrl: true,
@@ -42,11 +47,17 @@ export async function GET(
   if (!attachment) return Response.json({ error: "附件不存在" }, { status: 404 });
 
   if (session.portal === "funder") {
-    const ownedInflow = await prisma.capitalInflow.findFirst({
-      where: { id: attachment.entityId, fundAccount: { funderId: session.sub } },
-      select: { id: true },
-    });
-    if (!ownedInflow) return Response.json({ error: "附件不存在" }, { status: 404 });
+    const ownedEntity =
+      attachment.entityType === "capital_inflow"
+        ? await prisma.capitalInflow.findFirst({
+            where: { id: attachment.entityId, fundAccount: { funderId: session.sub } },
+            select: { id: true },
+          })
+        : await prisma.disbursement.findFirst({
+            where: { id: attachment.entityId, fundAccount: { funderId: session.sub } },
+            select: { id: true },
+          });
+    if (!ownedEntity) return Response.json({ error: "附件不存在" }, { status: 404 });
   }
 
   if (/^https?:\/\//i.test(attachment.fileUrl)) {

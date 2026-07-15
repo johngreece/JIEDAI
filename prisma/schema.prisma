@@ -625,6 +625,7 @@ model Disbursement {
   @@index([status])
   @@index([disbursedAt])
   @@index([batchNo])
+  @@unique([fundAccountId, batchNo])
   @@map("disbursements")
 }
 

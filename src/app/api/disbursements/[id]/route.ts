@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLogInTransaction } from "@/lib/audit";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +57,23 @@ export async function GET(
         orderBy: { periodNumber: "asc" },
       })
     : [];
+  const proofs = await prisma.attachment.findMany({
+    where: {
+      entityType: "disbursement",
+      entityId: disbursement.id,
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      fileName: true,
+      fileUrl: true,
+      fileSize: true,
+      mimeType: true,
+      category: true,
+      createdAt: true,
+    },
+  });
 
   return NextResponse.json({
     id: disbursement.id,
@@ -65,6 +83,10 @@ export async function GET(
     feeAmount: Number(disbursement.feeAmount),
     netAmount: Number(disbursement.netAmount),
     disbursedAt: disbursement.disbursedAt,
+    transactionId: disbursement.batchNo,
+    payerBank: disbursement.payerBank,
+    payerAccount: disbursement.payerAccount,
+    proofs: proofs.map(serializeProofAttachment),
     customerConfirmation: {
       confirmedAt: disbursement.customerConfirmedAt,
       ipAddress: disbursement.customerConfirmIp,

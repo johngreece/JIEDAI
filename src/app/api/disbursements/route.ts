@@ -11,6 +11,7 @@ import {
 } from "@/lib/client-profile";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import { resolveLoanContractTerms } from "@/lib/loan-contract-terms";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +71,34 @@ export async function GET(req: Request) {
     prisma.disbursement.count({ where }),
   ]);
 
+  const disbursementIds = list.map((item) => item.id);
+  const attachments = disbursementIds.length
+    ? await prisma.attachment.findMany({
+        where: {
+          entityType: "disbursement",
+          entityId: { in: disbursementIds },
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          entityId: true,
+          fileName: true,
+          fileUrl: true,
+          fileSize: true,
+          mimeType: true,
+          category: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const proofsByDisbursementId = new Map<string, typeof attachments>();
+  for (const attachment of attachments) {
+    const current = proofsByDisbursementId.get(attachment.entityId) ?? [];
+    current.push(attachment);
+    proofsByDisbursementId.set(attachment.entityId, current);
+  }
+
   return NextResponse.json(paginatedResponse(
     list.map((x: {
       id: string;
@@ -78,6 +107,9 @@ export async function GET(req: Request) {
       amount: unknown;
       feeAmount: unknown;
       netAmount: unknown;
+      batchNo: string | null;
+      payerBank: string | null;
+      payerAccount: string | null;
       customerConfirmIp: string | null;
       customerConfirmedAt: Date | null;
       customerConfirmUserAgent: string | null;
@@ -96,6 +128,10 @@ export async function GET(req: Request) {
       amount: Number(x.amount),
       feeAmount: Number(x.feeAmount),
       netAmount: Number(x.netAmount),
+      transactionId: x.batchNo,
+      payerBank: x.payerBank,
+      payerAccount: x.payerAccount,
+      proofs: (proofsByDisbursementId.get(x.id) ?? []).map(serializeProofAttachment),
       customerConfirmation: {
         confirmedAt: x.customerConfirmedAt,
         ipAddress: x.customerConfirmIp,

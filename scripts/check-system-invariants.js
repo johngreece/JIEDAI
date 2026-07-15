@@ -65,6 +65,7 @@ check(
 const prismaSchema = read("prisma/schema.prisma");
 const restructureCreateSource = read("src/app/api/restructures/route.ts");
 const restructureApproveSource = read("src/app/api/restructures/[id]/approve/route.ts");
+const disbursementConfirmSource = read("src/app/api/disbursements/[id]/confirm-paid/route.ts");
 for (const field of ["remainingPrincipal", "remainingInterest", "remainingFee"]) {
   check(
     prismaSchema.includes(field),
@@ -89,6 +90,18 @@ check(
     restructureApproveSource.includes("generateRestructurePlan") &&
     restructureApproveSource.includes("record.oldPlanVersion !== oldPlan.version"),
   "restructure approval must revalidate balances, plan version and pricing"
+);
+check(
+  prismaSchema.includes("@@unique([fundAccountId, batchNo])"),
+  "bank transaction IDs must be unique within each fund account"
+);
+check(
+  disbursementConfirmSource.includes("parseDisbursementEvidenceRequest") &&
+    disbursementConfirmSource.includes('entityType: "disbursement"') &&
+    disbursementConfirmSource.includes("proofAttachmentId") &&
+    disbursementConfirmSource.includes("payerAccount") &&
+    disbursementConfirmSource.includes("payerBank"),
+  "disbursement confirmation must persist bank identity, private proof, journal metadata and audit evidence"
 );
 
 const mutatingRegressionScripts = [
@@ -153,6 +166,7 @@ const privateUploadFiles = [
   "src/app/api/client/documents/route.ts",
   "src/app/api/customers/[id]/documents/route.ts",
   "src/lib/proof-attachment.ts",
+  "src/app/api/disbursements/[id]/confirm-paid/route.ts",
 ];
 for (const file of privateUploadFiles) {
   const source = read(file);
@@ -216,4 +230,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
+console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, disbursement bank evidence required, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
