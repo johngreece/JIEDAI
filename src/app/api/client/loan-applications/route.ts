@@ -6,7 +6,10 @@ import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 import { isPublicClientProductCode } from "@/lib/public-loan-products";
-import { getClientProfileCompletion } from "@/lib/client-profile";
+import {
+  getClientBaseCreditLimit,
+  getClientProfileCompletion,
+} from "@/lib/client-profile";
 import { formatMoney as money } from "@/lib/system-config";
 
 export const dynamic = "force-dynamic";
@@ -147,7 +150,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const creditLimit = Number(customer.creditLimitOverride ?? customer.creditLimit ?? 0);
+  const creditLimit = customer.creditLimitOverride != null
+    ? Number(customer.creditLimitOverride)
+    : getClientBaseCreditLimit(profileCompletion);
   if (input.amount - creditLimit > 0.000001) {
     return NextResponse.json({ error: `申请金额不能超过可借额度 ${money(creditLimit)}` }, { status: 400 });
   }

@@ -4,6 +4,7 @@ import {
   CLIENT_DOCUMENT_TYPE_LABELS,
   REQUIRED_CLIENT_DOCUMENT_TYPES,
   REQUIRED_CLIENT_PROFILE_FIELDS,
+  getClientBaseCreditLimit,
   getClientProfileCompletion,
   resolveProfileCompletedAt,
 } from "@/lib/client-profile";
@@ -64,6 +65,7 @@ const customerProfileSelect = {
       status: true,
       verifiedAt: true,
       expiresAt: true,
+      remark: true,
       createdAt: true,
     },
     orderBy: { createdAt: "desc" as const },
@@ -76,7 +78,7 @@ function toDateInput(value: Date | null) {
 
 function serializeCustomerProfile(customer: NonNullable<Awaited<ReturnType<typeof loadCustomerProfile>>>) {
   const completion = getClientProfileCompletion(customer);
-  const baseLimit = completion.documentsComplete ? 30000 : 10000;
+  const baseLimit = getClientBaseCreditLimit(completion);
   const effectiveLimit = customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : baseLimit;
 
   return {
@@ -90,7 +92,9 @@ function serializeCustomerProfile(customer: NonNullable<Awaited<ReturnType<typeo
       passportNumber: customer.passportNumber ?? "",
       residencePermitNumber: customer.residencePermitNumber ?? "",
       residencePermitExpiry: toDateInput(customer.residencePermitExpiry),
-      profileCompletedAt: customer.profileCompletedAt?.toISOString() ?? null,
+      profileCompletedAt: completion.profileComplete
+        ? customer.profileCompletedAt?.toISOString() ?? null
+        : null,
     },
     documents: customer.kyc.map((document) => ({
       id: document.id,
@@ -100,16 +104,19 @@ function serializeCustomerProfile(customer: NonNullable<Awaited<ReturnType<typeo
       status: document.status,
       verifiedAt: document.verifiedAt?.toISOString() ?? null,
       expiresAt: document.expiresAt?.toISOString() ?? null,
+      remark: document.remark,
       createdAt: document.createdAt.toISOString(),
     })),
     docTypes: REQUIRED_CLIENT_DOCUMENT_TYPES.map((type) => ({
       type,
       label: CLIENT_DOCUMENT_TYPE_LABELS[type],
-      uploaded: completion.validDocumentTypes.has(type),
+      uploaded: completion.uploadedDocumentTypes.has(type),
+      verified: completion.verifiedDocumentTypes.has(type),
     })),
     requiredFields: REQUIRED_CLIENT_PROFILE_FIELDS,
     creditLimit: effectiveLimit,
-    allDocumentsUploaded: completion.documentsComplete,
+    allDocumentsUploaded: completion.documentsUploaded,
+    allDocumentsVerified: completion.documentsComplete,
     profileFieldsComplete: completion.profileFieldsComplete,
     documentsComplete: completion.documentsComplete,
     profileComplete: completion.profileComplete,
@@ -205,7 +212,7 @@ export async function PUT(req: NextRequest) {
     where: { id: session.sub },
     data: {
       profileCompletedAt,
-      ...(completion.documentsComplete ? { creditLimit: 30000 } : {}),
+      creditLimit: getClientBaseCreditLimit(completion),
     },
     select: customerProfileSelect,
   });

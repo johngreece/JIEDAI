@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   CLIENT_DOCUMENT_TYPE_LABELS,
   REQUIRED_CLIENT_DOCUMENT_TYPES,
+  getClientBaseCreditLimit,
   getClientProfileCompletion,
   resolveProfileCompletedAt,
 } from "@/lib/client-profile";
@@ -33,6 +34,7 @@ const customerSelect = {
       status: true,
       verifiedAt: true,
       expiresAt: true,
+      remark: true,
       createdAt: true,
     },
     orderBy: { createdAt: "desc" as const },
@@ -48,7 +50,7 @@ async function loadCustomer(customerId: string) {
 
 function serializeDocuments(customer: NonNullable<Awaited<ReturnType<typeof loadCustomer>>>) {
   const completion = getClientProfileCompletion(customer);
-  const baseLimit = completion.documentsComplete ? 30000 : 10000;
+  const baseLimit = getClientBaseCreditLimit(completion);
   const effectiveLimit = customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : baseLimit;
 
   return {
@@ -60,10 +62,12 @@ function serializeDocuments(customer: NonNullable<Awaited<ReturnType<typeof load
       status: document.status,
       verifiedAt: document.verifiedAt?.toISOString() ?? null,
       expiresAt: document.expiresAt?.toISOString() ?? null,
+      remark: document.remark,
       createdAt: document.createdAt.toISOString(),
     })),
     creditLimit: effectiveLimit,
-    allDocumentsUploaded: completion.documentsComplete,
+    allDocumentsUploaded: completion.documentsUploaded,
+    allDocumentsVerified: completion.documentsComplete,
     profileComplete: completion.profileComplete,
     profileFieldsComplete: completion.profileFieldsComplete,
     documentsComplete: completion.documentsComplete,
@@ -72,7 +76,8 @@ function serializeDocuments(customer: NonNullable<Awaited<ReturnType<typeof load
     docTypes: REQUIRED_CLIENT_DOCUMENT_TYPES.map((type) => ({
       type,
       label: CLIENT_DOCUMENT_TYPE_LABELS[type],
-      uploaded: completion.validDocumentTypes.has(type),
+      uploaded: completion.uploadedDocumentTypes.has(type),
+      verified: completion.verifiedDocumentTypes.has(type),
     })),
   };
 }
@@ -136,6 +141,8 @@ export async function POST(req: NextRequest) {
       documentUrl: dataUrl,
       status: "UPLOADED",
       verifiedAt: null,
+      expiresAt: null,
+      remark: null,
     },
   });
 
@@ -146,27 +153,25 @@ export async function POST(req: NextRequest) {
 
   const completion = getClientProfileCompletion(customer);
   const profileCompletedAt = resolveProfileCompletedAt(customer, completion.profileComplete);
+  const baseLimit = getClientBaseCreditLimit(completion);
   const effectiveLimit = customer.creditLimitOverride != null
     ? Number(customer.creditLimitOverride)
-    : completion.documentsComplete
-      ? 30000
-      : 10000;
-  if (completion.documentsComplete || customer.profileCompletedAt !== profileCompletedAt) {
-    await prisma.customer.update({
-      where: { id: session.sub },
-      data: {
-        ...(completion.documentsComplete ? { creditLimit: 30000 } : {}),
-        profileCompletedAt,
-      },
-    });
-  }
+    : baseLimit;
+  await prisma.customer.update({
+    where: { id: session.sub },
+    data: {
+      creditLimit: baseLimit,
+      profileCompletedAt,
+    },
+  });
 
   return NextResponse.json({
     id: doc.id,
     kycType: doc.kycType,
     label: CLIENT_DOCUMENT_TYPE_LABELS[kycType] ?? kycType,
     status: doc.status,
-    allDocumentsUploaded: completion.documentsComplete,
+    allDocumentsUploaded: completion.documentsUploaded,
+    allDocumentsVerified: completion.documentsComplete,
     profileComplete: completion.profileComplete,
     profileFieldsComplete: completion.profileFieldsComplete,
     documentsComplete: completion.documentsComplete,

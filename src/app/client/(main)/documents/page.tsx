@@ -7,6 +7,7 @@ interface DocType {
   type: string;
   label: string;
   uploaded: boolean;
+  verified: boolean;
 }
 
 interface Document {
@@ -15,6 +16,7 @@ interface Document {
   label: string;
   documentUrl: string | null;
   status: string;
+  remark: string | null;
   createdAt: string;
 }
 
@@ -22,14 +24,16 @@ interface DocsData {
   documents: Document[];
   creditLimit: number;
   allDocumentsUploaded: boolean;
+  allDocumentsVerified: boolean;
   docTypes: DocType[];
 }
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  UPLOADED: { label: "已上传", color: "text-blue-600 bg-blue-50" },
+  UPLOADED: { label: "待核验", color: "text-blue-600 bg-blue-50" },
   VERIFIED: { label: "已验证", color: "text-emerald-600 bg-emerald-50" },
   REJECTED: { label: "已驳回", color: "text-red-600 bg-red-50" },
-  PENDING: { label: "待上传", color: "text-slate-500 bg-slate-100" },
+  PENDING: { label: "待核验", color: "text-blue-600 bg-blue-50" },
+  MISSING: { label: "待上传", color: "text-slate-500 bg-slate-100" },
 };
 
 export default function DocumentsPage() {
@@ -58,7 +62,7 @@ export default function DocumentsPage() {
     const res = await fetch("/api/client/documents", { method: "POST", body: formData });
     const json = await res.json();
     if (res.ok) {
-      setMsg({ type: "ok", text: `${json.label} 上传成功！` });
+      setMsg({ type: "ok", text: `${json.label}上传成功，等待内部核验` });
       fetchDocs();
     } else {
       setMsg({ type: "err", text: json.error || "上传失败" });
@@ -96,16 +100,19 @@ export default function DocumentsPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-900">我的证件</h1>
-          <p className="mt-1 text-sm text-slate-500">上传您的证件以提升借款额度</p>
+          <p className="mt-1 text-sm text-slate-500">上传证件并等待内部核验，以提升借款额度</p>
         </div>
         <div className="rounded-xl border border-cyan-200 bg-gradient-to-r from-cyan-50 to-blue-50 p-4 text-center shadow-sm">
           <p className="text-xs text-slate-500">当前可用额度</p>
           <p className="text-2xl font-bold text-cyan-700">€{data.creditLimit.toLocaleString()}</p>
           {!data.allDocumentsUploaded && (
-            <p className="mt-1 text-xs text-amber-600">上传全部证件可提升至 €30,000</p>
+            <p className="mt-1 text-xs text-amber-600">请先上传全部三种证件</p>
           )}
-          {data.allDocumentsUploaded && (
-            <p className="mt-1 text-xs text-emerald-600">✓ 所有证件已上传，已获得最高额度</p>
+          {data.allDocumentsUploaded && !data.allDocumentsVerified && (
+            <p className="mt-1 text-xs text-blue-600">证件已上传，等待内部核验</p>
+          )}
+          {data.allDocumentsVerified && (
+            <p className="mt-1 text-xs text-emerald-600">所有证件已核验，基础额度 €30,000</p>
           )}
         </div>
       </div>
@@ -130,13 +137,17 @@ export default function DocumentsPage() {
         {data.docTypes.map((dt) => {
           const doc = getExistingDoc(dt.type);
           const isUploading = uploading === dt.type;
-          const st = STATUS_MAP[doc?.status || "PENDING"];
+          const st = STATUS_MAP[doc?.status || "MISSING"] ?? STATUS_MAP.PENDING;
 
           return (
             <div
               key={dt.type}
               className={`rounded-xl border p-5 transition-all ${
-                doc ? "border-emerald-200 bg-white" : "border-dashed border-slate-300 bg-slate-50"
+                dt.verified
+                  ? "border-emerald-200 bg-white"
+                  : doc
+                    ? "border-blue-200 bg-white"
+                    : "border-dashed border-slate-300 bg-slate-50"
               }`}
             >
               {/* Icon */}
@@ -186,6 +197,11 @@ export default function DocumentsPage() {
                   上传于 {new Date(doc.createdAt).toLocaleString("zh-CN")}
                 </p>
               )}
+              {doc?.status === "REJECTED" && doc.remark && (
+                <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                  驳回原因：{doc.remark}
+                </p>
+              )}
 
               {/* Upload / Scan buttons */}
               <div className="flex gap-2">
@@ -224,7 +240,8 @@ export default function DocumentsPage() {
           <li>• 支持 JPG、PNG、WebP、PDF 格式，单个文件不超过 5MB</li>
           <li>• 可点击 📷 图标使用摄像头扫描证件</li>
           <li>• 请确保证件照片清晰完整，信息可辨认</li>
-          <li>• 上传全部三种证件后，额度将自动提升至 €30,000</li>
+          <li>• 上传后证件进入待核验状态，重新上传会重新进入核验流程</li>
+          <li>• 全部三种证件经内部核验通过后，基础额度提升至 €30,000</li>
           <li>• 管理人员可能会根据实际情况调整您的额度</li>
         </ul>
       </div>
