@@ -45,7 +45,11 @@ export async function GET(
 
   if (session.portal === "admin") {
     const requiredPermission =
-      attachment.entityType === "funder_withdrawal" ? "withdrawal:view" : "ledger:view";
+      attachment.entityType === "funder_withdrawal"
+        ? "withdrawal:view"
+        : attachment.entityType === "capital_inflow"
+          ? "inflow:view"
+          : "ledger:view";
     const permission = await requirePermission([requiredPermission]);
     if (permission instanceof Response) return permission;
   }

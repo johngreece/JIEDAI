@@ -25,6 +25,9 @@ type CapitalInflow = {
   id: string;
   amount: number;
   channel: string;
+  transactionId: string;
+  senderBank: string;
+  senderAccount: string;
   inflowDate: string;
   status: string;
   remark: string | null;
@@ -334,11 +337,16 @@ function AccountManager({
     accountId: "",
     amount: "",
     channel: "BANK_TRANSFER",
+    transactionId: "",
+    senderBank: "",
+    senderAccount: "",
     remark: "",
   });
+  const [inflowProof, setInflowProof] = useState<File | null>(null);
   const [injectingCapital, setInjectingCapital] = useState(false);
   const injectCapitalKeyRef = useRef<string | null>(null);
   const injectCapitalInFlightRef = useRef(false);
+  const inflowActionKeysRef = useRef(new Map<string, string>());
   const [deletingInflowId, setDeletingInflowId] = useState<string | null>(null);
   const [reviewingInflowId, setReviewingInflowId] = useState<string | null>(null);
 
@@ -405,17 +413,22 @@ function AccountManager({
     setInjectingCapital(true);
     setError("");
     try {
+      if (!inflowProof) throw new Error("请上传银行入金凭证");
+      const body = new FormData();
+      body.append("amount", inflowForm.amount);
+      body.append("channel", inflowForm.channel);
+      body.append("transactionId", inflowForm.transactionId.trim());
+      body.append("senderBank", inflowForm.senderBank.trim());
+      body.append("senderAccount", inflowForm.senderAccount.trim());
+      body.append("proof", inflowProof);
+      if (inflowForm.remark.trim()) body.append("remark", inflowForm.remark.trim());
+
       const res = await fetch(`/api/fund-accounts/${inflowForm.accountId}/inflows`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           "x-idempotency-key": idempotencyKey,
         },
-        body: JSON.stringify({
-          amount: Number(inflowForm.amount),
-          channel: inflowForm.channel,
-          remark: inflowForm.remark || undefined,
-        }),
+        body,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -423,7 +436,15 @@ function AccountManager({
         throw new Error(data.error ?? "资金注入失败");
       }
       injectCapitalKeyRef.current = null;
-      setInflowForm((current) => ({ ...current, amount: "", remark: "" }));
+      setInflowForm((current) => ({
+        ...current,
+        amount: "",
+        transactionId: "",
+        senderBank: "",
+        senderAccount: "",
+        remark: "",
+      }));
+      setInflowProof(null);
       await loadAccounts();
       await onChanged();
     } catch (err) {
@@ -439,7 +460,13 @@ function AccountManager({
     setDeletingInflowId(inflow.id);
     setError("");
     try {
-      const res = await fetch(`/api/fund-accounts/${account.id}/inflows/${inflow.id}`, { method: "DELETE" });
+      const scope = `${inflow.id}:cancel`;
+      const key = inflowActionKeysRef.current.get(scope) ?? makeClientIdempotencyKey("capital-inflow-cancel");
+      inflowActionKeysRef.current.set(scope, key);
+      const res = await fetch(`/api/fund-accounts/${account.id}/inflows/${inflow.id}`, {
+        method: "DELETE",
+        headers: { "x-idempotency-key": key },
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "作废入金记录失败");
       await loadAccounts();
@@ -463,9 +490,12 @@ function AccountManager({
     setReviewingInflowId(inflow.id);
     setError("");
     try {
+      const scope = `${inflow.id}:${action}`;
+      const key = inflowActionKeysRef.current.get(scope) ?? makeClientIdempotencyKey(`capital-inflow-${action}`);
+      inflowActionKeysRef.current.set(scope, key);
       const res = await fetch(`/api/fund-accounts/${account.id}/inflows/${inflow.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-idempotency-key": key },
         body: JSON.stringify({
           action,
           ...(action === "reject" ? { reason: reason?.trim() || "后台驳回入金申请" } : {}),
@@ -540,11 +570,27 @@ function AccountManager({
                 clearInjectCapitalKey();
                 setInflowForm({ ...inflowForm, channel: e.target.value });
               }} />
+              <input className="admin-field text-sm" placeholder="银行流水号" value={inflowForm.transactionId} onChange={(e) => {
+                clearInjectCapitalKey();
+                setInflowForm({ ...inflowForm, transactionId: e.target.value });
+              }} />
+              <input className="admin-field text-sm" placeholder="付款银行" value={inflowForm.senderBank} onChange={(e) => {
+                clearInjectCapitalKey();
+                setInflowForm({ ...inflowForm, senderBank: e.target.value });
+              }} />
+              <input className="admin-field text-sm" placeholder="付款账户 / IBAN" value={inflowForm.senderAccount} onChange={(e) => {
+                clearInjectCapitalKey();
+                setInflowForm({ ...inflowForm, senderAccount: e.target.value });
+              }} />
+              <input className="admin-field text-sm" type="file" accept="image/*,.pdf" onChange={(e) => {
+                clearInjectCapitalKey();
+                setInflowProof(e.target.files?.[0] ?? null);
+              }} />
               <input className="admin-field text-sm" placeholder="备注（可选）" value={inflowForm.remark} onChange={(e) => {
                 clearInjectCapitalKey();
                 setInflowForm({ ...inflowForm, remark: e.target.value });
               }} />
-              <button onClick={() => void injectCapital()} disabled={!inflowForm.accountId || !inflowForm.amount || injectingCapital} className="admin-btn admin-btn-success disabled:opacity-50">
+              <button onClick={() => void injectCapital()} disabled={!inflowForm.accountId || !inflowForm.amount || !inflowForm.transactionId || !inflowForm.senderBank || !inflowForm.senderAccount || !inflowProof || injectingCapital} className="admin-btn admin-btn-success disabled:opacity-50">
                 {injectingCapital ? "录入中..." : "录入注资"}
               </button>
             </div>

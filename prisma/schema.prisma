@@ -41,6 +41,7 @@ model User {
   repayments                Repayment[]          @relation("RepaymentOperator")
   ledgerEntries             LedgerEntry[]        @relation("LedgerOperator")
   fundAccountJournalEntries FundAccountJournal[] @relation("FundAccountJournalOperator")
+  reviewedCapitalInflows    CapitalInflow[]      @relation("CapitalInflowReviewer")
   pricingRules              PricingRule[]        @relation("PricingRuleCreator")
   notifications             Notification[]       @relation("NotificationTarget")
 
@@ -226,21 +227,30 @@ model FundAccount {
 }
 
 model CapitalInflow {
-  id            String   @id @default(uuid())
-  fundAccountId String   @map("fund_account_id")
-  amount        Decimal  @db.Decimal(18, 4)
-  channel       String   @default("BANK_TRANSFER")
-  inflowDate    DateTime @map("inflow_date")
-  status        String   @default("PENDING")
-  remark        String?
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  fundAccountId   String    @map("fund_account_id")
+  amount          Decimal   @db.Decimal(18, 4)
+  channel         String    @default("BANK_TRANSFER")
+  transactionId   String    @map("transaction_id")
+  senderBank      String    @map("sender_bank")
+  senderAccount   String    @map("sender_account")
+  inflowDate      DateTime  @map("inflow_date")
+  status          String    @default("PENDING")
+  remark          String?
+  reviewedAt      DateTime? @map("reviewed_at")
+  reviewedById    String?   @map("reviewed_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   fundAccount FundAccount @relation(fields: [fundAccountId], references: [id])
+  reviewedBy  User?       @relation("CapitalInflowReviewer", fields: [reviewedById], references: [id])
 
   @@index([fundAccountId])
+  @@index([transactionId])
+  @@index([reviewedById])
   @@index([inflowDate])
   @@index([status])
+  @@unique([fundAccountId, transactionId])
   @@map("capital_inflows")
 }
 

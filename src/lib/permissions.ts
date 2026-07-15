@@ -3,6 +3,10 @@
  */
 
 export const PERMISSION_DEFINITIONS = [
+  { code: "inflow:view", module: "inflow", name: "View capital inflows" },
+  { code: "inflow:create", module: "inflow", name: "Record capital inflows" },
+  { code: "inflow:review", module: "inflow", name: "Review capital inflows" },
+  { code: "inflow:cancel", module: "inflow", name: "Cancel capital inflows" },
   // ── 客户管理 ──
   { code: "customer:view", module: "customer", name: "查看客户" },
   { code: "customer:create", module: "customer", name: "创建客户" },

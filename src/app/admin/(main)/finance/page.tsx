@@ -3,7 +3,7 @@ import Link from "next/link";
 const ACTIONS = [
   {
     title: "资金入金",
-    href: "/admin/funders",
+    href: "/admin/capital-inflows",
     description: "选择资金方账户，录入金额、渠道和备注，系统自动入池并登记资金流水。",
     note: "适合处理新增注资、补充放款额度。",
   },

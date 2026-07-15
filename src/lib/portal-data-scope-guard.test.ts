@@ -97,9 +97,10 @@ describe("portal object data scope guard", () => {
     expect(customerDocument).toContain("customerId: session.sub");
     expect(customerDocument).toContain("ensureActiveClientSession(session)");
 
-    expect(attachment).toContain(
-      'attachment.entityType === "funder_withdrawal" ? "withdrawal:view" : "ledger:view"',
-    );
+    expect(attachment).toContain('attachment.entityType === "funder_withdrawal"');
+    expect(attachment).toContain('? "withdrawal:view"');
+    expect(attachment).toContain('attachment.entityType === "capital_inflow"');
+    expect(attachment).toContain('? "inflow:view"');
     expect(attachment).toContain("requirePermission([requiredPermission])");
     expect(attachment).toContain("ensureActiveFunderSession(session)");
     expect(attachment).toContain("fundAccount: { funderId: session.sub }");

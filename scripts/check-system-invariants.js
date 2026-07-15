@@ -74,6 +74,8 @@ const restructureApproveSource = read("src/app/api/restructures/[id]/approve/rou
 const disbursementConfirmSource = read("src/app/api/disbursements/[id]/confirm-paid/route.ts");
 const withdrawalRouteSource = read("src/app/api/funder-withdrawals/route.ts");
 const withdrawalServiceSource = read("src/services/funder-interest.service.ts");
+const inflowCreateSource = read("src/app/api/fund-accounts/[id]/inflows/route.ts");
+const inflowReviewSource = read("src/app/api/fund-accounts/[id]/inflows/[inflowId]/route.ts");
 for (const field of ["remainingPrincipal", "remainingInterest", "remainingFee"]) {
   check(
     prismaSchema.includes(field),
@@ -130,6 +132,29 @@ check(
     ensureInfraSource.includes('finance:withdrawal:view') &&
     ensureInfraSource.includes('finance:withdrawal:review'),
   "finance role seed and infrastructure sync must include dedicated withdrawal permissions"
+);
+check(
+  prismaSchema.includes("@@unique([fundAccountId, transactionId])") &&
+    prismaSchema.includes('reviewedBy  User?       @relation("CapitalInflowReviewer"'),
+  "capital inflows must enforce account-scoped transaction IDs and reviewer ownership"
+);
+check(
+  inflowCreateSource.includes("validateCapitalInflowEvidence") &&
+    inflowCreateSource.includes('entityType: "capital_inflow"') &&
+    inflowCreateSource.includes("reviewedById: session.sub") &&
+    inflowReviewSource.includes("Capital inflow bank evidence is missing") &&
+    inflowReviewSource.includes('requirePermission(["inflow:review"])') &&
+    inflowReviewSource.includes("withIdempotencyResponse"),
+  "capital inflow create and review must require protected bank evidence, reviewer trail, dedicated permission and idempotency"
+);
+check(
+  seedSource.includes('"inflow:view"') &&
+    seedSource.includes('"inflow:create"') &&
+    seedSource.includes('"inflow:review"') &&
+    ensureInfraSource.includes("finance:inflow:view") &&
+    ensureInfraSource.includes("finance:inflow:create") &&
+    ensureInfraSource.includes("finance:inflow:review"),
+  "finance role seed and infrastructure sync must include dedicated capital inflow permissions"
 );
 
 const mutatingRegressionScripts = [
@@ -262,4 +287,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, disbursement and withdrawal bank evidence required, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
+console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, disbursement, withdrawal and capital inflow bank evidence required, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);

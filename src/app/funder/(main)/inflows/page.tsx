@@ -17,6 +17,9 @@ type CapitalInflow = {
   id: string;
   amount: number;
   channel: string;
+  transactionId: string;
+  senderBank: string;
+  senderAccount: string;
   inflowDate: string;
   status: string;
   remark: string | null;
@@ -73,6 +76,9 @@ export default function FunderInflowsPage() {
     fundAccountId: "",
     amount: "",
     channel: "BANK_TRANSFER",
+    transactionId: "",
+    senderBank: "",
+    senderAccount: "",
     inflowDate: new Date().toISOString().slice(0, 10),
     remark: "",
   });
@@ -133,10 +139,18 @@ export default function FunderInflowsPage() {
       return;
     }
 
+    if (!form.transactionId.trim() || !form.senderBank.trim() || !form.senderAccount.trim()) {
+      setError("请完整填写银行流水号、付款银行和付款账户/IBAN");
+      return;
+    }
+
     const formData = new FormData();
     formData.append("fundAccountId", form.fundAccountId);
     formData.append("amount", String(amount));
     formData.append("channel", form.channel);
+    formData.append("transactionId", form.transactionId.trim());
+    formData.append("senderBank", form.senderBank.trim());
+    formData.append("senderAccount", form.senderAccount.trim());
     formData.append("inflowDate", new Date(form.inflowDate).toISOString());
     formData.append("remark", form.remark);
     formData.append("proof", proof);
@@ -166,6 +180,9 @@ export default function FunderInflowsPage() {
       setForm((current) => ({
         ...current,
         amount: "",
+        transactionId: "",
+        senderBank: "",
+        senderAccount: "",
         remark: "",
       }));
       setProof(null);
@@ -268,6 +285,51 @@ export default function FunderInflowsPage() {
             </label>
 
             <label className="text-sm text-slate-600">
+              银行流水号
+              <input
+                type="text"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={form.transactionId}
+                maxLength={120}
+                onChange={(event) => {
+                  clearSubmitKey();
+                  setForm({ ...form, transactionId: event.target.value });
+                }}
+                required
+              />
+            </label>
+
+            <label className="text-sm text-slate-600">
+              付款银行
+              <input
+                type="text"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={form.senderBank}
+                maxLength={120}
+                onChange={(event) => {
+                  clearSubmitKey();
+                  setForm({ ...form, senderBank: event.target.value });
+                }}
+                required
+              />
+            </label>
+
+            <label className="text-sm text-slate-600">
+              付款账户 / IBAN
+              <input
+                type="text"
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={form.senderAccount}
+                maxLength={120}
+                onChange={(event) => {
+                  clearSubmitKey();
+                  setForm({ ...form, senderAccount: event.target.value });
+                }}
+                required
+              />
+            </label>
+
+            <label className="text-sm text-slate-600">
               备注
               <input
                 type="text"
@@ -328,6 +390,8 @@ export default function FunderInflowsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-500">
+                        <div className="mb-1 font-mono text-xs text-slate-700">{item.transactionId}</div>
+                        <div className="mb-1 text-xs">{item.senderBank} · {item.senderAccount}</div>
                         {item.proofs.length > 0
                           ? item.proofs.map((proofItem, index) => (
                               <span key={proofItem.id}>

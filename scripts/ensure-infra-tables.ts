@@ -71,6 +71,9 @@ async function main() {
   }
 
   const withdrawalPermissions = [
+    { code: "inflow:view", module: "inflow", name: "View capital inflows" },
+    { code: "inflow:create", module: "inflow", name: "Record capital inflows" },
+    { code: "inflow:review", module: "inflow", name: "Review capital inflows" },
     { code: "withdrawal:view", module: "withdrawal", name: "查看提现" },
     { code: "withdrawal:review", module: "withdrawal", name: "确认提现出账" },
   ];
@@ -100,7 +103,13 @@ async function main() {
     ok: true,
     tables: ["rate_limit_buckets", "idempotency_keys"],
     indexes: ["repayment_plans_one_active_per_application"],
-    rolePermissions: ["finance:withdrawal:view", "finance:withdrawal:review"],
+    rolePermissions: [
+      "finance:withdrawal:view",
+      "finance:withdrawal:review",
+      "finance:inflow:view",
+      "finance:inflow:create",
+      "finance:inflow:review",
+    ],
   }, null, 2));
 }
 

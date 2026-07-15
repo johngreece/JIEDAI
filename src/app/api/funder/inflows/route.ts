@@ -11,6 +11,7 @@ import {
 import { deletePrivateFile, privateStorageErrorResponse } from "@/lib/private-file-storage";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
+import { isCapitalInflowTransactionConstraintError } from "@/lib/capital-inflow-evidence";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,14 @@ const inflowSchema = z.object({
   fundAccountId: z.string().min(1),
   amount: z.coerce.number().positive(),
   channel: z.string().trim().min(1).default("BANK_TRANSFER"),
+  transactionId: z
+    .string()
+    .trim()
+    .min(3)
+    .max(120)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/),
+  senderBank: z.string().trim().min(2).max(120),
+  senderAccount: z.string().trim().min(3).max(120),
   inflowDate: z.string().datetime().optional(),
   remark: z.string().trim().max(500).optional(),
   proofUrl: z
@@ -45,6 +54,9 @@ async function parseInflowRequest(req: NextRequest): Promise<{
       fundAccountId: formData.get("fundAccountId"),
       amount: formData.get("amount"),
       channel: formData.get("channel") ?? "BANK_TRANSFER",
+      transactionId: formData.get("transactionId"),
+      senderBank: formData.get("senderBank"),
+      senderAccount: formData.get("senderAccount"),
       inflowDate: formData.get("inflowDate") || undefined,
       remark: formData.get("remark") || undefined,
       proofUrl: formData.get("proofUrl") || undefined,
@@ -146,6 +158,9 @@ export async function GET(req: NextRequest) {
       id: item.id,
       amount: Number(item.amount),
       channel: item.channel,
+      transactionId: item.transactionId,
+      senderBank: item.senderBank,
+      senderAccount: item.senderAccount,
       inflowDate: item.inflowDate,
       status: item.status,
       remark: item.remark,
@@ -228,6 +243,9 @@ export async function POST(req: NextRequest) {
           fundAccountId: accountId,
           amount: input.amount,
           channel: input.channel,
+          transactionId: input.transactionId,
+          senderBank: input.senderBank,
+          senderAccount: input.senderAccount,
           inflowDate,
           status: "PENDING",
           remark: input.remark ?? "资金方自助提交入金申请，待后台确认到账",
@@ -253,6 +271,12 @@ export async function POST(req: NextRequest) {
     result = await createInflow();
   } catch (error) {
     if (proofFile) await deletePrivateFile(fileUrl).catch(() => undefined);
+    if (isCapitalInflowTransactionConstraintError(error)) {
+      return NextResponse.json(
+        { error: "This bank transaction ID is already used for the selected fund account" },
+        { status: 409 },
+      );
+    }
     throw error;
   }
 
@@ -267,6 +291,7 @@ export async function POST(req: NextRequest) {
     id: result.inflow.id,
     amount: Number(result.inflow.amount),
     status: result.inflow.status,
+    transactionId: result.inflow.transactionId,
     proof: serializeProofAttachment(result.proof),
   };
   return NextResponse.json(responseBody, { status: 201 });

@@ -48,6 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/ledger", label: "资金台账", short: "账" },
       { href: "/admin/finance-reconciliation", label: "资金对账", short: "核" },
+      { href: "/admin/capital-inflows", label: "资金流入审核", short: "入" },
       { href: "/admin/funders", label: "资金方", short: "资" },
       { href: "/admin/funder-interest-settlements", label: "收益结算", short: "息" },
       { href: "/admin/funder-withdrawals", label: "资金方提现", short: "提" },

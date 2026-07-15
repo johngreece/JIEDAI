@@ -14,9 +14,8 @@ describe("funder withdrawal payment evidence guard", () => {
 
     expect(route).toContain('requirePermission(["withdrawal:view"])');
     expect(route).toContain('requirePermission(["withdrawal:review"])');
-    expect(attachmentRoute).toContain(
-      'attachment.entityType === "funder_withdrawal" ? "withdrawal:view" : "ledger:view"',
-    );
+    expect(attachmentRoute).toContain('attachment.entityType === "funder_withdrawal"');
+    expect(attachmentRoute).toContain('? "withdrawal:view"');
     expect(route).not.toContain('requirePermission(["settings:edit"])');
     expect(seed).toContain('"withdrawal:view"');
     expect(seed).toContain('"withdrawal:review"');

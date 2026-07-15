@@ -100,6 +100,7 @@ async function inspectCurrentState() {
     disbursements,
     repayments,
     capitalInflows,
+    inflowProofs,
     funderWithdrawals,
     withdrawalProofs,
     interestSettlements,
@@ -172,8 +173,22 @@ async function inspectCurrentState() {
       orderBy: { createdAt: "asc" },
     }),
     prisma.capitalInflow.findMany({
-      select: { id: true, fundAccountId: true, amount: true, status: true },
+      select: {
+        id: true,
+        fundAccountId: true,
+        amount: true,
+        status: true,
+        transactionId: true,
+        senderBank: true,
+        senderAccount: true,
+        reviewedAt: true,
+        reviewedById: true,
+      },
       orderBy: { createdAt: "asc" },
+    }),
+    prisma.attachment.findMany({
+      where: { entityType: "capital_inflow", deletedAt: null },
+      select: { entityId: true },
     }),
     prisma.funderWithdrawal.findMany({
       select: {
@@ -214,6 +229,7 @@ async function inspectCurrentState() {
     disbursements.map((item) => [item.applicationId, item]),
   );
   const withdrawalIdsWithProof = new Set(withdrawalProofs.map((proof) => proof.entityId));
+  const inflowIdsWithProof = new Set(inflowProofs.map((proof) => proof.entityId));
 
   const expectedBalance = new Map<string, Decimal>();
   const expectedInflow = new Map<string, Decimal>();
@@ -433,6 +449,50 @@ async function inspectCurrentState() {
     const reversal = journalByReference.get(`capital_inflow_reversal:${inflow.id}`);
 
     if (inflow.status === "CONFIRMED") {
+      if (
+        !inflow.transactionId ||
+        !inflow.senderBank ||
+        !inflow.senderAccount ||
+        !inflow.reviewedAt ||
+        !inflow.reviewedById
+      ) {
+        findings.push(
+          createFinding({
+            code: "CAPITAL_INFLOW_BANK_EVIDENCE_MISSING",
+            severity: "ERROR",
+            entityType: "capital_inflow",
+            entityId: inflow.id,
+            expectedValue: "transaction id, sender account snapshot, and finance reviewer",
+            actualValue: JSON.stringify({
+              transactionId: inflow.transactionId,
+              senderBank: inflow.senderBank,
+              senderAccount: inflow.senderAccount,
+              reviewedAt: inflow.reviewedAt,
+              reviewedById: inflow.reviewedById,
+            }),
+            description: "Confirmed capital inflow has incomplete bank evidence or review trail",
+            owner: "FINANCE",
+            recommendedAction: "Reconcile the incoming transfer and reviewer audit trail before using the funds.",
+          }),
+        );
+      }
+
+      if (!inflowIdsWithProof.has(inflow.id)) {
+        findings.push(
+          createFinding({
+            code: "CAPITAL_INFLOW_PAYMENT_PROOF_MISSING",
+            severity: "ERROR",
+            entityType: "capital_inflow",
+            entityId: inflow.id,
+            expectedValue: "protected bank proof attachment",
+            actualValue: "MISSING",
+            description: "Confirmed capital inflow has no protected bank proof",
+            owner: "FINANCE",
+            recommendedAction: "Attach the bank receipt before treating the inflow as reconciled.",
+          }),
+        );
+      }
+
       findings.push(
         ...expectEntry({
           code: "CAPITAL_INFLOW_JOURNAL",
