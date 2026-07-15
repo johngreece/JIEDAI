@@ -1,18 +1,53 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { formatMoney as formatSystemMoney } from "@/lib/system-config";
 
 type JsonRecord = Record<string, any>;
+
+type FunderSettlementSummary = {
+  total: number;
+  due: number;
+  posted: number;
+  confirmed: number;
+  disputed: number;
+  cancelled: number;
+  amount: number;
+  confirmedAmount: number;
+};
 
 const API = "/api/settlement";
 
 function formatMoney(value: unknown) {
-  const num = Number(value || 0);
-  return `EUR ${num >= 10000 ? num.toLocaleString() : num.toFixed(2)}`;
+  return formatSystemMoney(String(value ?? 0));
 }
 
 function sumBy(rows: any[], key: string) {
   return rows.reduce((sum, item) => sum + Number(item[key] || 0), 0);
+}
+
+function toDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function describeSettlementSummary(summary: FunderSettlementSummary | null | undefined) {
+  if (!summary) {
+    return { label: "未生成结算单", tone: "bg-slate-100 text-slate-600" };
+  }
+  if (summary.disputed > 0) {
+    return { label: `${summary.disputed} 笔有异议`, tone: "bg-red-50 text-red-700" };
+  }
+  const pending = summary.due + summary.posted;
+  if (pending > 0) {
+    return { label: `${pending} 笔待处理`, tone: "bg-amber-50 text-amber-700" };
+  }
+  if (summary.confirmed > 0 && summary.confirmed + summary.cancelled === summary.total) {
+    return { label: `${summary.confirmed} 笔已确认入账`, tone: "bg-emerald-50 text-emerald-700" };
+  }
+  return { label: "结算单已取消", tone: "bg-slate-100 text-slate-600" };
 }
 
 export function SettlementPageClient() {
@@ -22,8 +57,8 @@ export function SettlementPageClient() {
   const [error, setError] = useState("");
 
   const now = new Date();
-  const [startStr, setStartStr] = useState(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10));
-  const [endStr, setEndStr] = useState(new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10));
+  const [startStr, setStartStr] = useState(toDateInputValue(new Date(now.getFullYear(), now.getMonth(), 1)));
+  const [endStr, setEndStr] = useState(toDateInputValue(new Date(now.getFullYear(), now.getMonth() + 1, 1)));
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -52,20 +87,20 @@ export function SettlementPageClient() {
 
     if (days === "all") {
       setStartStr("2020-01-01");
-      setEndStr(new Date(today.getFullYear() + 1, 0, 1).toISOString().slice(0, 10));
+      setEndStr(toDateInputValue(new Date(today.getFullYear() + 1, 0, 1)));
       return;
     }
 
     if (days === "month") {
-      setStartStr(new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10));
-      setEndStr(new Date(today.getFullYear(), today.getMonth() + 1, 1).toISOString().slice(0, 10));
+      setStartStr(toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)));
+      setEndStr(toDateInputValue(new Date(today.getFullYear(), today.getMonth() + 1, 1)));
       return;
     }
 
     const start = new Date(today);
     start.setDate(start.getDate() - days);
-    setStartStr(start.toISOString().slice(0, 10));
-    setEndStr(today.toISOString().slice(0, 10));
+    setStartStr(toDateInputValue(start));
+    setEndStr(toDateInputValue(today));
   }
 
   const tabs = [
@@ -339,28 +374,39 @@ function FunderView({ data }: { data: any[] }) {
 
   return (
     <div className="space-y-4">
-      {data.map((item) => (
-        <div key={item.funderId} className="admin-section-card">
-          <div className="admin-section-card__header">
-            <div>
-              <div className="admin-section-card__title">{item.funderName}</div>
-              <p className="admin-section-card__description">联系人: {item.contactPerson || "-"}</p>
+      {data.map((item) => {
+        const settlementState = describeSettlementSummary(item.settlementSummary);
+
+        return (
+          <div key={item.funderId} className="admin-section-card">
+            <div className="admin-section-card__header">
+              <div>
+                <div className="admin-section-card__title">{item.funderName}</div>
+                <p className="admin-section-card__description">联系人: {item.contactPerson || "-"}</p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${settlementState.tone}`}>
+                {settlementState.label}
+              </span>
             </div>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-              {item.existingSettlement?.status === "SETTLED" ? "已结算" : item.existingSettlement ? "待结算" : "未生成"}
-            </span>
-          </div>
-          <div className="admin-section-card__body space-y-4">
-            <div className="grid gap-3 text-sm sm:grid-cols-4">
-              <MiniMetric label="账户余额" value={formatMoney(item.totalBalance)} />
-              <MiniMetric label="累计入金" value={formatMoney(item.totalInflow)} />
-              <MiniMetric label="分润比例" value={item.shareRatio} accent />
-              <MiniMetric label="应分利润" value={formatMoney(item.shareAmount)} accent />
+            <div className="admin-section-card__body space-y-4">
+              <div className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-6">
+                <MiniMetric label="账户余额" value={formatMoney(item.totalBalance)} />
+                <MiniMetric label="累计入金" value={formatMoney(item.totalInflow)} />
+                <MiniMetric label="分润比例" value={item.shareRatio} accent />
+                <MiniMetric label="期间测算收益" value={formatMoney(item.shareAmount)} accent />
+                <MiniMetric label="已生成结算" value={formatMoney(item.settlementSummary?.amount)} />
+                <MiniMetric label="已确认入账" value={formatMoney(item.settlementSummary?.confirmedAmount)} accent />
+              </div>
+              <div className="text-xs text-slate-500">
+                期间计费基础 {formatMoney(item.periodTotalInterest)}；结算单状态来自收益结算主链，银行出金仅通过提现流程完成。
+                {item.settlementSummary ? (
+                  <> 本期共 {item.settlementSummary.total} 笔：待发布 {item.settlementSummary.due}、待确认 {item.settlementSummary.posted}、已确认 {item.settlementSummary.confirmed}、异议 {item.settlementSummary.disputed}。</>
+                ) : null}
+              </div>
             </div>
-            <div className="text-xs text-slate-500">期间可分收入 {formatMoney(item.periodTotalInterest)}</div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

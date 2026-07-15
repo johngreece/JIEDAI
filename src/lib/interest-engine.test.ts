@@ -91,4 +91,26 @@ describe("interest engine business windows", () => {
     expect(config.tiers.at(0)?.maxHours).toBe(168);
     expect(config.tiers.at(0)?.ratePercent).toBe(5);
   });
+
+  it("does not charge normal interest twice when it is already capitalized in contract principal", () => {
+    const startTime = new Date(2026, 4, 1, 21, 0, 0);
+    const result = calculateRealtimeRepayment({
+      principal: 12_000,
+      channel: "FULL_AMOUNT",
+      upfrontFeeRate: 0,
+      tiers: DEFAULT_TIERS,
+      overdueConfig: DEFAULT_OVERDUE,
+      startTime,
+      dueDate: new Date(startTime.getTime() + 7 * DAY_MS),
+      currentTime: new Date(startTime.getTime() + 6 * DAY_MS),
+      normalInterestCapitalized: true,
+      fixedFeeAmount: 500,
+      netDisbursementAmount: 10_000,
+    });
+
+    expect(result.principal).toBe(12_000);
+    expect(result.netDisbursement).toBe(10_000);
+    expect(result.feeAmount).toBe(500);
+    expect(result.totalRepayment).toBe(12_500);
+  });
 });

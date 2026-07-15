@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { TERMINAL_LOAN_STATUSES } from "@/lib/business-status";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
@@ -18,11 +18,26 @@ import {
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 import { isFullPayoffAmount } from "@/lib/repayment-runtime";
+import { formatMoney as money } from "@/lib/system-config";
+import {
+  isRepaymentTransactionConstraintError,
+  parseRepaymentPaymentRequest,
+  validateRepaymentPaymentEvidence,
+} from "@/lib/repayment-payment-evidence";
+import {
+  createProofAttachment,
+  serializeProofAttachment,
+  storeProofFile,
+} from "@/lib/proof-attachment";
+import {
+  deletePrivateFile,
+  privateStorageErrorResponse,
+} from "@/lib/private-file-storage";
 
 export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
-  amount: z.number().positive(),
+  amount: z.coerce.number().positive(),
   paymentMethod: z.enum(["BANK_TRANSFER", "CASH", "ONLINE"]).default("BANK_TRANSFER"),
   remark: z.string().trim().max(500).optional(),
 });
@@ -31,30 +46,36 @@ function genRepaymentNo() {
   return `RPY${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 }
 
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 export async function POST(req: NextRequest) {
   const session = await requireActiveClientSession();
   if (session instanceof Response) return session;
 
   const idemKey = getScopedIdempotencyKey(req, ["client", session.sub, "repayment-request"]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
-  const body = await req.json().catch(() => ({}));
-  const parsed = createSchema.safeParse(body);
+  const requestData = await parseRepaymentPaymentRequest(req).catch(() => null);
+  if (!requestData) {
+    return NextResponse.json({ error: "Invalid repayment request" }, { status: 400 });
+  }
+
+  const parsed = createSchema.safeParse(requestData.values);
   if (!parsed.success) {
     return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const evidence = validateRepaymentPaymentEvidence(
+    requestData.values,
+    requestData.proofFile,
+  );
+  if (!evidence.success) {
+    return NextResponse.json(
+      { error: evidence.error, details: evidence.details },
+      { status: 400 },
+    );
+  }
+
   const input = parsed.data;
+  const { input: paymentEvidence, proofFile } = evidence.data;
   const freezeAt = new Date();
 
   const [customer, activeApplication, operator] = await Promise.all([
@@ -79,6 +100,7 @@ export async function POST(req: NextRequest) {
           select: {
             status: true,
             disbursedAt: true,
+            netAmount: true,
           },
         },
         product: {
@@ -123,6 +145,8 @@ export async function POST(req: NextRequest) {
     },
     select: {
       id: true,
+      version: true,
+      totalPrincipal: true,
       rulesSnapshotJson: true,
       scheduleItems: {
         where: {
@@ -148,6 +172,9 @@ export async function POST(req: NextRequest) {
     let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
     let channel: ChannelType = "FULL_AMOUNT";
     let dueDate: Date | null = null;
+    let normalInterestCapitalized = false;
+    let fixedFeeAmount = 0;
+    let netDisbursementAmount: number | undefined;
 
     if (plan.rulesSnapshotJson) {
       try {
@@ -157,12 +184,22 @@ export async function POST(req: NextRequest) {
           upfrontFeeRate?: number;
           channel?: ChannelType;
           dueDate?: string;
+          normalInterestCapitalized?: boolean;
+          fixedFeeAmount?: number;
+          netDisbursementAmount?: number;
         };
         if (snapshot.tiers) tiers = snapshot.tiers;
         if (snapshot.overdueConfig) overdueConfig = snapshot.overdueConfig;
         if (snapshot.upfrontFeeRate != null) upfrontFeeRate = snapshot.upfrontFeeRate;
         if (snapshot.channel) channel = snapshot.channel;
         if (snapshot.dueDate) dueDate = new Date(snapshot.dueDate);
+        if (snapshot.normalInterestCapitalized != null) {
+          normalInterestCapitalized = snapshot.normalInterestCapitalized;
+        }
+        if (snapshot.fixedFeeAmount != null) fixedFeeAmount = snapshot.fixedFeeAmount;
+        if (snapshot.netDisbursementAmount != null) {
+          netDisbursementAmount = snapshot.netDisbursementAmount;
+        }
       } catch {
         // ignore invalid snapshot
       }
@@ -200,7 +237,7 @@ export async function POST(req: NextRequest) {
     }
 
     const realtime = calculateRealtimeRepayment({
-      principal: Number(activeApplication.amount),
+      principal: Number(plan.totalPrincipal),
       channel,
       upfrontFeeRate,
       tiers,
@@ -208,6 +245,10 @@ export async function POST(req: NextRequest) {
       startTime: new Date(activeApplication.disbursement.disbursedAt),
       dueDate,
       currentTime: freezeAt,
+      normalInterestCapitalized,
+      fixedFeeAmount,
+      netDisbursementAmount:
+        netDisbursementAmount ?? Number(activeApplication.disbursement.netAmount),
     });
     outstandingAmount = realtime.totalRepayment;
   }
@@ -241,39 +282,114 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const repayment = await prisma.repayment.create({
-    data: {
-      repaymentNo: genRepaymentNo(),
-      planId: plan.id,
-      amount: input.amount,
-      principalPart: 0,
-      interestPart: 0,
-      feePart: 0,
-      penaltyPart: 0,
-      paymentMethod: input.paymentMethod,
-      status: "MANUAL_REVIEW",
-      receivedAt: freezeAt,
-      interestFrozenAt: freezeAt,
-      frozenPayableAmount: outstandingAmount,
-      operatorId: operator.id,
-      remark: input.remark || "客户自助提交还款申请",
-      matchComment: "客户已发起还款申请，系统已按提交时刻临时暂停新增利息，等待管理端分配并确认",
-    },
-    select: {
-      id: true,
-      repaymentNo: true,
-      status: true,
-      interestFrozenAt: true,
-      frozenPayableAmount: true,
-    },
-  });
+  let fileUrl = paymentEvidence.proofUrl ?? "";
+  let fileName = paymentEvidence.proofFileName || "repayment-payment-proof";
+  let fileSize = 0;
+  let mimeType = paymentEvidence.proofMimeType || "text/uri-list";
+
+  if (proofFile) {
+    try {
+      fileUrl = await storeProofFile(proofFile, `clients/${session.sub}/repayments`);
+      fileName = proofFile.name || fileName;
+      fileSize = proofFile.size;
+      mimeType = proofFile.type || "application/octet-stream";
+    } catch (error) {
+      return privateStorageErrorResponse(error, "Payment evidence upload failed");
+    }
+  }
+
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const claimedPlan = await tx.repaymentPlan.updateMany({
+        where: { id: plan.id, version: plan.version },
+        data: { version: { increment: 1 } },
+      });
+      if (claimedPlan.count !== 1) throw new Error("PLAN_CHANGED");
+
+      const concurrentRepayment = await tx.repayment.findFirst({
+        where: {
+          planId: plan.id,
+          status: {
+            in: ["PENDING", "MATCHED", "MANUAL_REVIEW", "PENDING_CONFIRM", "CUSTOMER_CONFIRMED"],
+          },
+        },
+        select: { id: true },
+      });
+      if (concurrentRepayment) throw new Error("HAS_PENDING");
+
+      const repayment = await tx.repayment.create({
+        data: {
+          repaymentNo: genRepaymentNo(),
+          planId: plan.id,
+          amount: input.amount,
+          principalPart: 0,
+          interestPart: 0,
+          feePart: 0,
+          penaltyPart: 0,
+          paymentMethod: input.paymentMethod,
+          transactionId: paymentEvidence.transactionId,
+          payerBank: paymentEvidence.payerBank,
+          payerAccount: paymentEvidence.payerAccount,
+          status: "MANUAL_REVIEW",
+          receivedAt: freezeAt,
+          interestFrozenAt: freezeAt,
+          frozenPayableAmount: outstandingAmount,
+          operatorId: operator.id,
+          remark: input.remark || "客户自助提交还款申请",
+          matchComment: "客户已发起还款申请，系统已按提交时刻临时暂停新增利息，等待管理端分配并确认",
+        },
+        select: {
+          id: true,
+          repaymentNo: true,
+          status: true,
+          transactionId: true,
+          payerBank: true,
+          payerAccount: true,
+          interestFrozenAt: true,
+          frozenPayableAmount: true,
+        },
+      });
+
+      const proof = await createProofAttachment(tx, {
+        entityType: "repayment",
+        entityId: repayment.id,
+        fileName,
+        fileUrl,
+        fileSize,
+        mimeType,
+        uploadedBy: session.sub,
+        category: "REPAYMENT_PAYMENT_PROOF",
+      });
+
+      return { repayment, proof };
+    });
+  } catch (error) {
+    if (proofFile) await deletePrivateFile(fileUrl).catch(() => undefined);
+    const message = error instanceof Error ? error.message : "";
+    if (message === "PLAN_CHANGED" || message === "HAS_PENDING") {
+      return NextResponse.json(
+        { error: "Repayment state changed; refresh before submitting again" },
+        { status: 409 },
+      );
+    }
+    if (isRepaymentTransactionConstraintError(error)) {
+      return NextResponse.json(
+        { error: "This transaction or receipt ID has already been used" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
+
+  const repayment = created.repayment;
 
   await Promise.all([
     InAppNotificationService.notifyAdmins({
       type: "CLIENT_REPAYMENT_REQUEST_SUBMITTED",
       templateCode: `CLIENT_REPAYMENT_REQUEST_SUBMITTED_${repayment.id}`,
       title: "有新的客户还款申请待处理",
-      content: `${customer.name}（${customer.phone}）提交了还款申请 ${repayment.repaymentNo}，金额 ${money(
+      content: `${customer.name}（${customer.phone}）提交了还款申请 ${repayment.repaymentNo}，交易/收据号 ${repayment.transactionId}，金额 ${money(
         input.amount
       )}。系统已按客户提交时刻 ${freezeAt.toLocaleString("zh-CN")} 临时暂停新增利息；若核实未收款，请点未收款，系统会恢复并补算暂停期间。`,
     }),
@@ -288,6 +404,10 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
-  await saveIdempotencyResult(idemKey, repayment);
-  return NextResponse.json(repayment);
+  return NextResponse.json({
+    ...repayment,
+    frozenPayableAmount: Number(repayment.frozenPayableAmount),
+    proof: serializeProofAttachment(created.proof),
+  });
+  });
 }

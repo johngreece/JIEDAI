@@ -10,6 +10,14 @@ interface Disbursement {
   feeAmount: number;
   status: string;
   disbursedAt: string | null;
+  transactionId: string | null;
+  payerBank: string | null;
+  payerAccount: string | null;
+  proofs: Array<{
+    id: string;
+    fileName: string;
+    fileUrl: string;
+  }>;
   customerName: string;
 }
 
@@ -69,6 +77,7 @@ export default function FunderDisbursementsPage() {
                 <th className="px-4 py-3">放款金额</th>
                 <th className="px-4 py-3">手续费</th>
                 <th className="px-4 py-3">实际到手</th>
+                <th className="px-4 py-3">银行凭证</th>
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">放款日期</th>
               </tr>
@@ -81,6 +90,24 @@ export default function FunderDisbursementsPage() {
                   <td className="px-4 py-3 font-medium">{fmt(d.amount)}</td>
                   <td className="px-4 py-3 text-red-500">{fmt(d.feeAmount)}</td>
                   <td className="px-4 py-3 font-medium text-emerald-600">{fmt(d.netAmount)}</td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs text-slate-700">{d.transactionId || "-"}</div>
+                    {d.proofs.length > 0 ? (
+                      <div className="mt-1 space-x-2 text-xs">
+                        {d.proofs.map((proof) => (
+                          <a
+                            key={proof.id}
+                            href={proof.fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            {proof.fileName}
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs ${statusBadge[d.status] ?? "bg-slate-100 text-slate-600"}`}>
                       {statusLabel[d.status] ?? d.status}

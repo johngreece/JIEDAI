@@ -3,7 +3,9 @@ import { getActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { ConfirmReceivedButton } from "@/components/client/ConfirmReceivedButton";
 import { LoanApplicationPanel } from "@/components/client/LoanApplicationPanel";
+import { ReturnedLoanApplicationForm } from "@/components/client/ReturnedLoanApplicationForm";
 import RealtimeTimer from "@/components/RealtimeTimer";
+import { TERMINAL_LOAN_STATUSES } from "@/lib/business-status";
 import { getStatusLabel } from "@/lib/status-ui";
 import {
   BUSINESS_LOAN_NOTICE,
@@ -23,15 +25,7 @@ import {
   type RepaymentTier,
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+import { formatMoney as money } from "@/lib/system-config";
 
 function formatDate(value: Date | string | null | undefined) {
   if (!value) return "-";
@@ -109,7 +103,7 @@ export default async function ClientDashboardPage() {
         customerId: session.sub,
         deletedAt: null,
         status: {
-          notIn: ["SETTLED", "COMPLETED", "REJECTED"],
+          notIn: [...TERMINAL_LOAN_STATUSES],
         },
       },
       orderBy: { createdAt: "desc" },
@@ -126,6 +120,12 @@ export default async function ClientDashboardPage() {
           select: { id: true, status: true },
           orderBy: { createdAt: "desc" },
           take: 1,
+        },
+        approvals: {
+          where: { action: { in: ["RISK_RETURN", "APPROVAL_RETURN"] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { comment: true },
         },
         disbursement: {
           select: {
@@ -165,6 +165,63 @@ export default async function ClientDashboardPage() {
             maxTermValue: product.maxTermValue,
             termUnit: product.termUnit,
           }))}
+        />
+      </div>
+    );
+  }
+
+  if (application.status === "RETURNED") {
+    return (
+      <div className="space-y-6">
+        <header className="panel-soft rounded-2xl px-5 py-4">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">我的借款</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            当前申请需要补充或修改信息，重新提交后会从风控节点再次审核。
+          </p>
+        </header>
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard
+            title="当前状态"
+            value={getStatusLabel(application.status)}
+            note={application.applicationNo}
+          />
+          <SummaryCard
+            title="申请金额"
+            value={money(Number(application.amount))}
+            note={application.product.name}
+          />
+          <SummaryCard
+            title="可借额度"
+            value={money(availableLimit)}
+            note="重新提交时会再次校验"
+          />
+          <SummaryCard
+            title="申请期限"
+            value={`${application.termValue}${application.termUnit === "DAY" ? " 天" : " 个月"}`}
+            note="可在下方修改"
+          />
+        </section>
+
+        <ReturnedLoanApplicationForm
+          availableLimit={availableLimit}
+          returnedReason={application.approvals[0]?.comment ?? "请联系管理员确认需要补充的内容"}
+          application={{
+            id: application.id,
+            applicationNo: application.applicationNo,
+            amount: Number(application.amount),
+            termValue: application.termValue,
+            purpose: application.purpose,
+            remark: application.remark,
+            product: {
+              name: application.product.name,
+              minAmount: Number(application.product.minAmount),
+              maxAmount: Number(application.product.maxAmount),
+              minTermValue: application.product.minTermValue,
+              maxTermValue: application.product.maxTermValue,
+              termUnit: application.product.termUnit,
+            },
+          }}
         />
       </div>
     );
@@ -225,6 +282,7 @@ export default async function ClientDashboardPage() {
     ? plan.scheduleItems.reduce((sum, item) => sum + Number(item.remaining || item.totalDue || 0), 0)
     : 0;
   let displayOutstandingAmount = outstandingAmount;
+  let usesCapitalizedContractTerms = false;
   const nextDueAmount = nextItem ? Number(nextItem.remaining || nextItem.totalDue || 0) : 0;
   const nextDueInDays = nextItem ? diffDays(nextItem.dueDate) : null;
   const contractId = application.contracts[0]?.id ?? null;
@@ -237,6 +295,9 @@ export default async function ClientDashboardPage() {
     let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
     let channel: ChannelType = "FULL_AMOUNT";
     let dueDate: Date | null = null;
+    let normalInterestCapitalized = false;
+    let fixedFeeAmount = 0;
+    let netDisbursementAmount: number | undefined;
 
     if (plan.rulesSnapshotJson) {
       try {
@@ -246,12 +307,23 @@ export default async function ClientDashboardPage() {
           upfrontFeeRate?: number;
           channel?: ChannelType;
           dueDate?: string;
+          normalInterestCapitalized?: boolean;
+          fixedFeeAmount?: number;
+          netDisbursementAmount?: number;
         };
         if (snapshot.tiers) tiers = snapshot.tiers;
         if (snapshot.overdueConfig) overdueConfig = snapshot.overdueConfig;
         if (snapshot.upfrontFeeRate != null) upfrontFeeRate = snapshot.upfrontFeeRate;
         if (snapshot.channel) channel = snapshot.channel;
         if (snapshot.dueDate) dueDate = new Date(snapshot.dueDate);
+        if (snapshot.normalInterestCapitalized != null) {
+          normalInterestCapitalized = snapshot.normalInterestCapitalized;
+          usesCapitalizedContractTerms = snapshot.normalInterestCapitalized;
+        }
+        if (snapshot.fixedFeeAmount != null) fixedFeeAmount = snapshot.fixedFeeAmount;
+        if (snapshot.netDisbursementAmount != null) {
+          netDisbursementAmount = snapshot.netDisbursementAmount;
+        }
       } catch {
         // ignore invalid snapshot
       }
@@ -289,7 +361,7 @@ export default async function ClientDashboardPage() {
     }
 
     displayOutstandingAmount = calculateRealtimeRepayment({
-      principal: Number(application.amount),
+      principal: Number(plan.totalPrincipal),
       channel,
       upfrontFeeRate,
       tiers,
@@ -297,6 +369,10 @@ export default async function ClientDashboardPage() {
       startTime: new Date(application.disbursement.disbursedAt),
       dueDate,
       currentTime: new Date(),
+      normalInterestCapitalized,
+      fixedFeeAmount,
+      netDisbursementAmount:
+        netDisbursementAmount ?? Number(application.disbursement.netAmount),
     }).totalRepayment;
   }
   if (pendingReceiptRepayment) {
@@ -307,7 +383,11 @@ export default async function ClientDashboardPage() {
 
   const reminders: string[] = [];
   if (customer?.weeklyInterestRateOverride != null) {
-    reminders.push(`你当前适用专属周息 ${Number(customer.weeklyInterestRateOverride)}%，还款金额会自动按该费率计算。`);
+    reminders.push(
+      usesCapitalizedContractTerms
+        ? `你的专属周息 ${Number(customer.weeklyInterestRateOverride)}% 已按签约金额并入合同本金，不会在还款时重复叠加。`
+        : `你当前适用专属周息 ${Number(customer.weeklyInterestRateOverride)}%，还款金额会自动按该费率计算。`
+    );
   }
   if (application.status === "PENDING_RISK") reminders.push("你的借款申请已提交，当前等待风控审核。");
   if (application.status === "PENDING_APPROVAL") reminders.push("你的借款申请已通过风控，当前等待审批。");
@@ -342,7 +422,11 @@ export default async function ClientDashboardPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard title="当前状态" value={getStatusLabel(application.status)} note={application.applicationNo} />
-        <SummaryCard title="借款本金" value={money(Number(application.amount))} note={application.product.name} />
+        <SummaryCard
+          title={plan ? "合同本金" : "申请金额"}
+          value={money(plan ? Number(plan.totalPrincipal) : Number(application.amount))}
+          note={application.product.name}
+        />
         <SummaryCard title="实际到账" value={money(netAmount)} note={`放款费用 ${money(contractFee)}`} />
         <SummaryCard
           title="当前待还"
@@ -362,7 +446,10 @@ export default async function ClientDashboardPage() {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <InfoRow label="借款编号" value={application.applicationNo} />
               <InfoRow label="借款产品" value={application.product.name} />
-              <InfoRow label="借款金额" value={money(Number(application.amount))} />
+              <InfoRow
+                label={plan ? "合同本金" : "申请金额"}
+                value={money(plan ? Number(plan.totalPrincipal) : Number(application.amount))}
+              />
               <InfoRow label="当前状态" value={getStatusLabel(application.status)} />
               <InfoRow label="放款状态" value={application.disbursement ? getStatusLabel(application.disbursement.status) : "待放款"} />
               <InfoRow label="放款日期" value={formatDate(application.disbursement?.disbursedAt)} />

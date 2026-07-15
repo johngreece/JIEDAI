@@ -2,8 +2,18 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import Decimal from "decimal.js";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { writeAuditLogInTransaction } from "@/lib/audit";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
+import { parseDisbursementEvidenceRequest } from "@/lib/disbursement-evidence";
+import {
+  createProofAttachment,
+  serializeProofAttachment,
+  storeProofFile,
+} from "@/lib/proof-attachment";
+import {
+  deletePrivateFile,
+  privateStorageErrorResponse,
+} from "@/lib/private-file-storage";
 import {
   formatClientProfileCompletionError,
   getClientProfileCompletion,
@@ -17,12 +27,32 @@ import {
   parseTiersFromPricingRules,
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
+import {
+  getLoanContractRepaymentComponents,
+  resolveLoanContractTerms,
+} from "@/lib/loan-contract-terms";
 import { requirePermission } from "@/lib/rbac";
+import {
+  LoanTransitionConflictError,
+  transitionLoanApplication,
+} from "@/services/loan-transition.service";
 
 export const dynamic = "force-dynamic";
 
 function genPlanNo() {
   return `RP${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
+
+function isBankTransactionConstraintError(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") {
+    return false;
+  }
+
+  const target = Array.isArray(error.meta?.target)
+    ? error.meta.target.join(" ")
+    : String(error.meta?.target ?? "");
+
+  return target.includes("fund_account_id") && target.includes("batch_no");
 }
 
 export async function POST(
@@ -34,8 +64,7 @@ export async function POST(
 
   const { id } = await params;
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "disbursement-confirm-paid", id]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const current = await prisma.disbursement.findUnique({
     where: { id },
@@ -48,6 +77,34 @@ export async function POST(
 
   if (current.status !== "PENDING") {
     return NextResponse.json({ error: "当前状态不允许确认打款" }, { status: 400 });
+  }
+
+  const parsedEvidence = await parseDisbursementEvidenceRequest(req);
+  if (!parsedEvidence.success) {
+    return NextResponse.json(
+      { error: parsedEvidence.error, details: parsedEvidence.details },
+      { status: 400 },
+    );
+  }
+
+  const { input: evidenceInput, proofFile } = parsedEvidence.data;
+  let proofFileUrl = evidenceInput.proofUrl ?? "";
+  let proofFileName =
+    evidenceInput.proofFileName || `bank-evidence-${evidenceInput.transactionId}`;
+  let proofFileSize = 0;
+  let proofMimeType = evidenceInput.proofMimeType || "text/uri-list";
+  let uploadedPrivateFileReference: string | null = null;
+
+  if (proofFile) {
+    try {
+      proofFileUrl = await storeProofFile(proofFile, `disbursements/${id}`);
+      uploadedPrivateFileReference = proofFileUrl;
+      proofFileName = proofFile.name || proofFileName;
+      proofFileSize = proofFile.size;
+      proofMimeType = proofFile.type || "application/octet-stream";
+    } catch (error) {
+      return privateStorageErrorResponse(error, "Bank evidence upload failed");
+    }
   }
 
   let result;
@@ -89,6 +146,26 @@ export async function POST(
                 },
               },
             },
+            contracts: {
+              where: { contractType: "MAIN", status: "SIGNED", deletedAt: null },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                variableData: true,
+                currency: true,
+                basePrincipal: true,
+                capitalizedInterestAmount: true,
+                contractPrincipal: true,
+                legalServiceFee: true,
+                feePaymentMode: true,
+              },
+            },
+          },
+        },
+        fundAccount: {
+          select: {
+            accountNo: true,
+            bankName: true,
           },
         },
       },
@@ -99,6 +176,9 @@ export async function POST(
     }
     if (pendingDisbursement.status !== "PENDING") {
       throw new Error("DISBURSEMENT_STATUS_CHANGED");
+    }
+    if (pendingDisbursement.application.status !== "CONTRACTED") {
+      throw new Error("LOAN_APPLICATION_STATUS_CHANGED");
     }
     const profileCompletion = getClientProfileCompletion(pendingDisbursement.application.customer);
     if (!profileCompletion.profileComplete) {
@@ -116,25 +196,74 @@ export async function POST(
     }
     pricingConfig = applyCustomerPricingOverride(pricingConfig, pendingDisbursement.application.customer);
 
-    const { tiers, overdueConfig, upfrontFeeRate, channel } = pricingConfig;
-    const principal = Number(pendingDisbursement.amount);
-    const netAmount = calcNetDisbursement(principal, upfrontFeeRate, channel);
+    const { tiers, overdueConfig } = pricingConfig;
+    const signedContract = pendingDisbursement.application.contracts[0] ?? null;
+    if (!signedContract) {
+      throw new Error("SIGNED_CONTRACT_MISSING");
+    }
+    const contractTerms = resolveLoanContractTerms(
+      signedContract,
+      pendingDisbursement.application.amount,
+      pricingConfig.channel,
+    );
+    const usesStructuredContract = contractTerms.source !== "application_fallback";
+    const disbursementPrincipal = Number(pendingDisbursement.amount);
+    if (
+      usesStructuredContract &&
+      !new Decimal(disbursementPrincipal).toDecimalPlaces(4).equals(
+        new Decimal(contractTerms.basePrincipal).toDecimalPlaces(4),
+      )
+    ) {
+      throw new Error("DISBURSEMENT_CONTRACT_AMOUNT_MISMATCH");
+    }
+
+    const principal = usesStructuredContract
+      ? contractTerms.contractPrincipal
+      : disbursementPrincipal;
+    const channel = usesStructuredContract
+      ? contractTerms.feePaymentMode
+      : pricingConfig.channel;
+    const upfrontFeeRate = usesStructuredContract ? 0 : pricingConfig.upfrontFeeRate;
+    const netAmount = usesStructuredContract
+      ? contractTerms.netDisbursementAmount
+      : calcNetDisbursement(principal, upfrontFeeRate, channel);
     // 使用 Decimal 计算费用，避免 JS 浮点 + toFixed 截断导致与 schema Decimal(18,4) 不一致
-    const upfrontFeeAmount = new Decimal(principal)
-      .minus(netAmount)
-      .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
-      .toNumber();
+    const upfrontFeeAmount = usesStructuredContract
+      ? contractTerms.upfrontFeeAmount
+      : new Decimal(principal)
+          .minus(netAmount)
+          .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+          .toNumber();
     const sortedTiers = [...tiers].sort(
       (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
     );
     const dueTier = sortedTiers[sortedTiers.length - 1] ?? null;
     const dueHours = dueTier ? (dueTier.maxHours ?? dueTier.maxDays * 24) : 7 * 24;
     const dueDate = new Date(now.getTime() + dueHours * 60 * 60 * 1000);
-    const dueRepaymentAmount = calcRepaymentAmount(principal, dueTier?.ratePercent ?? 0, channel);
-    const deferredFeeAmount = new Decimal(dueRepaymentAmount)
-      .minus(principal)
-      .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
-      .toNumber();
+    const dueRepaymentAmount = usesStructuredContract
+      ? contractTerms.totalPayable
+      : calcRepaymentAmount(principal, dueTier?.ratePercent ?? 0, channel);
+    const deferredFeeAmount = usesStructuredContract
+      ? contractTerms.repayableFeeAmount
+      : new Decimal(dueRepaymentAmount)
+          .minus(principal)
+          .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+          .toNumber();
+    const contractRepaymentComponents = usesStructuredContract
+      ? getLoanContractRepaymentComponents(contractTerms)
+      : null;
+
+    const duplicateTransaction = await tx.disbursement.findFirst({
+      where: {
+        id: { not: id },
+        fundAccountId: pendingDisbursement.fundAccountId,
+        batchNo: evidenceInput.transactionId,
+      },
+      select: { id: true },
+    });
+    if (duplicateTransaction) {
+      throw new Error("DISBURSEMENT_TRANSACTION_ID_DUPLICATE");
+    }
 
     const claimed = await tx.disbursement.updateMany({
       where: { id, status: "PENDING" },
@@ -144,6 +273,9 @@ export async function POST(
         operatorId: session.sub,
         feeAmount: upfrontFeeAmount,
         netAmount,
+        batchNo: evidenceInput.transactionId,
+        payerAccount: pendingDisbursement.fundAccount.accountNo,
+        payerBank: pendingDisbursement.fundAccount.bankName,
       },
     });
     if (claimed.count !== 1) {
@@ -151,10 +283,26 @@ export async function POST(
     }
 
     const disbursement = await tx.disbursement.findUniqueOrThrow({ where: { id } });
+    const proofAttachment = await createProofAttachment(tx, {
+      entityType: "disbursement",
+      entityId: disbursement.id,
+      fileName: proofFileName,
+      fileUrl: proofFileUrl,
+      fileSize: proofFileSize,
+      mimeType: proofMimeType,
+      uploadedBy: session.sub,
+      category: "DISBURSEMENT_PROOF",
+    });
 
-    await tx.loanApplication.update({
-      where: { id: disbursement.applicationId },
-      data: { status: "DISBURSED" },
+    await transitionLoanApplication(tx, {
+      applicationId: disbursement.applicationId,
+      from: pendingDisbursement.application.status,
+      to: "DISBURSED",
+      action: "CONFIRM_DISBURSEMENT",
+      operatorId: session.sub,
+      auditAction: "disburse",
+      changeSummary: "Disbursement confirmed paid",
+      auditNewValue: { disbursementId: disbursement.id },
     });
 
     const existingPlan = await tx.repaymentPlan.findFirst({
@@ -166,12 +314,29 @@ export async function POST(
       const rulesSnapshot = {
         channel,
         upfrontFeeRate,
-        tiers: sortedTiers,
+        tiers: usesStructuredContract
+          ? sortedTiers.map((tier) => ({ ...tier, ratePercent: 0 }))
+          : sortedTiers,
+        sourcePricingTiers: usesStructuredContract ? sortedTiers : undefined,
         overdueConfig,
         customerPricing: pricingConfig.customerPricing,
         startTime: now.toISOString(),
         dueDate: dueDate.toISOString(),
+        normalInterestCapitalized: usesStructuredContract,
+        fixedFeeAmount: usesStructuredContract ? deferredFeeAmount : 0,
+        netDisbursementAmount: Number(netAmount),
+        contractTerms: usesStructuredContract ? contractTerms : undefined,
       };
+
+      const repaymentFeeAmount = usesStructuredContract
+        ? deferredFeeAmount
+        : channel === "UPFRONT_DEDUCTION"
+          ? upfrontFeeAmount
+          : deferredFeeAmount;
+      const scheduledPrincipal = contractRepaymentComponents?.principal ?? principal;
+      const scheduledInterest = contractRepaymentComponents?.interest ?? 0;
+      const remainingFee =
+        !usesStructuredContract && channel === "UPFRONT_DEDUCTION" ? 0 : repaymentFeeAmount;
 
       const plan = await tx.repaymentPlan.create({
         data: {
@@ -179,7 +344,7 @@ export async function POST(
           applicationId: disbursement.applicationId,
           totalPrincipal: principal,
           totalInterest: 0,
-          totalFee: channel === "UPFRONT_DEDUCTION" ? upfrontFeeAmount : deferredFeeAmount,
+          totalFee: repaymentFeeAmount,
           totalPeriods: 1,
           rulesSnapshotJson: JSON.stringify(rulesSnapshot),
           status: "ACTIVE",
@@ -191,11 +356,22 @@ export async function POST(
           planId: plan.id,
           periodNumber: 1,
           dueDate,
-          principal,
-          interest: 0,
-          fee: channel === "UPFRONT_DEDUCTION" ? upfrontFeeAmount : deferredFeeAmount,
-          totalDue: channel === "UPFRONT_DEDUCTION" ? principal : dueRepaymentAmount,
-          remaining: channel === "UPFRONT_DEDUCTION" ? principal : dueRepaymentAmount,
+          principal: scheduledPrincipal,
+          interest: scheduledInterest,
+          fee: repaymentFeeAmount,
+          totalDue: usesStructuredContract
+            ? dueRepaymentAmount
+            : channel === "UPFRONT_DEDUCTION"
+              ? principal
+              : dueRepaymentAmount,
+          remaining: usesStructuredContract
+            ? dueRepaymentAmount
+            : channel === "UPFRONT_DEDUCTION"
+              ? principal
+              : dueRepaymentAmount,
+          remainingPrincipal: scheduledPrincipal,
+          remainingInterest: scheduledInterest,
+          remainingFee,
           status: "PENDING",
         },
       });
@@ -203,7 +379,7 @@ export async function POST(
 
     await recordDisbursementLedger(tx, {
       disbursementId: disbursement.id,
-      amount: disbursement.amount,
+      amount: usesStructuredContract ? principal : disbursement.amount,
       feeAmount: disbursement.feeAmount,
       customerId: pendingDisbursement.application.customerId,
       operatorId: session.sub,
@@ -224,35 +400,72 @@ export async function POST(
         grossAmount: Number(disbursement.amount),
         feeAmount: Number(disbursement.feeAmount),
         netAmount: Number(disbursement.netAmount),
+        transactionId: evidenceInput.transactionId,
+        proofAttachmentId: proofAttachment.id,
       },
     });
 
-    return disbursement;
+    await writeAuditLogInTransaction(tx, {
+      userId: session.sub,
+      action: "disburse",
+      entityType: "disbursement",
+      entityId: id,
+      oldValue: { status: current.status },
+      newValue: {
+        status: disbursement.status,
+        disbursedAt: disbursement.disbursedAt?.toISOString() ?? null,
+        principal,
+        contractTermsSource: contractTerms.source,
+        transactionId: evidenceInput.transactionId,
+        payerBank: disbursement.payerBank,
+        payerAccount: disbursement.payerAccount,
+        proofAttachmentId: proofAttachment.id,
+      },
+      changeSummary: "Confirm bank transfer with transaction evidence and generate repayment plan",
+    });
+
+    return { disbursement, proofAttachment };
     });
   } catch (error) {
+    if (uploadedPrivateFileReference) {
+      await deletePrivateFile(uploadedPrivateFileReference).catch((cleanupError) => {
+        console.error("[disbursement-confirm-paid] failed to clean uploaded evidence", cleanupError);
+      });
+    }
     const message = error instanceof Error ? error.message : "";
-    if (message === "DISBURSEMENT_STATUS_CHANGED") {
+    if (
+      message === "DISBURSEMENT_STATUS_CHANGED" ||
+      message === "LOAN_APPLICATION_STATUS_CHANGED" ||
+      message === "DISBURSEMENT_CONTRACT_AMOUNT_MISMATCH" ||
+      error instanceof LoanTransitionConflictError
+    ) {
       return NextResponse.json({ error: "当前放款单状态已变化，请刷新后重试" }, { status: 409 });
     }
     if (message.startsWith("客户资料未完善")) {
       return NextResponse.json({ error: message }, { status: 409 });
     }
+    if (message === "SIGNED_CONTRACT_MISSING") {
+      return NextResponse.json({ error: "已签主合同缺失，不能确认打款" }, { status: 409 });
+    }
+    if (
+      message === "DISBURSEMENT_TRANSACTION_ID_DUPLICATE" ||
+      isBankTransactionConstraintError(error)
+    ) {
+      return NextResponse.json(
+        { error: "This bank transaction ID is already used for the selected fund account" },
+        { status: 409 },
+      );
+    }
     console.error("[disbursement-confirm-paid]", error);
     return NextResponse.json({ error: "确认打款失败" }, { status: 500 });
   }
 
-  await writeAuditLog({
-    userId: session.sub,
-    action: "disburse",
-    entityType: "disbursement",
-    entityId: id,
-    oldValue: { status: current.status },
-    newValue: { status: result.status, disbursedAt: result.disbursedAt?.toISOString() ?? null },
-    changeSummary: "确认已打款并同步生成还款规则快照",
-  }).catch((error) => console.error("[AuditLog] confirm-paid", error));
-
-  const responseBody = { id: result.id, status: result.status };
-  await saveIdempotencyResult(idemKey, responseBody);
-
+  const responseBody = {
+    id: result.disbursement.id,
+    status: result.disbursement.status,
+    transactionId: result.disbursement.batchNo,
+    proof: serializeProofAttachment(result.proofAttachment),
+  };
   return NextResponse.json(responseBody);
+  });
 }

@@ -12,6 +12,12 @@ import {
 } from "@/lib/contract-engine/professional-loan-template";
 import { applyCustomerPricingOverride, buildCustomerPricingQuote } from "@/lib/customer-pricing";
 import { parseTiersFromPricingRules } from "@/lib/interest-engine";
+import { SYSTEM_CURRENCY } from "@/lib/system-config";
+import {
+  LoanContractTermsError,
+  buildLoanContractTerms,
+  type LoanContractTerms,
+} from "@/lib/loan-contract-terms";
 import {
   formatClientProfileCompletionError,
   getClientProfileCompletion,
@@ -23,6 +29,7 @@ export type MainContractOptions = {
   basePrincipal?: number;
   capitalizedInterestAmount?: number;
   contractPrincipal?: number;
+  legalServiceFee?: number;
   contractDisplayInterestRate?: string;
   weeklyInterestAmount?: string;
   monthlyInterestAmount?: string;
@@ -33,6 +40,7 @@ type ContractDraftPayload = {
   templateId: string;
   variableData: string;
   content: string;
+  terms: LoanContractTerms;
 };
 
 function money(value: number) {
@@ -46,11 +54,6 @@ function formatTermUnit(value: string) {
   return value;
 }
 
-function normalizeNumber(value: number | undefined, fallback: number) {
-  if (value == null || Number.isNaN(value)) return fallback;
-  return value;
-}
-
 function buildRenderedContract(params: {
   templateContent: string;
   contractNo: string;
@@ -59,9 +62,9 @@ function buildRenderedContract(params: {
   customerName: string;
   customerIdNumber?: string | null;
   customerPhone?: string | null;
-  amount: number;
   termValue: number;
   termUnit: string;
+  terms: LoanContractTerms;
   options?: MainContractOptions;
 }) {
   const today = new Date();
@@ -71,15 +74,14 @@ function buildRenderedContract(params: {
     minute: "2-digit",
   });
 
-  const basePrincipal = normalizeNumber(params.options?.basePrincipal, params.amount);
-  const capitalizedInterestAmount = normalizeNumber(
-    params.options?.capitalizedInterestAmount,
-    0
-  );
-  const contractPrincipal = normalizeNumber(
-    params.options?.contractPrincipal,
-    basePrincipal + capitalizedInterestAmount
-  );
+  const {
+    basePrincipal,
+    capitalizedInterestAmount,
+    contractPrincipal,
+    legalServiceFee,
+    netDisbursementAmount,
+    totalPayable,
+  } = params.terms;
   const contractDisplayInterestRate = params.options?.contractDisplayInterestRate || "2%";
 
   const context = buildContractContext({
@@ -96,16 +98,16 @@ function buildRenderedContract(params: {
     monthlyInterestAmount: params.options?.monthlyInterestAmount || "按本单确认口径填写",
     capitalizedInterestAmount: money(capitalizedInterestAmount),
     contractPrincipal: money(contractPrincipal),
-    disbursementAmount: money(params.amount),
+    disbursementAmount: money(netDisbursementAmount),
     termValue: params.termValue,
     termUnit: formatTermUnit(params.termUnit),
     interestRate: "正常利息已按业务规则并入本金",
-    serviceFee: "不适用",
+    serviceFee: money(legalServiceFee),
     contractDisplayInterestRate,
     contractDisplayInterestNote:
       "仅用于合同展示和法律依据，不参与系统正常利息重复计算。",
-    totalRepay: money(contractPrincipal),
-    repaySummary: `${params.termValue}${formatTermUnit(params.termUnit)}，最终以生成后的还款计划为准`,
+    totalRepay: money(totalPayable),
+    repaySummary: `${params.termValue}${formatTermUnit(params.termUnit)}，总应还 EUR ${money(totalPayable)}，最终以生成后的还款计划为准`,
     contractNo: params.contractNo,
     signDate,
     signTime,
@@ -256,6 +258,21 @@ export class ContractService {
     };
 
     try {
+      const terms = buildLoanContractTerms({
+        basePrincipal: options?.basePrincipal ?? Number(application.amount),
+        capitalizedInterestAmount: options?.capitalizedInterestAmount ?? 0,
+        contractPrincipal: options?.contractPrincipal,
+        legalServiceFee: options?.legalServiceFee ?? 0,
+        feePaymentMode: pricingConfig.channel,
+        currency: SYSTEM_CURRENCY,
+      });
+      if (
+        application.totalApprovedAmount != null &&
+        terms.basePrincipal > Number(application.totalApprovedAmount)
+      ) {
+        return { success: false, error: "基础本金不能超过审批额度" };
+      }
+
       const rendered = buildRenderedContract({
         templateContent,
         contractNo,
@@ -264,9 +281,9 @@ export class ContractService {
         customerName: application.customer.name,
         customerIdNumber: application.customer.idNumber,
         customerPhone: application.customer.phone,
-        amount: Number(application.amount),
         termValue: application.termValue,
         termUnit: application.termUnit,
+        terms,
         options: resolvedOptions,
       });
 
@@ -285,21 +302,27 @@ export class ContractService {
             ...rendered.context,
             variables: variableNames,
             contractGenerationOptions: {
-              basePrincipal: options?.basePrincipal ?? Number(application.amount),
-              capitalizedInterestAmount: options?.capitalizedInterestAmount ?? 0,
-              contractPrincipal:
-                options?.contractPrincipal ??
-                (options?.basePrincipal ?? Number(application.amount)) +
-                  (options?.capitalizedInterestAmount ?? 0),
+              currency: terms.currency,
+              basePrincipal: terms.basePrincipal,
+              capitalizedInterestAmount: terms.capitalizedInterestAmount,
+              contractPrincipal: terms.contractPrincipal,
+              legalServiceFee: terms.legalServiceFee,
+              feePaymentMode: terms.feePaymentMode,
+              netDisbursementAmount: terms.netDisbursementAmount,
+              totalPayable: terms.totalPayable,
               contractDisplayInterestRate: resolvedOptions.contractDisplayInterestRate,
               weeklyInterestAmount: resolvedOptions.weeklyInterestAmount ?? "",
               monthlyInterestAmount: resolvedOptions.monthlyInterestAmount ?? "",
               pricingQuote,
             },
           }),
+          terms,
         },
       };
     } catch (error) {
+      if (error instanceof LoanContractTermsError) {
+        return { success: false, error: error.message };
+      }
       console.error("构建合同草稿失败:", error);
       return { success: false, error: "数据库操作失败" };
     }
@@ -347,7 +370,7 @@ export class ContractService {
   ): Promise<ServiceResponse<ContractRecord>> {
     const draft = await this.buildMainContractDraft(applicationId, options, "create");
     if (!draft.success || !draft.data) {
-      return draft as ServiceResponse<ContractRecord>;
+      return { success: false, error: draft.error ?? "生成合同失败" };
     }
 
     const application = await prisma.loanApplication.findUnique({
@@ -373,6 +396,12 @@ export class ContractService {
           applicationId: application.id,
           customerId: application.customerId,
           variableData: draft.data.variableData,
+          currency: draft.data.terms.currency,
+          basePrincipal: draft.data.terms.basePrincipal,
+          capitalizedInterestAmount: draft.data.terms.capitalizedInterestAmount,
+          contractPrincipal: draft.data.terms.contractPrincipal,
+          legalServiceFee: draft.data.terms.legalServiceFee,
+          feePaymentMode: draft.data.terms.feePaymentMode,
         },
       });
 
@@ -383,29 +412,4 @@ export class ContractService {
     }
   }
 
-  static async signContract(contractId: string): Promise<ServiceResponse<ContractRecord>> {
-    const contract = await prisma.contract.findUnique({
-      where: { id: contractId },
-    });
-
-    if (!contract) return { success: false, error: "合同不存在" };
-    if (contract.status !== "DRAFT") return { success: false, error: "合同状态不正确" };
-
-    const updated = await prisma.contract.update({
-      where: { id: contractId },
-      data: {
-        status: "SIGNED",
-        signedAt: new Date(),
-      },
-    });
-
-    if (contract.contractType === "MAIN") {
-      await prisma.loanApplication.update({
-        where: { id: contract.applicationId },
-        data: { status: "CONTRACTED" },
-      });
-    }
-
-    return { success: true, data: updated };
-  }
 }

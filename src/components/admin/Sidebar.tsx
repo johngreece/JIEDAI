@@ -2,10 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
+
+import { canAccessAdminPath } from "@/lib/admin-access-policy";
 
 type SidebarProps = {
   collapsed: boolean;
   mobileOpen: boolean;
+  permissions: string[];
+  isSuperAdmin: boolean;
   onClose: () => void;
   onToggleCollapse: () => void;
 };
@@ -47,6 +52,8 @@ const NAV_GROUPS: NavGroup[] = [
     title: "资金管理",
     items: [
       { href: "/admin/ledger", label: "资金台账", short: "账" },
+      { href: "/admin/finance-reconciliation", label: "资金对账", short: "核" },
+      { href: "/admin/capital-inflows", label: "资金流入审核", short: "入" },
       { href: "/admin/funders", label: "资金方", short: "资" },
       { href: "/admin/funder-interest-settlements", label: "收益结算", short: "息" },
       { href: "/admin/funder-withdrawals", label: "资金方提现", short: "提" },
@@ -73,8 +80,25 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollapse }: SidebarProps) {
+export default function Sidebar({
+  collapsed,
+  mobileOpen,
+  permissions,
+  isSuperAdmin,
+  onClose,
+  onToggleCollapse,
+}: SidebarProps) {
   const pathname = usePathname();
+  const visibleNavGroups = useMemo(
+    () =>
+      NAV_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          canAccessAdminPath(item.href, { permissions, isSuperAdmin })
+        ),
+      })).filter((group) => group.items.length > 0),
+    [isSuperAdmin, permissions]
+  );
 
   return (
     <>
@@ -137,7 +161,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose, onToggleCollap
 
         <div className="flex-1 overflow-y-auto px-3 py-4">
           <div className="space-y-4">
-            {NAV_GROUPS.map((group) => (
+            {visibleNavGroups.map((group) => (
               <section
                 key={group.title}
                 className="rounded-[1.35rem] border border-white/70 bg-white/68 p-2.5 shadow-[0_10px_26px_rgba(15,23,42,0.05)] backdrop-blur-xl"

@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { getSession, isAdmin, isClient } from "@/lib/auth";
 import { verifyContractSignAccessToken } from "@/lib/contract-sign-session";
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await getSession();
   if (!session) {
@@ -19,9 +20,24 @@ export async function GET(
 
   const { id } = await params;
   const accessToken = new URL(req.url).searchParams.get("accessToken");
+  let contractWhere: Prisma.ContractWhereInput;
 
-  const contract = await prisma.contract.findUnique({
-    where: { id },
+  if (isAdmin(session)) {
+    const adminSession = await requirePermission(["contract:view"]);
+    if (adminSession instanceof Response) return adminSession;
+    contractWhere = { id, deletedAt: null };
+  } else {
+    if (!isClient(session)) {
+      return NextResponse.json({ error: "无权访问该合同" }, { status: 403 });
+    }
+
+    const activeClientSession = await ensureActiveClientSession(session);
+    if (activeClientSession instanceof Response) return activeClientSession;
+    contractWhere = { id, customerId: session.sub, deletedAt: null };
+  }
+
+  const contract = await prisma.contract.findFirst({
+    where: contractWhere,
     select: {
       id: true,
       contractNo: true,
@@ -38,21 +54,7 @@ export async function GET(
   }
 
   if (isAdmin(session)) {
-    const adminSession = await requirePermission(["contract:view"]);
-    if (adminSession instanceof Response) return adminSession;
-
     return NextResponse.json(contract);
-  }
-
-  if (!isClient(session)) {
-    return NextResponse.json({ error: "无权访问该合同" }, { status: 403 });
-  }
-
-  const activeClientSession = await ensureActiveClientSession(session);
-  if (activeClientSession instanceof Response) return activeClientSession;
-
-  if (contract.customerId !== session.sub) {
-    return NextResponse.json({ error: "无权访问该合同" }, { status: 403 });
   }
 
   if (accessToken) {

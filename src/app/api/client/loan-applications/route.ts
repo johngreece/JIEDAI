@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { TERMINAL_LOAN_STATUSES } from "@/lib/business-status";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 import { isPublicClientProductCode } from "@/lib/public-loan-products";
-import { getClientProfileCompletion } from "@/lib/client-profile";
+import {
+  getClientBaseCreditLimit,
+  getClientProfileCompletion,
+} from "@/lib/client-profile";
+import { getClientLoanTermsError } from "@/lib/client-loan-terms";
+import { formatMoney as money } from "@/lib/system-config";
 
 export const dynamic = "force-dynamic";
 
@@ -22,22 +27,12 @@ function genApplicationNo() {
   return `LA${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 }
 
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 export async function POST(req: NextRequest) {
   const session = await requireActiveClientSession();
   if (session instanceof Response) return session;
 
   const idemKey = getScopedIdempotencyKey(req, ["client", session.sub, "loan-application"]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -156,27 +151,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const creditLimit = Number(customer.creditLimitOverride ?? customer.creditLimit ?? 0);
-  if (input.amount - creditLimit > 0.000001) {
-    return NextResponse.json({ error: `申请金额不能超过可借额度 ${money(creditLimit)}` }, { status: 400 });
-  }
-
-  if (input.amount + 0.000001 < Number(product.minAmount) || input.amount - Number(product.maxAmount) > 0.000001) {
-    return NextResponse.json(
-      {
-        error: `申请金额需在 ${money(Number(product.minAmount))} 到 ${money(Number(product.maxAmount))} 之间`,
-      },
-      { status: 400 }
-    );
-  }
-
-  if (input.termValue < product.minTermValue || input.termValue > product.maxTermValue) {
-    return NextResponse.json(
-      {
-        error: `借款期限需在 ${product.minTermValue} 到 ${product.maxTermValue} 之间`,
-      },
-      { status: 400 }
-    );
+  const creditLimit = customer.creditLimitOverride != null
+    ? Number(customer.creditLimitOverride)
+    : getClientBaseCreditLimit(profileCompletion);
+  const termsError = getClientLoanTermsError({
+    terms: input,
+    product: {
+      minAmount: Number(product.minAmount),
+      maxAmount: Number(product.maxAmount),
+      minTermValue: product.minTermValue,
+      maxTermValue: product.maxTermValue,
+    },
+    creditLimit,
+  });
+  if (termsError) {
+    return NextResponse.json({ error: termsError }, { status: 400 });
   }
 
   const created = await prisma.loanApplication.create({
@@ -217,6 +206,6 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
-  await saveIdempotencyResult(idemKey, created);
   return NextResponse.json(created);
+  });
 }

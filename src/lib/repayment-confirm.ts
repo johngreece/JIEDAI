@@ -7,7 +7,7 @@
  */
 
 import { Prisma } from "@prisma/client";
-import { writeAuditLog } from "./audit";
+import { writeAuditLogInTransaction } from "./audit";
 import { prisma } from "./prisma";
 import { recordRepaymentLedger } from "@/services/ledger.service";
 import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
@@ -18,6 +18,14 @@ import {
   extractPaidDates,
   hasExplicitInterestFreeze,
 } from "@/lib/repayment-runtime";
+import { deriveRepaymentOpenComponents } from "@/lib/repayment-allocation";
+import { formatMoney as money } from "@/lib/system-config";
+import { transitionLoanApplication } from "@/services/loan-transition.service";
+import { isValidSignatureDataUrl } from "@/lib/contract-signature";
+import {
+  appendRepaymentConfirmationEvidence,
+  REPAYMENT_CONFIRMATION_EVIDENCE_ACTION,
+} from "@/services/repayment-confirmation-evidence.service";
 
 export type RepaymentStatus =
   | "PENDING"
@@ -29,15 +37,6 @@ export type RepaymentStatus =
   | "MANUAL_REVIEW";
 
 const EPSILON = 0.0001;
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 const ALLOWED_TRANSITIONS: Record<RepaymentStatus, RepaymentStatus[]> = {
   PENDING: ["MATCHED", "MANUAL_REVIEW"],
@@ -57,35 +56,26 @@ export async function confirmRepayment(params: {
   repaymentId: string;
   customerId: string;
   action: "CONFIRMED" | "DECLARED_PAID" | "REJECTED";
+  confirmedAmount?: string;
   signatureData?: string;
   rejectReason?: string;
   ipAddress: string;
   deviceInfo?: string;
 }) {
-  const repayment = await prisma.repayment.findUnique({
-    where: { id: params.repaymentId },
+  const ownedApplications = await prisma.loanApplication.findMany({
+    where: { customerId: params.customerId, deletedAt: null },
+    select: { id: true },
+  });
+  const ownedApplicationIds = ownedApplications.map((application) => application.id);
+  const repayment = await prisma.repayment.findFirst({
+    where: {
+      id: params.repaymentId,
+      plan: { applicationId: { in: ownedApplicationIds } },
+    },
   });
 
   if (!repayment) {
     throw new Error("Repayment not found");
-  }
-
-  const plan = await prisma.repaymentPlan.findUnique({
-    where: { id: repayment.planId },
-    select: {
-      applicationId: true,
-    },
-  });
-
-  const applicationOwner = plan
-    ? await prisma.loanApplication.findUnique({
-        where: { id: plan.applicationId },
-        select: { customerId: true },
-      })
-    : null;
-
-  if (!plan || !applicationOwner || applicationOwner.customerId !== params.customerId) {
-    throw new Error("You cannot confirm this repayment");
   }
 
   const targetStatus: RepaymentStatus =
@@ -95,35 +85,55 @@ export async function confirmRepayment(params: {
     throw new Error(`Cannot move repayment from ${repayment.status} to ${targetStatus}`);
   }
 
+  const submittedAmount = params.confirmedAmount
+    ? new Prisma.Decimal(params.confirmedAmount)
+    : null;
+  if (
+    targetStatus === "CUSTOMER_CONFIRMED" &&
+    (!submittedAmount || !submittedAmount.equals(repayment.amount))
+  ) {
+    throw new Error("Confirmed amount does not match the repayment amount");
+  }
+  if (
+    targetStatus === "CUSTOMER_CONFIRMED" &&
+    !isValidSignatureDataUrl(params.signatureData)
+  ) {
+    throw new Error("A valid handwritten signature is required");
+  }
+
   const now = new Date();
   const shouldPreserveInterestFreeze = hasExplicitInterestFreeze(repayment);
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.repaymentConfirmation.upsert({
-      where: { repaymentId: params.repaymentId },
-      create: {
-        repaymentId: params.repaymentId,
-        customerId: params.customerId,
-        signatureData: params.signatureData,
-        ipAddress: params.ipAddress,
-        deviceInfo: params.deviceInfo,
-        status: targetStatus,
-        rejectReason: params.rejectReason,
-        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
-      },
-      update: {
-        customerId: params.customerId,
-        signatureData: params.signatureData,
-        ipAddress: params.ipAddress,
-        deviceInfo: params.deviceInfo,
-        status: targetStatus,
-        rejectReason: params.rejectReason,
-        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
-      },
-    });
+    const proofAttachment =
+      targetStatus === "CUSTOMER_CONFIRMED"
+        ? await tx.attachment.findFirst({
+            where: {
+              entityType: "repayment",
+              entityId: params.repaymentId,
+              category: "REPAYMENT_PAYMENT_PROOF",
+              deletedAt: null,
+            },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, fileName: true, mimeType: true },
+          })
+        : null;
+    if (
+      targetStatus === "CUSTOMER_CONFIRMED" &&
+      (!repayment.transactionId || !repayment.payerBank || !repayment.payerAccount)
+    ) {
+      throw new Error("REPAYMENT_BANK_EVIDENCE_MISSING");
+    }
+    if (targetStatus === "CUSTOMER_CONFIRMED" && !proofAttachment) {
+      throw new Error("REPAYMENT_PAYMENT_PROOF_MISSING");
+    }
 
-    await tx.repayment.update({
-      where: { id: params.repaymentId },
+    const claimed = await tx.repayment.updateMany({
+      where: {
+        id: params.repaymentId,
+        status: repayment.status,
+        plan: { applicationId: { in: ownedApplicationIds } },
+      },
       data: {
         status: targetStatus,
         interestFrozenAt:
@@ -138,6 +148,64 @@ export async function confirmRepayment(params: {
           targetStatus === "CUSTOMER_CONFIRMED"
             ? "客户已确认付款，等待管理端确认到账"
             : params.rejectReason || "客户未确认本次还款",
+      },
+    });
+    if (claimed.count !== 1) {
+      throw new Error("Repayment status changed, please refresh and retry");
+    }
+
+    await tx.repaymentConfirmation.upsert({
+      where: { repaymentId: params.repaymentId },
+      create: {
+        repaymentId: params.repaymentId,
+        customerId: params.customerId,
+        confirmedAmount: submittedAmount ?? undefined,
+        signatureData: params.signatureData,
+        ipAddress: params.ipAddress,
+        deviceInfo: params.deviceInfo,
+        status: targetStatus,
+        rejectReason: params.rejectReason,
+        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
+      },
+      update: {
+        customerId: params.customerId,
+        confirmedAmount: submittedAmount ?? undefined,
+        signatureData: params.signatureData ?? undefined,
+        ipAddress: params.ipAddress,
+        deviceInfo: params.deviceInfo ?? undefined,
+        status: targetStatus,
+        rejectReason: params.rejectReason,
+        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
+      },
+    });
+
+    await appendRepaymentConfirmationEvidence(tx, {
+      repaymentId: params.repaymentId,
+      customerId: params.customerId,
+      actorType: "CLIENT",
+      actorId: params.customerId,
+      action:
+        targetStatus === "CUSTOMER_CONFIRMED"
+          ? REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.CLIENT_DECLARED_PAID
+          : REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.CLIENT_REJECTED,
+      fromStatus: repayment.status,
+      toStatus: targetStatus,
+      confirmedAmount: submittedAmount,
+      signatureData: params.signatureData,
+      ipAddress: params.ipAddress,
+      deviceInfo: params.deviceInfo,
+      reason: params.rejectReason,
+      occurredAt: now,
+      details: {
+        repaymentNo: repayment.repaymentNo,
+        expectedAmount: repayment.amount.toFixed(4),
+        submittedAction: params.action,
+        transactionId: repayment.transactionId,
+        payerBank: repayment.payerBank,
+        payerAccount: repayment.payerAccount,
+        proofAttachmentId: proofAttachment?.id ?? null,
+        proofFileName: proofAttachment?.fileName ?? null,
+        proofMimeType: proofAttachment?.mimeType ?? null,
       },
     });
   });
@@ -210,18 +278,34 @@ export async function settleRepaymentReceipt(params: {
         },
       });
 
-      return tx.repayment.findUniqueOrThrow({ where: { id: params.repaymentId } });
-    });
+      await appendRepaymentConfirmationEvidence(tx, {
+        repaymentId: params.repaymentId,
+        customerId: application.customerId,
+        actorType: "ADMIN",
+        actorId: params.operatorId,
+        action: REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.ADMIN_CONFIRMED_NOT_RECEIVED,
+        fromStatus: repayment.status,
+        toStatus: "REJECTED",
+        confirmedAmount: repayment.confirmation?.confirmedAmount ?? repayment.amount,
+        reason: params.rejectReason || "管理端确认未收到款项",
+        occurredAt: now,
+        details: { repaymentNo: repayment.repaymentNo },
+      });
 
-    await writeAuditLog({
-      userId: params.operatorId,
-      action: "confirm",
-      entityType: "repayment",
-      entityId: params.repaymentId,
-      oldValue: { status: repayment.status },
-      newValue: { status: rejected.status, rejectReason: params.rejectReason || null },
-      changeSummary: "管理端确认未收到该笔还款",
-    }).catch(() => undefined);
+      const rejected = await tx.repayment.findUniqueOrThrow({
+        where: { id: params.repaymentId },
+      });
+      await writeAuditLogInTransaction(tx, {
+        userId: params.operatorId,
+        action: "confirm",
+        entityType: "repayment",
+        entityId: params.repaymentId,
+        oldValue: { status: repayment.status },
+        newValue: { status: rejected.status, rejectReason: params.rejectReason || null },
+        changeSummary: "管理端确认未收到该笔还款",
+      });
+      return rejected;
+    });
 
     await InAppNotificationService.notifyCustomer({
       customerId: application.customerId,
@@ -237,6 +321,24 @@ export async function settleRepaymentReceipt(params: {
   }
 
   const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    if (!repayment.transactionId || !repayment.payerBank || !repayment.payerAccount) {
+      throw new Error("REPAYMENT_BANK_EVIDENCE_MISSING");
+    }
+
+    const proofAttachment = await tx.attachment.findFirst({
+      where: {
+        entityType: "repayment",
+        entityId: params.repaymentId,
+        category: "REPAYMENT_PAYMENT_PROOF",
+        deletedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, fileName: true, mimeType: true, createdAt: true },
+    });
+    if (!proofAttachment) {
+      throw new Error("REPAYMENT_PAYMENT_PROOF_MISSING");
+    }
+
     const claimed = await tx.repayment.updateMany({
       where: { id: params.repaymentId, status: repayment.status },
       data: {
@@ -261,6 +363,31 @@ export async function settleRepaymentReceipt(params: {
       },
     });
 
+    await appendRepaymentConfirmationEvidence(tx, {
+      repaymentId: params.repaymentId,
+      customerId: application.customerId,
+      actorType: "ADMIN",
+      actorId: params.operatorId,
+      action: REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.ADMIN_CONFIRMED_RECEIVED,
+      fromStatus: repayment.status,
+      toStatus: "CONFIRMED",
+      confirmedAmount: repayment.confirmation?.confirmedAmount ?? repayment.amount,
+      occurredAt: now,
+      details: {
+        repaymentNo: repayment.repaymentNo,
+        transactionId: repayment.transactionId,
+        payerBank: repayment.payerBank,
+        payerAccount: repayment.payerAccount,
+        proofAttachmentId: proofAttachment.id,
+        proofFileName: proofAttachment.fileName,
+        proofMimeType: proofAttachment.mimeType,
+        principalPart: Number(repayment.principalPart),
+        interestPart: Number(repayment.interestPart),
+        feePart: Number(repayment.feePart),
+        penaltyPart: Number(repayment.penaltyPart),
+      },
+    });
+
     await recordRepaymentLedger(tx, {
       repaymentId: params.repaymentId,
       principalPart: repayment.principalPart,
@@ -272,11 +399,27 @@ export async function settleRepaymentReceipt(params: {
     });
 
     const allocationTotals = new Map<string, number>();
+    const allocationComponents = new Map<
+      string,
+      { principal: number; interest: number; fee: number; penalty: number }
+    >();
     repayment.allocations.forEach((allocation) => {
       allocationTotals.set(
         allocation.itemId,
         (allocationTotals.get(allocation.itemId) || 0) + Number(allocation.amount)
       );
+      const current = allocationComponents.get(allocation.itemId) ?? {
+        principal: 0,
+        interest: 0,
+        fee: 0,
+        penalty: 0,
+      };
+      const amount = Number(allocation.amount);
+      if (allocation.type === "PRINCIPAL") current.principal += amount;
+      if (allocation.type === "INTEREST") current.interest += amount;
+      if (allocation.type === "FEE") current.fee += amount;
+      if (allocation.type === "PENALTY") current.penalty += amount;
+      allocationComponents.set(allocation.itemId, current);
     });
 
     const confirmedRepayments = await tx.repayment.findMany({
@@ -307,7 +450,7 @@ export async function settleRepaymentReceipt(params: {
       : null;
     const realtimeOutstanding = calculateLiveOutstandingFromSnapshot({
       rulesSnapshotJson: repayment.plan.rulesSnapshotJson,
-      principal: Number(application.amount),
+      principal: Number(repayment.plan.totalPrincipal),
       disbursedAt: application.disbursement?.disbursedAt,
       paymentTime: repayment.receivedAt ?? now,
       paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),
@@ -326,7 +469,35 @@ export async function settleRepaymentReceipt(params: {
       const applied = allocationTotals.get(item.id) || 0;
       const currentRemaining =
         dynamicRemainingByItem.get(item.id) ?? Number(item.remaining || item.totalDue || 0);
+      const appliedComponents = allocationComponents.get(item.id) ?? {
+        principal: 0,
+        interest: 0,
+        fee: 0,
+        penalty: 0,
+      };
+      const storedComponentTotal =
+        Number(item.remainingPrincipal) +
+        Number(item.remainingInterest) +
+        Number(item.remainingFee);
+      if (currentRemaining > EPSILON && storedComponentTotal <= EPSILON) {
+        throw new Error("SCHEDULE_COMPONENT_BALANCES_MISSING");
+      }
+      const currentComponents = deriveRepaymentOpenComponents(item, currentRemaining);
+      let nextPrincipal = Math.max(0, currentComponents.principal - appliedComponents.principal);
+      let nextInterest = Math.max(0, currentComponents.interest - appliedComponents.interest);
+      let nextFee = Math.max(0, currentComponents.fee - appliedComponents.fee);
+      let nextPenalty = Math.max(0, currentComponents.penalty - appliedComponents.penalty);
       const nextRemaining = Math.max(0, currentRemaining - applied);
+      if (nextRemaining <= EPSILON) {
+        nextPrincipal = 0;
+        nextInterest = 0;
+        nextFee = 0;
+        nextPenalty = 0;
+      } else if (
+        Math.abs(nextPrincipal + nextInterest + nextFee + nextPenalty - nextRemaining) > 0.01
+      ) {
+        throw new Error("SCHEDULE_COMPONENT_ALLOCATION_MISMATCH");
+      }
       const nextStatus =
         nextRemaining <= EPSILON
           ? "PAID"
@@ -339,13 +510,16 @@ export async function settleRepaymentReceipt(params: {
           where: { id: item.id },
           data: {
             remaining: nextRemaining,
+            remainingPrincipal: nextPrincipal,
+            remainingInterest: nextInterest,
+            remainingFee: nextFee,
             status: nextStatus,
             paidAt: nextRemaining <= EPSILON ? now : item.paidAt,
           },
         });
 
         if (nextRemaining <= EPSILON) {
-          await resolveOverdue(item.id);
+          await resolveOverdue(item.id, tx);
         }
       }
 
@@ -361,9 +535,18 @@ export async function settleRepaymentReceipt(params: {
         data: { status: "COMPLETED" },
       });
 
-      await tx.loanApplication.update({
-        where: { id: application.id },
-        data: { status: "SETTLED" },
+      await transitionLoanApplication(tx, {
+        applicationId: application.id,
+        from: application.status,
+        to: "SETTLED",
+        action: "SETTLE",
+        operatorId: params.operatorId,
+        auditAction: "repay_confirm",
+        changeSummary: "Loan fully settled",
+        auditNewValue: {
+          repaymentId: repayment.id,
+          repaymentPlanId: repayment.planId,
+        },
       });
 
       await tx.contract.updateMany({
@@ -396,6 +579,11 @@ export async function settleRepaymentReceipt(params: {
         description: "Customer repayment received",
         metadata: {
           applicationId: application.id,
+          transactionId: repayment.transactionId,
+          payerBank: repayment.payerBank,
+          payerAccount: repayment.payerAccount,
+          proofAttachmentId: proofAttachment.id,
+          proofFileName: proofAttachment.fileName,
           principalPart: Number(repayment.principalPart),
           interestPart: Number(repayment.interestPart),
           feePart: Number(repayment.feePart),
@@ -404,24 +592,29 @@ export async function settleRepaymentReceipt(params: {
       });
     }
 
+    await writeAuditLogInTransaction(tx, {
+      userId: params.operatorId,
+      action: "confirm",
+      entityType: "repayment",
+      entityId: params.repaymentId,
+      oldValue: { status: repayment.status },
+      newValue: {
+        status: received.status,
+        transactionId: repayment.transactionId,
+        payerBank: repayment.payerBank,
+        payerAccount: repayment.payerAccount,
+        proofAttachmentId: proofAttachment.id,
+        proofFileName: proofAttachment.fileName,
+        principalPart: Number(repayment.principalPart),
+        interestPart: Number(repayment.interestPart),
+        feePart: Number(repayment.feePart),
+        penaltyPart: Number(repayment.penaltyPart),
+      },
+      changeSummary: "管理端确认该笔还款已经到账",
+    });
+
     return received;
   });
-
-  await writeAuditLog({
-    userId: params.operatorId,
-    action: "confirm",
-    entityType: "repayment",
-    entityId: params.repaymentId,
-    oldValue: { status: repayment.status },
-    newValue: {
-      status: updated.status,
-      principalPart: Number(repayment.principalPart),
-      interestPart: Number(repayment.interestPart),
-      feePart: Number(repayment.feePart),
-      penaltyPart: Number(repayment.penaltyPart),
-    },
-    changeSummary: "管理端确认该笔还款已经到账",
-  }).catch(() => undefined);
 
   await InAppNotificationService.notifyCustomer({
     customerId: application.customerId,

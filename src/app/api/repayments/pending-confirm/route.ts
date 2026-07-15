@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,30 @@ export async function GET() {
       })
     : [];
   const appMap = new Map(apps.map((x) => [x.id, x]));
+  const proofs = list.length
+    ? await prisma.attachment.findMany({
+        where: {
+          entityType: "repayment",
+          entityId: { in: list.map((item) => item.id) },
+          category: "REPAYMENT_PAYMENT_PROOF",
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          entityId: true,
+          fileName: true,
+          fileUrl: true,
+          fileSize: true,
+          mimeType: true,
+          category: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const proofMap = new Map(
+    proofs.map((proof) => [proof.entityId, serializeProofAttachment(proof)]),
+  );
 
   return NextResponse.json({
     items: list.map((x) => ({
@@ -37,6 +62,11 @@ export async function GET() {
       repaymentNo: x.repaymentNo,
       amount: Number(x.amount),
       status: x.status,
+      paymentMethod: x.paymentMethod,
+      transactionId: x.transactionId,
+      payerBank: x.payerBank,
+      payerAccount: x.payerAccount,
+      proof: proofMap.get(x.id) ?? null,
       receivedAt: x.receivedAt,
       plan: x.plan,
       application: appMap.get(x.plan.applicationId) ?? null,

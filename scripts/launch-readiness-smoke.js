@@ -1,11 +1,26 @@
 const { spawn } = require("child_process");
 const bcrypt = require("bcryptjs");
+const { loadEnvConfig } = require("@next/env");
 const { PrismaClient } = require("@prisma/client");
+const {
+  buildRegressionServerEnvironment,
+  createRegressionUsers,
+  createRuntimePassword,
+  deactivateRegressionUsers,
+  requireIsolatedRegressionDatabase,
+} = require("./lib/regression-runtime");
+
+loadEnvConfig(process.cwd());
+
+const regressionDatabaseUrl = requireIsolatedRegressionDatabase(process.env);
+process.env.DATABASE_URL = regressionDatabaseUrl;
+process.env.DIRECT_URL = regressionDatabaseUrl;
 
 const BASE_URL = process.env.REGRESSION_BASE_URL || "http://127.0.0.1:3001";
 const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DIRECT_URL || process.env.DATABASE_URL } },
+  datasources: { db: { url: regressionDatabaseUrl } },
 });
+let regressionUserIds = [];
 
 function buildPhone(prefix, seed) {
   const numeric = String(seed).replace(/\D/g, "").slice(-7).padStart(7, "0");
@@ -78,8 +93,8 @@ async function expectOk(jar, path, options, label) {
   return body;
 }
 
-async function createActiveFixture(adminJar, tag) {
-  const customerPassword = "customer123";
+async function createActiveFixture(adminJar, tag, roleUsers) {
+  const customerPassword = createRuntimePassword();
   const customerPhone = buildPhone("694", `${Date.now()}1`);
   const customerHash = await bcrypt.hash(customerPassword, 10);
 
@@ -111,7 +126,7 @@ async function createActiveFixture(adminJar, tag) {
   });
 
   const funderPhone = buildPhone("693", `${Date.now()}2`);
-  const funderHash = await bcrypt.hash("funder123", 10);
+  const funderHash = await bcrypt.hash(createRuntimePassword(), 10);
   const funder = await prisma.funder.create({
     data: {
       name: `Launch Funder ${tag}`,
@@ -166,11 +181,11 @@ async function createActiveFixture(adminJar, tag) {
     "create launch-readiness loan"
   );
 
-  const managerJar = new CookieJar("manager");
-  const financeJar = new CookieJar("finance");
+  const managerJar = new CookieJar(roleUsers.manager.username);
+  const financeJar = new CookieJar(roleUsers.finance.username);
 
-  await expectOk(managerJar, "/api/auth/admin/login", { method: "POST", body: { username: "manager", password: "manager123" } }, "manager login");
-  await expectOk(financeJar, "/api/auth/admin/login", { method: "POST", body: { username: "finance", password: "finance123" } }, "finance login");
+  await expectOk(managerJar, "/api/auth/admin/login", { method: "POST", body: { username: roleUsers.manager.username, password: roleUsers.manager.password } }, "manager login");
+  await expectOk(financeJar, "/api/auth/admin/login", { method: "POST", body: { username: roleUsers.finance.username, password: roleUsers.finance.password } }, "finance login");
 
   await expectOk(adminJar, `/api/loan-applications/${created.id}/submit`, { method: "POST" }, "submit launch loan");
   await expectOk(managerJar, `/api/loan-applications/${created.id}/risk`, { method: "POST", body: { action: "PASS", riskScore: 85, comment: `launch risk ${tag}` } }, "launch risk");
@@ -271,6 +286,7 @@ function spawnDevServer() {
     return spawn("cmd.exe", ["/c", "npm run dev"], {
       cwd: process.cwd(),
       stdio: ["ignore", "pipe", "pipe"],
+      env: buildRegressionServerEnvironment(regressionDatabaseUrl),
     });
   }
 
@@ -278,6 +294,7 @@ function spawnDevServer() {
     cwd: process.cwd(),
     stdio: ["ignore", "pipe", "pipe"],
     shell: false,
+    env: buildRegressionServerEnvironment(regressionDatabaseUrl),
   });
 }
 
@@ -323,18 +340,30 @@ async function main() {
       await waitForReady(child);
     }
 
-    const adminJar = new CookieJar("admin");
+    const tag = `LR-${Date.now()}`;
+    const roleUsers = await createRegressionUsers({
+      prisma,
+      bcrypt,
+      tag,
+      roleCodes: ["super_admin", "manager", "finance"],
+    });
+    regressionUserIds = Object.values(roleUsers).map((user) => user.id);
+
+    const adminJar = new CookieJar(roleUsers.super_admin.username);
     await expectOk(
       adminJar,
       "/api/auth/admin/login",
       {
         method: "POST",
-        body: { username: "admin", password: "Wanjin888@" },
+        body: {
+          username: roleUsers.super_admin.username,
+          password: roleUsers.super_admin.password,
+        },
       },
       "admin login"
     );
 
-    await createActiveFixture(adminJar, `LR-${Date.now()}`);
+    await createActiveFixture(adminJar, tag, roleUsers);
 
     const readiness = await expectOk(
       adminJar,
@@ -371,6 +400,7 @@ async function main() {
     console.log(JSON.stringify({ ok: true, baseUrl: BASE_URL, checks }, null, 2));
   } finally {
     await stopServer(child);
+    await deactivateRegressionUsers(prisma, regressionUserIds);
     await prisma.$disconnect();
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveFunderSession } from "@/lib/portal-session";
 import { FunderInterestSettlementService } from "@/services/funder-interest-settlement.service";
 
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const actionSchema = z.object({
   settlementId: z.string().min(1),
-  action: z.enum(["confirm_received", "not_received"]),
+  action: z.enum(["confirm_settlement", "dispute_settlement"]),
   reason: z.string().trim().max(500).optional(),
 });
 
@@ -68,25 +68,24 @@ export async function POST(req: NextRequest) {
     parsed.data.settlementId,
     parsed.data.action,
   ]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
+    try {
+      const result =
+        parsed.data.action === "confirm_settlement"
+          ? await FunderInterestSettlementService.confirmByFunder(parsed.data.settlementId, session.sub)
+          : await FunderInterestSettlementService.disputeByFunder(
+              parsed.data.settlementId,
+              session.sub,
+              parsed.data.reason || "资金方对结算金额或周期提出异议",
+            );
 
-  try {
-    const result =
-      parsed.data.action === "confirm_received"
-        ? await FunderInterestSettlementService.confirmByFunder(parsed.data.settlementId, session.sub)
-        : await FunderInterestSettlementService.rejectByFunder(
-            parsed.data.settlementId,
-            session.sub,
-            parsed.data.reason || "资金方反馈未收到该笔利息",
-          );
-
-    await saveIdempotencyResult(idemKey, result);
-    return NextResponse.json(result);
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "收益确认失败" },
-      { status: 400 },
-    );
-  }
+      return NextResponse.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "收益确认失败";
+      return NextResponse.json(
+        { error: message },
+        { status: message.includes("状态已变化") ? 409 : 400 },
+      );
+    }
+  });
 }

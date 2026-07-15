@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
@@ -21,15 +23,6 @@ type Props = {
   availableLimit: number;
   products: ProductOption[];
 };
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function termText(value: number, unit: string) {
   return `${value} ${unit === "DAY" ? "天" : unit === "MONTH" ? "个月" : unit}`;

@@ -5,11 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { LoanApplicationListItem } from "@/lib/admin-prefetch";
 
-const STATUS_OPTIONS = ["ALL", "DRAFT", "REJECTED", "PENDING_RISK", "PENDING_APPROVAL", "APPROVED", "DISBURSED"];
+const STATUS_OPTIONS = ["ALL", "DRAFT", "RETURNED", "PENDING_RISK", "PENDING_APPROVAL", "APPROVED", "REJECTED", "DISBURSED"];
 
 function statusText(status: string) {
   const map: Record<string, string> = {
     DRAFT: "草稿",
+    RETURNED: "已退回补件",
     REJECTED: "已拒绝",
     PENDING_RISK: "待风控",
     PENDING_APPROVAL: "待审批",
@@ -22,7 +23,7 @@ function statusText(status: string) {
 
 function statusCls(status: string) {
   if (status === "APPROVED" || status === "DISBURSED") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (status === "PENDING_RISK" || status === "PENDING_APPROVAL") return "bg-amber-50 text-amber-700 border-amber-200";
+  if (["RETURNED", "PENDING_RISK", "PENDING_APPROVAL"].includes(status)) return "bg-amber-50 text-amber-700 border-amber-200";
   if (status === "REJECTED") return "bg-red-50 text-red-700 border-red-200";
   return "bg-slate-50 text-slate-700 border-slate-200";
 }
@@ -70,14 +71,28 @@ export function LoanApplicationsPageClient({
   const stats = useMemo(
     () => ({
       total: items.length,
-      pending: items.filter((item) => item.status === "PENDING_RISK" || item.status === "PENDING_APPROVAL").length,
+      pending: items.filter((item) => ["RETURNED", "PENDING_RISK", "PENDING_APPROVAL"].includes(item.status)).length,
       approved: items.filter((item) => item.status === "APPROVED").length,
       rejected: items.filter((item) => item.status === "REJECTED").length,
     }),
     [items],
   );
 
-  async function action(id: string, type: "submit" | "risk-pass" | "risk-reject" | "approve" | "reject") {
+  async function action(
+    id: string,
+    type: "submit" | "risk-pass" | "risk-return" | "risk-reject" | "approve" | "approval-return" | "reject",
+  ) {
+    let reason: string | undefined;
+    if (["risk-return", "risk-reject", "approval-return", "reject"].includes(type)) {
+      const entered = window.prompt(type.includes("return") ? "填写退回补件原因" : "填写拒绝原因");
+      if (entered === null) return;
+      reason = entered.trim();
+      if (!reason) {
+        window.alert("原因不能为空");
+        return;
+      }
+    }
+
     setActingId(id);
     try {
       let url = "";
@@ -90,7 +105,11 @@ export function LoanApplicationsPageClient({
       }
       if (type === "risk-reject") {
         url = `/api/loan-applications/${id}/risk`;
-        payload = { action: "REJECT", comment: "资料不完整" };
+        payload = { action: "REJECT", comment: reason };
+      }
+      if (type === "risk-return") {
+        url = `/api/loan-applications/${id}/risk`;
+        payload = { action: "RETURN", comment: reason };
       }
       if (type === "approve") {
         url = `/api/loan-applications/${id}/approve`;
@@ -98,7 +117,11 @@ export function LoanApplicationsPageClient({
       }
       if (type === "reject") {
         url = `/api/loan-applications/${id}/approve`;
-        payload = { action: "REJECT", comment: "审批拒绝" };
+        payload = { action: "REJECT", comment: reason };
+      }
+      if (type === "approval-return") {
+        url = `/api/loan-applications/${id}/approve`;
+        payload = { action: "RETURN", comment: reason };
       }
 
       const res = await fetch(url, {
@@ -242,13 +265,13 @@ export function LoanApplicationsPageClient({
                         <Link href={`/admin/loan-applications/${item.id}`} className="text-sm font-medium text-blue-600 hover:underline">
                           详情
                         </Link>
-                        {(item.status === "DRAFT" || item.status === "REJECTED") ? (
+                        {(item.status === "DRAFT" || item.status === "RETURNED") ? (
                           <button
                             disabled={actingId === item.id}
                             onClick={() => action(item.id, "submit")}
                             className="text-sm font-medium text-slate-700 hover:underline disabled:opacity-50"
                           >
-                            提交
+                            {item.status === "RETURNED" ? "重新提交" : "提交"}
                           </button>
                         ) : null}
                         {item.status === "PENDING_RISK" ? (
@@ -259,6 +282,13 @@ export function LoanApplicationsPageClient({
                               className="text-sm font-medium text-emerald-700 hover:underline disabled:opacity-50"
                             >
                               风控通过
+                            </button>
+                            <button
+                              disabled={actingId === item.id}
+                              onClick={() => action(item.id, "risk-return")}
+                              className="text-sm font-medium text-amber-700 hover:underline disabled:opacity-50"
+                            >
+                              退回补件
                             </button>
                             <button
                               disabled={actingId === item.id}
@@ -280,6 +310,13 @@ export function LoanApplicationsPageClient({
                             </button>
                             <button
                               disabled={actingId === item.id}
+                              onClick={() => action(item.id, "approval-return")}
+                              className="text-sm font-medium text-amber-700 hover:underline disabled:opacity-50"
+                            >
+                              退回补件
+                            </button>
+                            <button
+                              disabled={actingId === item.id}
                               onClick={() => action(item.id, "reject")}
                               className="text-sm font-medium text-red-700 hover:underline disabled:opacity-50"
                             >
@@ -287,7 +324,7 @@ export function LoanApplicationsPageClient({
                             </button>
                           </>
                         ) : null}
-                        {!["DISBURSED", "CONTRACTED"].includes(item.status) ? (
+                        {["DRAFT", "RETURNED", "REJECTED"].includes(item.status) ? (
                           <button
                             type="button"
                             onClick={() => void removeApplication(item)}

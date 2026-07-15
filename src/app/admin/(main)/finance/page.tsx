@@ -1,35 +1,50 @@
 import Link from "next/link";
 
-const ACTIONS = [
+import { AdminAccessDenied } from "@/components/admin/AdminAccessDenied";
+import { getAdminPermissionCodes, requireAdmin } from "@/lib/rbac";
+import type { PermissionCode } from "@/lib/permissions";
+
+const ACTIONS: Array<{
+  title: string;
+  href: string;
+  description: string;
+  note: string;
+  permission: PermissionCode;
+}> = [
   {
     title: "资金入金",
-    href: "/admin/funders",
+    href: "/admin/capital-inflows",
     description: "选择资金方账户，录入金额、渠道和备注，系统自动入池并登记资金流水。",
     note: "适合处理新增注资、补充放款额度。",
+    permission: "inflow:view",
   },
   {
     title: "财务结算",
     href: "/admin/settlement",
     description: "查看客户收入、资金方成本、平台净利润、现金流与对账差额。",
     note: "适合日结、周结和异常复核。",
+    permission: "ledger:view",
   },
   {
     title: "收益结算",
     href: "/admin/funder-interest-settlements",
-    description: "按周息/月息规则生成资金方应付利息，平台打款后由资金方确认到账。",
-    note: "适合处理资金方收益应付、已付和到账确认。",
+    description: "按周息/月息规则生成资金方应计收益，资金方确认后计入内部资金账户。",
+    note: "银行出金统一通过提现审批和付款凭证处理。",
+    permission: "settlement:view",
   },
   {
     title: "提现审批",
     href: "/admin/funder-withdrawals",
     description: "处理资金方提现申请，审批后自动扣减账户余额并生成资金流水。",
     note: "适合控制出金节奏与账户余额。",
+    permission: "withdrawal:view",
   },
   {
     title: "资金流水",
     href: "/admin/ledger",
     description: "集中查看客户台账与资金流水，便于财务复核和问题追踪。",
     note: "适合定位差异、核对单笔变动。",
+    permission: "ledger:view",
   },
 ];
 
@@ -55,7 +70,17 @@ const WATCHERS = [
   },
 ];
 
-export default function FinancePage() {
+export default async function FinancePage() {
+  const session = await requireAdmin();
+  if (session instanceof Response) {
+    return <AdminAccessDenied />;
+  }
+
+  const permissions = await getAdminPermissionCodes(session);
+  const visibleActions = ACTIONS.filter(
+    (action) => permissions.includes("*") || permissions.includes(action.permission)
+  );
+
   return (
     <div className="space-y-5 2xl:space-y-6">
       <header className="panel-soft admin-page-header">
@@ -76,7 +101,7 @@ export default function FinancePage() {
       <section className="grid gap-4 xl:grid-cols-12">
         <div className="xl:col-span-8">
           <div className="grid gap-4 md:grid-cols-2">
-            {ACTIONS.map((item) => (
+            {visibleActions.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

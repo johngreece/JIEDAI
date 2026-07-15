@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { writeAuditLog } from "@/lib/audit";
-import { getClientProfileCompletion } from "@/lib/client-profile";
+import {
+  getClientBaseCreditLimit,
+  getClientProfileCompletion,
+} from "@/lib/client-profile";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -38,8 +41,7 @@ export async function GET(
   }
 
   const completion = getClientProfileCompletion(customer);
-  const allUploaded = completion.documentsComplete;
-  const baseLimit = allUploaded ? 30000 : 10000;
+  const baseLimit = getClientBaseCreditLimit(completion);
   const effectiveLimit = customer.creditLimitOverride != null
     ? Number(customer.creditLimitOverride)
     : baseLimit;
@@ -51,7 +53,8 @@ export async function GET(
     creditLimitOverride: customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : null,
     effectiveLimit,
     baseLimit,
-    allDocumentsUploaded: allUploaded,
+    allDocumentsUploaded: completion.documentsUploaded,
+    allDocumentsVerified: completion.documentsComplete,
     documents: customer.kyc.map((d) => ({
       kycType: d.kycType,
       status: d.status,

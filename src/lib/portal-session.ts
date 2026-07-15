@@ -1,5 +1,33 @@
-import { getClientSession, getFunderSession, type ClientPayload, type FunderPayload } from "./auth";
+import {
+  getAdminSession,
+  getClientSession,
+  getFunderSession,
+  type AdminPayload,
+  type ClientPayload,
+  type FunderPayload,
+} from "./auth";
 import { prisma } from "./prisma";
+
+export async function getActiveAdminSession(): Promise<AdminPayload | null> {
+  const session = await getAdminSession();
+  if (!session) return null;
+
+  const user = await prisma.user.findFirst({
+    where: { id: session.sub, deletedAt: null, isActive: true },
+    select: {
+      username: true,
+      role: { select: { code: true } },
+    },
+  });
+
+  return user
+    ? {
+        ...session,
+        username: user.username,
+        roles: [user.role.code],
+      }
+    : null;
+}
 
 export async function getActiveClientSession(): Promise<ClientPayload | null> {
   const session = await getClientSession();

@@ -14,11 +14,13 @@ export default async function ClientLayout({
   children: React.ReactNode;
 }) {
   const session = await getActiveClientSession();
-  const username = session?.name || "Guest";
+  if (!session) redirect("/client/login");
+
+  const username = session.name;
   const requestHeaders = await headers();
   const pathname = requestHeaders.get("x-pathname") ?? "/client/profile";
 
-  if (session && !pathname.startsWith("/client/profile")) {
+  if (!pathname.startsWith("/client/profile")) {
     const customer = await prisma.customer.findFirst({
       where: { id: session.sub, deletedAt: null },
       select: {

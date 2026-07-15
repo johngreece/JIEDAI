@@ -29,14 +29,14 @@ function toAdminAction(type: string) {
   if (type === "FUNDER_INTEREST_DUE") {
     return {
       actionUrl: "/admin/funder-interest-settlements?status=DUE",
-      actionLabel: "去标记打款",
+      actionLabel: "去发布结算",
     };
   }
 
-  if (type === "FUNDER_INTEREST_REJECTED") {
+  if (type === "FUNDER_INTEREST_DISPUTED" || type === "FUNDER_INTEREST_REJECTED") {
     return {
-      actionUrl: "/admin/funder-interest-settlements?status=FUNDER_REJECTED",
-      actionLabel: "处理未收到",
+      actionUrl: "/admin/funder-interest-settlements?status=FUNDER_DISPUTED",
+      actionLabel: "处理结算异议",
     };
   }
 
@@ -44,6 +44,13 @@ function toAdminAction(type: string) {
     return {
       actionUrl: "/admin/funder-interest-settlements?status=CONFIRMED_BY_FUNDER",
       actionLabel: "查看确认记录",
+    };
+  }
+
+  if (type === "FINANCE_RECONCILIATION_DIFFERENCE") {
+    return {
+      actionUrl: "/admin/finance-reconciliation",
+      actionLabel: "处理对账差异",
     };
   }
 

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { paginatedResponse, type PaginatedResult, type PaginationParams, toPrismaArgs } from "@/lib/pagination";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 
 export type CustomerListItem = {
   id: string;
@@ -44,11 +45,52 @@ export type RepaymentPrefetchItem = {
   amount: number;
   status: string;
   paymentMethod?: string;
+  transactionId: string;
+  payerBank: string;
+  payerAccount: string;
+  proof?: {
+    id: string;
+    fileName: string;
+    fileUrl: string;
+    accessUrl: string;
+    fileSize: number;
+    mimeType: string;
+    category: string;
+    createdAt: Date;
+  } | null;
   receivedAt?: Date | null;
   plan: { id: string; planNo: string; applicationId: string };
   application: null | { applicationNo: string; customer: { name: string; phone: string } };
   allocations?: Array<{ id: string; itemId: string; amount: number; type: string }>;
 };
+
+async function getRepaymentProofMap(repaymentIds: string[]) {
+  if (repaymentIds.length === 0) return new Map<string, RepaymentPrefetchItem["proof"]>();
+
+  const proofs = await prisma.attachment.findMany({
+    where: {
+      entityType: "repayment",
+      entityId: { in: repaymentIds },
+      category: "REPAYMENT_PAYMENT_PROOF",
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      entityId: true,
+      fileName: true,
+      fileUrl: true,
+      fileSize: true,
+      mimeType: true,
+      category: true,
+      createdAt: true,
+    },
+  });
+
+  return new Map(
+    proofs.map((proof) => [proof.entityId, serializeProofAttachment(proof)]),
+  );
+}
 
 export type FunderPrefetchItem = {
   id: string;
@@ -243,6 +285,7 @@ export async function getRepaymentsList({
     : [];
 
   const appMap = new Map(apps.map((item) => [item.id, item]));
+  const proofMap = await getRepaymentProofMap(list.map((item) => item.id));
 
   return paginatedResponse(
     list.map((item) => ({
@@ -251,6 +294,10 @@ export async function getRepaymentsList({
       status: item.status,
       amount: Number(item.amount),
       paymentMethod: item.paymentMethod,
+      transactionId: item.transactionId,
+      payerBank: item.payerBank,
+      payerAccount: item.payerAccount,
+      proof: proofMap.get(item.id) ?? null,
       receivedAt: item.receivedAt,
       plan: item.plan,
       application: appMap.get(item.plan.applicationId) ?? null,
@@ -284,12 +331,18 @@ export async function getPendingConfirmRepayments(): Promise<RepaymentPrefetchIt
     : [];
 
   const appMap = new Map(apps.map((item) => [item.id, item]));
+  const proofMap = await getRepaymentProofMap(list.map((item) => item.id));
 
   return list.map((item) => ({
     id: item.id,
     repaymentNo: item.repaymentNo,
     amount: Number(item.amount),
     status: item.status,
+    paymentMethod: item.paymentMethod,
+    transactionId: item.transactionId,
+    payerBank: item.payerBank,
+    payerAccount: item.payerAccount,
+    proof: proofMap.get(item.id) ?? null,
     receivedAt: item.receivedAt,
     plan: item.plan,
     application: appMap.get(item.plan.applicationId) ?? null,

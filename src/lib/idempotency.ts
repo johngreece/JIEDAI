@@ -1,52 +1,201 @@
-/**
- * 幂等性 + 乐观锁工具（数据库持久化）
- *
- * 1. 幂等键: 通过请求头 X-Idempotency-Key 防止重复提交。
- *    存储在 idempotency_keys 表（key 主键 + UNIQUE），多实例/重启场景下仍生效。
- * 2. 乐观锁: 通过 updatedAt 字段检测并发冲突。
- */
-
+import { randomUUID } from "crypto";
 import { prisma } from "./prisma";
 
-const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000; // 10 分钟
+const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 180;
+const MAX_CLAIM_ATTEMPTS = 4;
+const PENDING_MARKER = "IDEMPOTENCY_PENDING_V1";
+const HTTP_RESPONSE_MARKER = "IDEMPOTENCY_HTTP_RESPONSE_V1";
 
-/**
- * 检查幂等键是否已存在；命中则返回先前结果
- */
-export async function checkIdempotencyKey(key: string | null): Promise<unknown | null> {
-  if (!key) return null;
-  const row = await prisma.idempotencyKey.findUnique({ where: { key } });
-  if (!row) return null;
-  if (row.expiresAt.getTime() <= Date.now()) {
-    // 过期：清理后视为未命中（容忍清理失败）
-    await prisma.idempotencyKey.delete({ where: { key } }).catch(() => undefined);
-    return null;
-  }
+type PendingRecord = {
+  marker: typeof PENDING_MARKER;
+  token: string;
+  startedAt: string;
+};
+
+type StoredHttpResponse = {
+  marker: typeof HTTP_RESPONSE_MARKER;
+  status: number;
+  bodyText: string;
+  contentType: string | null;
+};
+
+type IdempotencyClaim =
+  | { state: "acquired"; pendingJson: string }
+  | { state: "cached"; result: unknown }
+  | { state: "in_progress" };
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
+}
+
+function parseStoredResult(resultJson: string): unknown {
   try {
-    return JSON.parse(row.resultJson);
+    return JSON.parse(resultJson);
   } catch {
-    return null;
+    return undefined;
   }
 }
 
-/**
- * 保存幂等结果。重复 key 走 upsert（覆盖最新一次成功结果与新有效期）。
- */
-export async function saveIdempotencyResult(key: string | null, result: unknown): Promise<void> {
-  if (!key) return;
-  const expiresAt = new Date(Date.now() + IDEMPOTENCY_TTL_MS);
-  const resultJson = JSON.stringify(result);
+function isPendingRecord(value: unknown): value is PendingRecord {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "marker" in value &&
+    (value as { marker?: unknown }).marker === PENDING_MARKER
+  );
+}
+
+function isStoredHttpResponse(value: unknown): value is StoredHttpResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "marker" in value &&
+    (value as { marker?: unknown }).marker === HTTP_RESPONSE_MARKER
+  );
+}
+
+async function claimIdempotencyKey(key: string): Promise<IdempotencyClaim> {
+  for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS; attempt += 1) {
+    const now = new Date();
+    const pendingJson = JSON.stringify({
+      marker: PENDING_MARKER,
+      token: randomUUID(),
+      startedAt: now.toISOString(),
+    } satisfies PendingRecord);
+
+    try {
+      await prisma.idempotencyKey.create({
+        data: {
+          key,
+          resultJson: pendingJson,
+          expiresAt: new Date(now.getTime() + IDEMPOTENCY_TTL_MS),
+        },
+      });
+      return { state: "acquired", pendingJson };
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+    }
+
+    const existing = await prisma.idempotencyKey.findUnique({ where: { key } });
+    if (!existing) continue;
+
+    if (existing.expiresAt.getTime() <= now.getTime()) {
+      await prisma.idempotencyKey.deleteMany({
+        where: { key, expiresAt: { lte: now } },
+      });
+      continue;
+    }
+
+    const stored = parseStoredResult(existing.resultJson);
+    if (stored === undefined || isPendingRecord(stored)) {
+      return { state: "in_progress" };
+    }
+    return { state: "cached", result: stored };
+  }
+
+  return { state: "in_progress" };
+}
+
+async function completeIdempotencyKey(
+  key: string,
+  pendingJson: string,
+  result: StoredHttpResponse,
+): Promise<void> {
+  const updated = await prisma.idempotencyKey.updateMany({
+    where: { key, resultJson: pendingJson },
+    data: {
+      resultJson: JSON.stringify(result),
+      expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
+    },
+  });
+
+  if (updated.count !== 1) {
+    console.error("[idempotency] claim ownership was lost before completion", { key });
+  }
+}
+
+async function releaseIdempotencyKey(key: string, pendingJson: string): Promise<void> {
   await prisma.idempotencyKey
-    .upsert({
-      where: { key },
-      create: { key, resultJson, expiresAt },
-      update: { resultJson, expiresAt },
-    })
-    .catch((err) => {
-      // 幂等存储失败不应影响业务结果，仅记录
-      console.error("[idempotency] save failed", err);
+    .deleteMany({ where: { key, resultJson: pendingJson } })
+    .catch((error) => {
+      console.error("[idempotency] failed to release request claim", { key, error });
     });
+}
+
+function replayCachedResponse(result: unknown): Response {
+  if (isStoredHttpResponse(result)) {
+    const headers = new Headers({ "Idempotency-Replayed": "true" });
+    if (result.contentType) headers.set("Content-Type", result.contentType);
+    return new Response(result.bodyText || null, { status: result.status, headers });
+  }
+
+  return Response.json(result, {
+    headers: { "Idempotency-Replayed": "true" },
+  });
+}
+
+export async function withIdempotencyResponse(
+  key: string | null,
+  operation: () => Promise<Response>,
+): Promise<Response> {
+  if (!key) {
+    return Response.json(
+      {
+        error: "X-Idempotency-Key is required for this operation",
+        code: "IDEMPOTENCY_KEY_REQUIRED",
+      },
+      { status: 428 },
+    );
+  }
+
+  const claim = await claimIdempotencyKey(key);
+  if (claim.state === "cached") return replayCachedResponse(claim.result);
+  if (claim.state === "in_progress") {
+    return Response.json(
+      {
+        error: "An identical request is already being processed",
+        code: "IDEMPOTENCY_IN_PROGRESS",
+      },
+      { status: 409, headers: { "Retry-After": "2" } },
+    );
+  }
+
+  let response: Response;
+  try {
+    response = await operation();
+  } catch (error) {
+    await releaseIdempotencyKey(key, claim.pendingJson);
+    throw error;
+  }
+
+  if (!response.ok) {
+    await releaseIdempotencyKey(key, claim.pendingJson);
+    return response;
+  }
+
+  try {
+    const bodyText = await response.clone().text();
+    await completeIdempotencyKey(key, claim.pendingJson, {
+      marker: HTTP_RESPONSE_MARKER,
+      status: response.status,
+      bodyText,
+      contentType: response.headers.get("content-type"),
+    });
+    response.headers.set("Idempotency-Replayed", "false");
+  } catch (error) {
+    console.error("[idempotency] business succeeded but response caching failed", {
+      key,
+      error,
+    });
+  }
+
+  return response;
 }
 
 export function getIdempotencyKey(req: Request): string | null {
@@ -55,7 +204,7 @@ export function getIdempotencyKey(req: Request): string | null {
 
 export function getScopedIdempotencyKey(
   req: Request,
-  scopeParts: Array<string | number | null | undefined>
+  scopeParts: Array<string | number | null | undefined>,
 ): string | null {
   const rawKey = getIdempotencyKey(req)?.trim();
   if (!rawKey || rawKey.length > MAX_IDEMPOTENCY_KEY_LENGTH) return null;
@@ -68,17 +217,11 @@ export function getScopedIdempotencyKey(
   return scope ? `${scope}:${rawKey}` : rawKey;
 }
 
-// ── 乐观锁 ──────────────────────────────────────────────────────────────
-
-/**
- * 在事务内通过 updatedAt 时间戳实现乐观锁更新。
- * 返回 1 表示更新成功，0 表示并发冲突。
- */
 export async function optimisticUpdate(
   table: string,
   id: string,
   expectedUpdatedAt: Date,
-  data: Record<string, unknown>
+  data: Record<string, unknown>,
 ): Promise<number> {
   return prisma.$transaction(async (tx) => {
     const current = await (tx as any)[table].findUnique({

@@ -1,5 +1,13 @@
+const { loadEnvConfig } = require("@next/env");
+
+loadEnvConfig(process.cwd());
+
 const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcryptjs");
+const {
+  ensureBootstrapAdmin,
+  preflightBootstrapAdmin,
+} = require("./seed-bootstrap");
 
 const prisma = new PrismaClient({
   datasources: { db: { url: process.env.DIRECT_URL || process.env.DATABASE_URL } },
@@ -55,6 +63,10 @@ const defaultContractHtml = `
 `;
 
 const permissionDefinitions = [
+  { code: "inflow:view", module: "inflow", name: "View capital inflows" },
+  { code: "inflow:create", module: "inflow", name: "Record capital inflows" },
+  { code: "inflow:review", module: "inflow", name: "Review capital inflows" },
+  { code: "inflow:cancel", module: "inflow", name: "Cancel capital inflows" },
   { code: "customer:view", module: "customer", name: "查看客户" },
   { code: "customer:create", module: "customer", name: "创建客户" },
   { code: "customer:edit", module: "customer", name: "编辑客户" },
@@ -67,6 +79,10 @@ const permissionDefinitions = [
   { code: "disbursement:view", module: "disbursement", name: "查看放款" },
   { code: "disbursement:create", module: "disbursement", name: "创建放款" },
   { code: "disbursement:confirm", module: "disbursement", name: "确认打款" },
+  { code: "withdrawal:view", module: "withdrawal", name: "查看提现" },
+  { code: "withdrawal:review", module: "withdrawal", name: "确认提现出账" },
+  { code: "settlement:view", module: "settlement", name: "查看收益结算" },
+  { code: "settlement:manage", module: "settlement", name: "发布收益结算" },
   { code: "repayment:view", module: "repayment", name: "查看还款" },
   { code: "repayment:create", module: "repayment", name: "登记还款" },
   { code: "repayment:allocate", module: "repayment", name: "分配还款" },
@@ -182,6 +198,13 @@ async function seedRolesAndPermissions() {
       "disbursement:view",
       "disbursement:create",
       "disbursement:confirm",
+      "withdrawal:view",
+      "withdrawal:review",
+      "settlement:view",
+      "settlement:manage",
+      "inflow:view",
+      "inflow:create",
+      "inflow:review",
       "repayment:view",
       "repayment:create",
       "repayment:allocate",
@@ -233,90 +256,6 @@ async function seedRolesAndPermissions() {
       });
     }
   }
-}
-
-async function seedAdminUsers() {
-  const [superAdminRole, managerRole, financeRole, operatorRole] = await Promise.all([
-    prisma.role.findUniqueOrThrow({ where: { code: "super_admin" } }),
-    prisma.role.findUniqueOrThrow({ where: { code: "manager" } }),
-    prisma.role.findUniqueOrThrow({ where: { code: "finance" } }),
-    prisma.role.findUniqueOrThrow({ where: { code: "operator" } }),
-  ]);
-
-  const adminPwd = await bcrypt.hash("Wanjin888@", 12);
-  const managerPwd = await bcrypt.hash("manager123", 12);
-  const financePwd = await bcrypt.hash("finance123", 12);
-  const operatorPwd = await bcrypt.hash("operator123", 12);
-
-  await prisma.user.upsert({
-    where: { username: "admin" },
-    create: {
-      username: "admin",
-      passwordHash: adminPwd,
-      realName: "系统管理员",
-      roleId: superAdminRole.id,
-    },
-    update: {
-      passwordHash: adminPwd,
-      roleId: superAdminRole.id,
-      isActive: true,
-      deletedAt: null,
-    },
-  });
-
-  await prisma.user.upsert({
-    where: { username: "manager" },
-    create: {
-      username: "manager",
-      passwordHash: managerPwd,
-      realName: "审批经理",
-      phone: "13900000003",
-      roleId: managerRole.id,
-    },
-    update: {
-      passwordHash: managerPwd,
-      phone: "13900000003",
-      roleId: managerRole.id,
-      isActive: true,
-      deletedAt: null,
-    },
-  });
-
-  await prisma.user.upsert({
-    where: { username: "finance" },
-    create: {
-      username: "finance",
-      passwordHash: financePwd,
-      realName: "财务",
-      phone: "13900000004",
-      roleId: financeRole.id,
-    },
-    update: {
-      passwordHash: financePwd,
-      phone: "13900000004",
-      roleId: financeRole.id,
-      isActive: true,
-      deletedAt: null,
-    },
-  });
-
-  await prisma.user.upsert({
-    where: { username: "operator" },
-    create: {
-      username: "operator",
-      passwordHash: operatorPwd,
-      realName: "操作员",
-      phone: "13900000002",
-      roleId: operatorRole.id,
-    },
-    update: {
-      passwordHash: operatorPwd,
-      phone: "13900000002",
-      roleId: operatorRole.id,
-      isActive: true,
-      deletedAt: null,
-    },
-  });
 }
 
 async function seedLoanProducts() {
@@ -440,14 +379,27 @@ async function seedLoanProducts() {
 }
 
 async function main() {
+  await preflightBootstrapAdmin({ prisma, bcrypt });
   await seedSettings();
   await seedRolesAndPermissions();
-  await seedAdminUsers();
+  const admin = await ensureBootstrapAdmin({ prisma, bcrypt });
   await seedLoanProducts();
 
   console.log("Base system seed completed.");
-  console.log("Admin account ready: admin / Wanjin888@");
-  console.log("Seed now only writes system config, roles, admin users, products, and pricing rules.");
+  if (admin.created) {
+    console.log(`Bootstrap super admin created: ${admin.username}.`);
+  } else if (admin.rotated) {
+    console.log(`Legacy super admin credentials rotated: ${admin.username}.`);
+  } else {
+    console.log(`Existing active super admin preserved: ${admin.username}. No password was changed.`);
+  }
+  if (admin.disabledLegacyAccounts.length > 0) {
+    console.log(`Disabled legacy default accounts: ${admin.disabledLegacyAccounts.join(", ")}.`);
+  }
+  if (admin.created || admin.rotated) {
+    console.log("Remove BOOTSTRAP_ADMIN_PASSWORD from the environment now.");
+  }
+  console.log("Seed writes system config, roles, one bootstrap admin, products, and pricing rules.");
   console.log("No client, funder, loan application, or business mock data was created.");
 }
 

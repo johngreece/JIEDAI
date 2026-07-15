@@ -4,9 +4,14 @@ import { writeAuditLog } from "@/lib/audit";
 import { applyCustomerPricingOverride, buildCustomerPricingQuote } from "@/lib/customer-pricing";
 import { describeClientProfileMissing, getClientProfileCompletion } from "@/lib/client-profile";
 import { parseTiersFromPricingRules } from "@/lib/interest-engine";
+import { resolveLoanContractTerms } from "@/lib/loan-contract-terms";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { RiskIntelligenceService } from "@/services/risk-intelligence.service";
+import {
+  LoanTransitionConflictError,
+  transitionLoanApplication,
+} from "@/services/loan-transition.service";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +85,12 @@ export async function GET(
           createdAt: true,
           signedAt: true,
           variableData: true,
+          currency: true,
+          basePrincipal: true,
+          capitalizedInterestAmount: true,
+          contractPrincipal: true,
+          legalServiceFee: true,
+          feePaymentMode: true,
         },
       },
     },
@@ -100,6 +111,13 @@ export async function GET(
       contractGenerationOptions = null;
     }
   }
+  if (mainContract) {
+    const terms = resolveLoanContractTerms(mainContract, data.amount);
+    contractGenerationOptions = {
+      ...(contractGenerationOptions ?? {}),
+      ...terms,
+    };
+  }
 
   const effectivePricing = applyCustomerPricingOverride(
     parseTiersFromPricingRules(data.product.pricingRules),
@@ -107,6 +125,10 @@ export async function GET(
   );
   const pricingQuote = buildCustomerPricingQuote(Number(data.amount), effectivePricing);
   const profileCompletion = getClientProfileCompletion(data.customer);
+  const { kyc: _privateKycDocuments, ...safeCustomer } = data.customer;
+  const returnDecision = data.approvals.find((approval) =>
+    ["RISK_RETURN", "APPROVAL_RETURN"].includes(approval.action),
+  );
 
   return NextResponse.json({
     id: data.id,
@@ -123,8 +145,9 @@ export async function GET(
     totalApprovedAmount: data.totalApprovedAmount ? Number(data.totalApprovedAmount) : null,
     rejectedAt: data.rejectedAt,
     rejectedReason: data.rejectedReason,
+    returnedReason: returnDecision?.comment ?? null,
     customer: {
-      ...data.customer,
+      ...safeCustomer,
       weeklyInterestRateOverride:
         data.customer.weeklyInterestRateOverride != null ? Number(data.customer.weeklyInterestRateOverride) : null,
       profileCompletion: {
@@ -189,7 +212,7 @@ export async function PUT(
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
 
-  if (!["DRAFT", "REJECTED"].includes(app.status)) {
+  if (!["DRAFT", "RETURNED"].includes(app.status)) {
     return NextResponse.json({ error: "当前状态不允许编辑" }, { status: 400 });
   }
 
@@ -261,6 +284,12 @@ export async function DELETE(
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
 
+  if (!["DRAFT", "RETURNED", "REJECTED"].includes(app.status)) {
+    return NextResponse.json(
+      { error: "Only draft, returned, or rejected applications can be cancelled" },
+      { status: 409 },
+    );
+  }
   const hasRepaymentPlan = await prisma.repaymentPlan.findFirst({
     where: { applicationId: id },
     select: { id: true },
@@ -275,23 +304,32 @@ export async function DELETE(
     return NextResponse.json({ error: "该申请已有合同记录，不能直接删除" }, { status: 409 });
   }
 
-  await prisma.loanApplication.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
+  try {
+    await prisma.$transaction((tx) =>
+      transitionLoanApplication(tx, {
+        applicationId: id,
+        from: app.status,
+        to: "CANCELLED",
+        action: "CANCEL",
+        operatorId: session.sub,
+        auditAction: "delete",
+        changeSummary: "Cancel loan application",
+        data: { deletedAt: new Date() },
+        auditOldValue: {
+          applicationNo: app.applicationNo,
+          amount: Number(app.amount),
+        },
+      }),
+    );
+  } catch (error) {
+    if (error instanceof LoanTransitionConflictError) {
+      return NextResponse.json(
+        { error: "Application status changed, please refresh and retry" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
-  await writeAuditLog({
-    userId: session.sub,
-    action: "delete",
-    entityType: "loan_application",
-    entityId: id,
-    oldValue: {
-      applicationNo: app.applicationNo,
-      status: app.status,
-      amount: Number(app.amount),
-    },
-    changeSummary: "删除借款申请",
-  }).catch(() => undefined);
-
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, status: "CANCELLED" });
 }

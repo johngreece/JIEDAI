@@ -17,15 +17,8 @@ import {
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 import { getFrozenPayableAmount, hasExplicitInterestFreeze } from "@/lib/repayment-runtime";
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+import { formatMoney as money } from "@/lib/system-config";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 
 function formatDateTime(value: Date | string) {
   return new Date(value).toLocaleString("zh-CN", {
@@ -81,6 +74,7 @@ export default async function ClientRepaymentsPage() {
           select: {
             status: true,
             disbursedAt: true,
+            netAmount: true,
           },
         },
       },
@@ -104,6 +98,7 @@ export default async function ClientRepaymentsPage() {
     where: { applicationId: application.id, status: "ACTIVE" },
     select: {
       id: true,
+      totalPrincipal: true,
       rulesSnapshotJson: true,
       scheduleItems: {
         where: {
@@ -131,6 +126,9 @@ export default async function ClientRepaymentsPage() {
           amount: true,
           status: true,
           paymentMethod: true,
+          transactionId: true,
+          payerBank: true,
+          payerAccount: true,
           receivedAt: true,
           interestFrozenAt: true,
           frozenPayableAmount: true,
@@ -147,6 +145,30 @@ export default async function ClientRepaymentsPage() {
         },
       })
     : [];
+  const proofAttachments = repayments.length
+    ? await prisma.attachment.findMany({
+        where: {
+          entityType: "repayment",
+          entityId: { in: repayments.map((item) => item.id) },
+          category: "REPAYMENT_PAYMENT_PROOF",
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          entityId: true,
+          fileName: true,
+          fileUrl: true,
+          fileSize: true,
+          mimeType: true,
+          category: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const proofMap = new Map(
+    proofAttachments.map((proof) => [proof.entityId, serializeProofAttachment(proof)]),
+  );
 
   const waitingForCustomer = repayments.filter((item) => item.status === "PENDING_CONFIRM");
   const waitingForReceipt = repayments.filter((item) => item.status === "CUSTOMER_CONFIRMED");
@@ -163,6 +185,9 @@ export default async function ClientRepaymentsPage() {
     let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
     let channel: ChannelType = "FULL_AMOUNT";
     let dueDate: Date | null = null;
+    let normalInterestCapitalized = false;
+    let fixedFeeAmount = 0;
+    let netDisbursementAmount: number | undefined;
 
     if (plan.rulesSnapshotJson) {
       try {
@@ -172,12 +197,22 @@ export default async function ClientRepaymentsPage() {
           upfrontFeeRate?: number;
           channel?: ChannelType;
           dueDate?: string;
+          normalInterestCapitalized?: boolean;
+          fixedFeeAmount?: number;
+          netDisbursementAmount?: number;
         };
         if (snapshot.tiers) tiers = snapshot.tiers;
         if (snapshot.overdueConfig) overdueConfig = snapshot.overdueConfig;
         if (snapshot.upfrontFeeRate != null) upfrontFeeRate = snapshot.upfrontFeeRate;
         if (snapshot.channel) channel = snapshot.channel;
         if (snapshot.dueDate) dueDate = new Date(snapshot.dueDate);
+        if (snapshot.normalInterestCapitalized != null) {
+          normalInterestCapitalized = snapshot.normalInterestCapitalized;
+        }
+        if (snapshot.fixedFeeAmount != null) fixedFeeAmount = snapshot.fixedFeeAmount;
+        if (snapshot.netDisbursementAmount != null) {
+          netDisbursementAmount = snapshot.netDisbursementAmount;
+        }
       } catch {
         // ignore invalid snapshot
       }
@@ -215,7 +250,7 @@ export default async function ClientRepaymentsPage() {
     }
 
     outstandingAmount = calculateRealtimeRepayment({
-      principal: Number(application.amount),
+      principal: Number(plan.totalPrincipal),
       channel,
       upfrontFeeRate,
       tiers,
@@ -223,6 +258,10 @@ export default async function ClientRepaymentsPage() {
       startTime: new Date(application.disbursement.disbursedAt),
       dueDate,
       currentTime: new Date(),
+      normalInterestCapitalized,
+      fixedFeeAmount,
+      netDisbursementAmount:
+        netDisbursementAmount ?? Number(application.disbursement.netAmount),
     }).totalRepayment;
   }
   if (activeInterestFreeze) {
@@ -362,6 +401,7 @@ export default async function ClientRepaymentsPage() {
                 <th className="px-4 py-3 text-left">还款单号</th>
                 <th className="px-4 py-3 text-left">金额</th>
                 <th className="px-4 py-3 text-left">支付方式</th>
+                <th className="px-4 py-3 text-left">付款证据</th>
                 <th className="px-4 py-3 text-left">分配结构</th>
                 <th className="px-4 py-3 text-left">状态</th>
                 <th className="px-4 py-3 text-left">时间</th>
@@ -371,7 +411,7 @@ export default async function ClientRepaymentsPage() {
             <tbody>
               {repayments.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={7}>
+                  <td className="px-4 py-6 text-slate-500" colSpan={8}>
                     当前还没有还款记录。
                   </td>
                 </tr>
@@ -388,6 +428,22 @@ export default async function ClientRepaymentsPage() {
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-slate-500">{item.paymentMethod}</td>
+                    <td className="min-w-56 px-4 py-3 text-xs text-slate-500">
+                      <div className="break-all">{item.transactionId}</div>
+                      <div className="mt-1 break-all">{item.payerBank} | {item.payerAccount}</div>
+                      {proofMap.get(item.id) ? (
+                        <a
+                          href={proofMap.get(item.id)?.accessUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-block font-medium text-blue-600 hover:underline"
+                        >
+                          查看付款凭证
+                        </a>
+                      ) : (
+                        <div className="mt-1 font-medium text-rose-600">凭证缺失</div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-xs text-slate-500">
                       <div>本金 {money(Number(item.principalPart))}</div>
                       <div>利息 {money(Number(item.interestPart))}</div>

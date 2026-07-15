@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
+import { DisbursementConfirmationDialog } from "@/components/admin/DisbursementConfirmationDialog";
 
 type Detail = {
   id: string;
@@ -14,6 +15,16 @@ type Detail = {
   feeAmount: number;
   netAmount: number;
   disbursedAt: string | null;
+  transactionId: string | null;
+  payerBank: string | null;
+  payerAccount: string | null;
+  proofs: Array<{
+    id: string;
+    fileName: string;
+    fileUrl: string;
+    mimeType: string;
+    createdAt: string;
+  }>;
   remark: string | null;
   application: {
     id: string;
@@ -59,6 +70,8 @@ export default function DisbursementDetailPage() {
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmIdempotencyKey, setConfirmIdempotencyKey] = useState("");
 
   async function load() {
     setLoading(true);
@@ -80,20 +93,22 @@ export default function DisbursementDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
-  async function confirmPaid() {
+  async function confirmPaid(evidence: FormData) {
     setActing(true);
     try {
       const res = await fetch(`/api/disbursements/${params.id}/confirm-paid`, {
         method: "POST",
         headers: {
-          "x-idempotency-key": makeClientIdempotencyKey("admin-disbursement-confirm-paid"),
+          "x-idempotency-key": confirmIdempotencyKey,
         },
+        body: evidence,
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Failed to confirm disbursement");
       await load();
+      setConfirmOpen(false);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to confirm disbursement");
+      throw e instanceof Error ? e : new Error("Failed to confirm disbursement");
     } finally {
       setActing(false);
     }
@@ -101,16 +116,16 @@ export default function DisbursementDetailPage() {
 
   async function deleteDisbursement() {
     if (!data) return;
-    if (!window.confirm(`Delete disbursement "${data.disbursementNo}"? Only pending records can be removed.`)) return;
+    if (!window.confirm(`Cancel disbursement "${data.disbursementNo}"? Pending records remain in the audit trail.`)) return;
 
     setDeleting(true);
     try {
       const res = await fetch(`/api/disbursements/${params.id}`, { method: "DELETE" });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error ?? "Failed to delete disbursement");
+      if (!res.ok) throw new Error(json.error ?? "Failed to cancel disbursement");
       window.location.href = "/admin/disbursements";
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete disbursement");
+      alert(e instanceof Error ? e.message : "Failed to cancel disbursement");
       setDeleting(false);
     }
   }
@@ -135,13 +150,22 @@ export default function DisbursementDetailPage() {
         </div>
         <div className="admin-toolbar-group">
           {data.status === "PENDING" ? (
-            <button disabled={acting} onClick={confirmPaid} className="admin-btn admin-btn-primary disabled:opacity-50">
+            <button
+              disabled={acting}
+              onClick={() => {
+                setConfirmIdempotencyKey(
+                  makeClientIdempotencyKey("admin-disbursement-confirm-paid"),
+                );
+                setConfirmOpen(true);
+              }}
+              className="admin-btn admin-btn-primary disabled:opacity-50"
+            >
               {acting ? "Processing..." : "Confirm Paid"}
             </button>
           ) : null}
           {data.status === "PENDING" ? (
             <button disabled={deleting} onClick={deleteDisbursement} className="admin-btn admin-btn-danger disabled:opacity-50">
-              {deleting ? "Deleting..." : "Delete"}
+              {deleting ? "Cancelling..." : "Cancel"}
             </button>
           ) : null}
           <Link href="/admin/disbursements" className="admin-btn admin-btn-secondary">Back to List</Link>
@@ -160,6 +184,49 @@ export default function DisbursementDetailPage() {
         <div className="stat-tile admin-stat-card">
           <p className="admin-stat-card__label">Net Paid</p>
           <p className="admin-stat-card__value text-emerald-700">EUR {data.netAmount.toFixed(2)}</p>
+        </div>
+      </section>
+
+      <section className="admin-section-card">
+        <div className="admin-section-card__header">
+          <div>
+            <div className="admin-section-card__title">Bank Evidence</div>
+            <p className="admin-section-card__description">
+              Immutable transfer reference and receipt recorded when finance confirms payment.
+            </p>
+          </div>
+        </div>
+        <div className="admin-section-card__body grid gap-4 text-sm md:grid-cols-3">
+          <div>
+            <p className="text-xs text-slate-500">Transaction ID</p>
+            <p className="mt-1 font-mono text-slate-900">{data.transactionId || "Not confirmed"}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">Payer Account</p>
+            <p className="mt-1 text-slate-900">
+              {data.payerBank && data.payerAccount
+                ? `${data.payerBank} | ${data.payerAccount}`
+                : "Not confirmed"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">Receipt</p>
+            <div className="mt-1 space-x-2">
+              {data.proofs.length > 0
+                ? data.proofs.map((proof) => (
+                    <a
+                      key={proof.id}
+                      href={proof.fileUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline"
+                    >
+                      {proof.fileName}
+                    </a>
+                  ))
+                : "Not confirmed"}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -275,6 +342,16 @@ export default function DisbursementDetailPage() {
           )}
         </div>
       </section>
+
+      <DisbursementConfirmationDialog
+        open={confirmOpen}
+        disbursementNo={data.disbursementNo}
+        busy={acting}
+        onClose={() => {
+          if (!acting) setConfirmOpen(false);
+        }}
+        onConfirm={confirmPaid}
+      />
     </div>
   );
 }

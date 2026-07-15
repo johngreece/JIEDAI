@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { writeAuditLog } from "@/lib/audit";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { writeAuditLogInTransaction } from "@/lib/audit";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -12,12 +12,14 @@ import {
   hasExplicitInterestFreeze,
 } from "@/lib/repayment-runtime";
 import {
+  deriveRepaymentOpenComponents,
   formatRepaymentAllocationComponentError,
   parseRepaymentAllocationComponentError,
   serializeRepaymentAllocationComponentError,
   validateRepaymentAllocationComponentCaps,
   type RepaymentAllocationInput,
   type RepaymentAllocationScheduleItem,
+  type RepaymentOpenComponents,
 } from "@/lib/repayment-allocation";
 
 export const dynamic = "force-dynamic";
@@ -42,8 +44,7 @@ export async function POST(
 
   const { id } = await params;
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "repayment-allocate", id]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const body = await req.json().catch(() => ({}));
   const parsed = allocateSchema.safeParse(body);
@@ -129,6 +130,7 @@ export async function POST(
     where: { id: repayment.planId },
     select: {
       applicationId: true,
+      totalPrincipal: true,
       rulesSnapshotJson: true,
       version: true,
     },
@@ -137,7 +139,6 @@ export async function POST(
     ? await prisma.loanApplication.findUnique({
         where: { id: planContext.applicationId },
         select: {
-          amount: true,
           disbursement: {
             select: {
               disbursedAt: true,
@@ -158,6 +159,7 @@ export async function POST(
 
   const singleOpenItem = typedScheduleItems.length === 1 ? typedScheduleItems[0] : null;
   let dynamicAvailableByItem = new Map<string, number>();
+  const dynamicComponentsByItem = new Map<string, RepaymentOpenComponents>();
 
   if (planContext && planApplication && singleOpenItem) {
     const overdueRecord = await prisma.overdueRecord.findFirst({
@@ -171,16 +173,18 @@ export async function POST(
 
     const liveOutstanding = calculateLiveOutstandingFromSnapshot({
       rulesSnapshotJson: planContext.rulesSnapshotJson,
-      principal: Number(planApplication.amount),
+      principal: Number(planContext.totalPrincipal),
       disbursedAt: planApplication.disbursement?.disbursedAt,
       paymentTime: repayment.receivedAt ?? new Date(),
       paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),
     });
 
     if (liveOutstanding != null) {
-      dynamicAvailableByItem.set(
+      const liveRemaining = Math.max(0, liveOutstanding - confirmedAmount);
+      dynamicAvailableByItem.set(singleOpenItem.id, liveRemaining);
+      dynamicComponentsByItem.set(
         singleOpenItem.id,
-        Math.max(0, liveOutstanding - confirmedAmount),
+        deriveRepaymentOpenComponents(singleOpenItem, liveRemaining),
       );
     }
   }
@@ -231,6 +235,7 @@ export async function POST(
     dynamicAvailableByItem,
     confirmedRows: confirmedAllocations,
     pendingRows: reservedAllocations,
+    dynamicComponentsByItem,
   });
   if (componentCapError) {
     return NextResponse.json(
@@ -351,6 +356,7 @@ export async function POST(
           dynamicAvailableByItem,
           confirmedRows: latestConfirmedAllocations,
           pendingRows: latestReservedAllocations,
+          dynamicComponentsByItem,
         });
         if (latestComponentCapError) {
           throw new Error(serializeRepaymentAllocationComponentError(latestComponentCapError));
@@ -365,7 +371,30 @@ export async function POST(
           })),
         });
 
-        return tx.repayment.findUniqueOrThrow({ where: { id } });
+        const updatedRepayment = await tx.repayment.findUniqueOrThrow({ where: { id } });
+        await writeAuditLogInTransaction(tx, {
+          userId: session.sub,
+          action: "update",
+          entityType: "repayment",
+          entityId: id,
+          oldValue: {
+            status: repayment.status,
+            principalPart: Number(repayment.principalPart),
+            interestPart: Number(repayment.interestPart),
+            feePart: Number(repayment.feePart),
+            penaltyPart: Number(repayment.penaltyPart),
+          },
+          newValue: {
+            status: updatedRepayment.status,
+            principalPart: Number(updatedRepayment.principalPart),
+            interestPart: Number(updatedRepayment.interestPart),
+            feePart: Number(updatedRepayment.feePart),
+            penaltyPart: Number(updatedRepayment.penaltyPart),
+            allocatedTotal,
+          },
+          changeSummary: "还款分配完成，进入待客户确认付款状态",
+        });
+        return updatedRepayment;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     );
@@ -398,29 +427,6 @@ export async function POST(
     return NextResponse.json({ error: "还款分配失败" }, { status: 500 });
   }
 
-  await writeAuditLog({
-    userId: session.sub,
-    action: "update",
-    entityType: "repayment",
-    entityId: id,
-    oldValue: {
-      status: repayment.status,
-      principalPart: Number(repayment.principalPart),
-      interestPart: Number(repayment.interestPart),
-      feePart: Number(repayment.feePart),
-      penaltyPart: Number(repayment.penaltyPart),
-    },
-    newValue: {
-      status: updated.status,
-      principalPart: Number(updated.principalPart),
-      interestPart: Number(updated.interestPart),
-      feePart: Number(updated.feePart),
-      penaltyPart: Number(updated.penaltyPart),
-      allocatedTotal,
-    },
-    changeSummary: "还款分配完成，进入待客户确认付款状态",
-  }).catch(() => undefined);
-
   const responseBody = {
     id: updated.id,
     status: updated.status,
@@ -429,7 +435,6 @@ export async function POST(
     feePart: Number(updated.feePart),
     penaltyPart: Number(updated.penaltyPart),
   };
-  await saveIdempotencyResult(idemKey, responseBody);
-
   return NextResponse.json(responseBody);
+  });
 }

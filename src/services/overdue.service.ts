@@ -181,8 +181,13 @@ export async function scanOverdueItems(): Promise<OverdueScanResult> {
   return result;
 }
 
-export async function resolveOverdue(scheduleItemId: string) {
-  await prisma.overdueRecord.updateMany({
+type OverdueWriteClient = Pick<Prisma.TransactionClient, "overdueRecord">;
+
+export async function resolveOverdue(
+  scheduleItemId: string,
+  db: OverdueWriteClient = prisma,
+) {
+  await db.overdueRecord.updateMany({
     where: { scheduleItemId, status: "OVERDUE" },
     data: { status: "RESOLVED", resolvedAt: new Date() },
   });

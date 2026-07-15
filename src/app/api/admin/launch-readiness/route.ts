@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requirePermission } from "@/lib/rbac";
 import { prisma } from "@/lib/prisma";
+import { isIsolatedRegressionRuntime } from "@/lib/regression-database-guard";
 import { SmartDashboardService } from "@/services/smart-dashboard.service";
 
 export const dynamic = "force-dynamic";
@@ -124,6 +125,7 @@ export async function GET() {
   const nextScheduleItem = plan?.scheduleItems[0] ?? null;
 
   return NextResponse.json({
+    scenarioFixturesEnabled: isIsolatedRegressionRuntime(),
     testClient: activeApplication
       ? {
           id: activeApplication.customer.id,

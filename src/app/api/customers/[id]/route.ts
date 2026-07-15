@@ -5,7 +5,15 @@ import { ACTIVE_LOAN_STATUSES } from "@/lib/business-status";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/password";
 import { requirePermission } from "@/lib/rbac";
-import { getClientProfileCompletion, resolveProfileCompletedAt } from "@/lib/client-profile";
+import {
+  getClientBaseCreditLimit,
+  getClientProfileCompletion,
+  resolveProfileCompletedAt,
+} from "@/lib/client-profile";
+import {
+  getCustomerDocumentAccessUrl,
+  getPrivateFileContentType,
+} from "@/lib/private-file-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -62,9 +70,19 @@ export async function GET(
     return NextResponse.json({ error: "客户不存在" }, { status: 404 });
   }
 
-  const { passwordHash, ...rest } = customer;
+  const { passwordHash, kyc, ...rest } = customer;
+  const profileCompletion = getClientProfileCompletion(customer);
   return NextResponse.json({
     ...rest,
+    kyc: kyc.map((document) => ({
+      ...document,
+      documentUrl: document.documentUrl ? getCustomerDocumentAccessUrl(document.id) : null,
+      mimeType: getPrivateFileContentType(document.documentUrl),
+    })),
+    profileComplete: profileCompletion.profileComplete,
+    profileCompletedAt: profileCompletion.profileComplete
+      ? customer.profileCompletedAt
+      : null,
     weeklyInterestRateOverride: customer.weeklyInterestRateOverride != null ? Number(customer.weeklyInterestRateOverride) : null,
     loanApplications: rest.loanApplications.map((a) => ({
       ...a,
@@ -148,7 +166,7 @@ export async function PUT(
     where: { id },
     data: {
       profileCompletedAt,
-      ...(completion.documentsComplete ? { creditLimit: 30000 } : {}),
+      creditLimit: getClientBaseCreditLimit(completion),
     },
   });
   const finalCustomer = {

@@ -9,6 +9,18 @@ const PLACEHOLDER_REGEX = /\{\{\s*(\w+)\s*\}\}/g;
 
 export type VariableContext = Record<string, string | number | boolean | null | undefined>;
 
+const HTML_ESCAPE_MAP: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+export function escapeTemplateValue(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => HTML_ESCAPE_MAP[character]);
+}
+
 export function parseVariableNames(html: string): string[] {
   const names = new Set<string>();
   let match: RegExpExecArray | null;
@@ -25,7 +37,7 @@ export function fillTemplate(html: string, context: VariableContext): string {
   return html.replace(PLACEHOLDER_REGEX, (_, name: string) => {
     const value = context[name];
     if (value === undefined || value === null) return "";
-    return String(value);
+    return escapeTemplateValue(String(value));
   });
 }
 

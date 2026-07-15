@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
@@ -10,19 +12,15 @@ type Props = {
   blockedReason?: string | null;
 };
 
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason }: Props) {
   const router = useRouter();
   const [amount, setAmount] = useState(outstandingAmount > 0 ? String(outstandingAmount) : "");
   const [paymentMethod, setPaymentMethod] = useState("BANK_TRANSFER");
+  const [transactionId, setTransactionId] = useState("");
+  const [payerBank, setPayerBank] = useState("");
+  const [payerAccount, setPayerAccount] = useState("");
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofInputKey, setProofInputKey] = useState(0);
   const [remark, setRemark] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const submitKeyRef = useRef<string | null>(null);
@@ -51,17 +49,21 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
     setMessage("");
 
     try {
+      const body = new FormData();
+      body.set("amount", amount);
+      body.set("paymentMethod", paymentMethod);
+      body.set("transactionId", transactionId);
+      body.set("payerBank", payerBank);
+      body.set("payerAccount", payerAccount);
+      if (remark) body.set("remark", remark);
+      if (proofFile) body.set("proof", proofFile);
+
       const response = await fetch("/api/client/repayments", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           "x-idempotency-key": idempotencyKey,
         },
-        body: JSON.stringify({
-          amount: Number(amount),
-          paymentMethod,
-          remark: remark || undefined,
-        }),
+        body,
       });
 
       const data = await response.json().catch(() => ({}));
@@ -72,6 +74,12 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
       }
 
       submitKeyRef.current = null;
+      setTransactionId("");
+      setPayerBank("");
+      setPayerAccount("");
+      setProofFile(null);
+      setProofInputKey((current) => current + 1);
+      setRemark("");
       setMessage(`还款申请 ${data.repaymentNo} 已提交，系统已按提交时刻临时暂停新增利息；已生成利息不变。若后台标记未收款，暂停期间会补算。`);
       router.refresh();
     } catch {
@@ -129,6 +137,67 @@ export function RepaymentRequestForm({ outstandingAmount, blocked, blockedReason
             <option value="ONLINE">线上支付</option>
             <option value="CASH">现金</option>
           </select>
+        </label>
+
+        <label className="space-y-1.5 text-sm">
+          <span className="text-slate-600">交易/收据编号</span>
+          <input
+            className="input-base"
+            value={transactionId}
+            onChange={(event) => {
+              clearSubmitKey();
+              setTransactionId(event.target.value);
+            }}
+            disabled={submitting || blocked}
+            maxLength={120}
+            required
+          />
+        </label>
+
+        <label className="space-y-1.5 text-sm">
+          <span className="text-slate-600">付款银行/渠道</span>
+          <input
+            className="input-base"
+            value={payerBank}
+            onChange={(event) => {
+              clearSubmitKey();
+              setPayerBank(event.target.value);
+            }}
+            disabled={submitting || blocked}
+            maxLength={120}
+            required
+          />
+        </label>
+
+        <label className="space-y-1.5 text-sm">
+          <span className="text-slate-600">付款账号/来源</span>
+          <input
+            className="input-base"
+            value={payerAccount}
+            onChange={(event) => {
+              clearSubmitKey();
+              setPayerAccount(event.target.value);
+            }}
+            disabled={submitting || blocked}
+            maxLength={120}
+            required
+          />
+        </label>
+
+        <label className="space-y-1.5 text-sm">
+          <span className="text-slate-600">付款凭证</span>
+          <input
+            key={proofInputKey}
+            className="input-base file:mr-3 file:border-0 file:bg-transparent file:text-sm file:font-medium"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,application/pdf"
+            onChange={(event) => {
+              clearSubmitKey();
+              setProofFile(event.target.files?.[0] ?? null);
+            }}
+            disabled={submitting || blocked}
+            required
+          />
         </label>
 
         <label className="space-y-1.5 text-sm md:col-span-2">

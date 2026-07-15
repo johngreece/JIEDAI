@@ -87,13 +87,18 @@ export function calculateLiveOutstandingFromSnapshot(params: {
 
   try {
     const snapshot = JSON.parse(rulesSnapshotJson) as {
+      pricingModel?: string;
       channel?: ChannelType;
       upfrontFeeRate?: number;
       tiers?: RepaymentTier[];
       overdueConfig?: OverdueConfig;
       dueDate?: string;
+      normalInterestCapitalized?: boolean;
+      fixedFeeAmount?: number;
+      netDisbursementAmount?: number;
     };
 
+    if (snapshot.pricingModel === "FIXED_SCHEDULE") return null;
     if (!snapshot.dueDate) return null;
 
     const realtime = calculateRealtimeRepayment({
@@ -106,6 +111,9 @@ export function calculateLiveOutstandingFromSnapshot(params: {
       dueDate: new Date(snapshot.dueDate),
       currentTime: paymentTime,
       paidDates,
+      normalInterestCapitalized: snapshot.normalInterestCapitalized ?? false,
+      fixedFeeAmount: snapshot.fixedFeeAmount ?? 0,
+      netDisbursementAmount: snapshot.netDisbursementAmount,
     });
 
     return realtime.totalRepayment;

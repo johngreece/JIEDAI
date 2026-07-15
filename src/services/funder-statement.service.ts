@@ -91,11 +91,11 @@ function describeInterestSettlement(
   if (cycleStart && cycleEnd) parts.push(`周期 ${cycleStart} 至 ${cycleEnd}`);
   parts.push(`利息 €${amount.toFixed(2)}`);
 
-  const paidAt = formatDateTime(metadata.paidAt);
-  if (paidAt) parts.push(`平台打款 ${paidAt}`);
+  const postedAt = formatDateTime(metadata.postedAt);
+  if (postedAt) parts.push(`平台发布 ${postedAt}`);
 
-  const paymentRemark = text(metadata.paymentRemark);
-  if (paymentRemark) parts.push(`打款备注 ${paymentRemark}`);
+  const postingRemark = text(metadata.postingRemark);
+  if (postingRemark) parts.push(`结算说明 ${postingRemark}`);
 
   return parts.join("，");
 }

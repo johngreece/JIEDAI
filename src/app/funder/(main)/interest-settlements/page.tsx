@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 
@@ -20,10 +22,10 @@ type Settlement = {
   rate: number;
   interestAmount: number;
   status: string;
-  paidAt: string | null;
+  postedAt: string | null;
   confirmedAt: string | null;
-  rejectedAt: string | null;
-  rejectReason: string | null;
+  disputedAt: string | null;
+  disputeReason: string | null;
   remark: string | null;
 };
 
@@ -31,9 +33,9 @@ type Payload = {
   items: Settlement[];
   summary: {
     dueAmount: number;
-    paidPendingConfirmAmount: number;
+    postedPendingConfirmAmount: number;
     confirmedAmount: number;
-    rejectedAmount: number;
+    disputedAmount: number;
   };
   filters?: {
     startDate: string | null;
@@ -43,18 +45,18 @@ type Payload = {
 };
 
 const statusLabel: Record<string, string> = {
-  DUE: "待平台打款",
-  PAID_BY_PLATFORM: "待我确认",
+  DUE: "待平台发布",
+  POSTED_BY_PLATFORM: "待我确认",
   CONFIRMED_BY_FUNDER: "已确认入账",
-  FUNDER_REJECTED: "已反馈未收到",
+  FUNDER_DISPUTED: "已提出异议",
   CANCELLED: "已取消",
 };
 
 const statusBadge: Record<string, string> = {
   DUE: "bg-amber-100 text-amber-700",
-  PAID_BY_PLATFORM: "bg-blue-100 text-blue-700",
+  POSTED_BY_PLATFORM: "bg-blue-100 text-blue-700",
   CONFIRMED_BY_FUNDER: "bg-emerald-100 text-emerald-700",
-  FUNDER_REJECTED: "bg-red-100 text-red-700",
+  FUNDER_DISPUTED: "bg-red-100 text-red-700",
   CANCELLED: "bg-slate-100 text-slate-600",
 };
 
@@ -66,23 +68,14 @@ const modeLabel: Record<string, string> = {
 
 const statusFilters = [
   { value: "all", label: "全部" },
-  { value: "DUE", label: "待平台打款" },
-  { value: "PAID_BY_PLATFORM", label: "待我确认" },
+  { value: "DUE", label: "待平台发布" },
+  { value: "POSTED_BY_PLATFORM", label: "待我确认" },
   { value: "CONFIRMED_BY_FUNDER", label: "已确认入账" },
-  { value: "FUNDER_REJECTED", label: "已反馈未收到" },
+  { value: "FUNDER_DISPUTED", label: "结算异议" },
 ] as const;
 
 function isKnownStatusFilter(value: string | null) {
   return statusFilters.some((item) => item.value === value);
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 function dateTime(value: string | null) {
@@ -107,7 +100,7 @@ export default function FunderInterestSettlementsPage() {
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [disputingId, setDisputingId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [startDate, setStartDate] = useState("");
@@ -195,7 +188,7 @@ export default function FunderInterestSettlementsPage() {
     return actionKeyRef.current.key;
   }
 
-  async function submit(settlementId: string, action: "confirm_received" | "not_received") {
+  async function submit(settlementId: string, action: "confirm_settlement" | "dispute_settlement") {
     setProcessingId(settlementId);
     try {
       const response = await fetch("/api/funder/interest-settlements", {
@@ -207,7 +200,7 @@ export default function FunderInterestSettlementsPage() {
         body: JSON.stringify({
           settlementId,
           action,
-          reason: action === "not_received" ? reason || "未收到该笔利息" : undefined,
+          reason: action === "dispute_settlement" ? reason || "对结算金额或周期有异议" : undefined,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -217,7 +210,7 @@ export default function FunderInterestSettlementsPage() {
         return;
       }
       actionKeyRef.current = null;
-      setRejectingId(null);
+      setDisputingId(null);
       setReason("");
       await load(statusFilter ?? "all");
     } finally {
@@ -226,7 +219,7 @@ export default function FunderInterestSettlementsPage() {
   }
 
   const items = data?.items ?? [];
-  const pendingConfirm = items.filter((item) => item.status === "PAID_BY_PLATFORM");
+  const pendingConfirm = items.filter((item) => item.status === "POSTED_BY_PLATFORM");
   const periodLabel = data?.filters?.periodLabel ?? (
     startDate && endDate
       ? `${startDate} 至 ${endDate}`
@@ -244,7 +237,7 @@ export default function FunderInterestSettlementsPage() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">收益结算</h1>
             <p className="mt-1 text-sm text-slate-600">
-              这里显示按周/月规则生成的利息结算单。平台标记已打款后，你需要确认是否收到。
+              核对按周/月规则生成的收益结算单。确认后收益计入内部资金账户，银行出金请从提现管理发起。
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -310,10 +303,10 @@ export default function FunderInterestSettlementsPage() {
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="待平台打款" value={money(data?.summary.dueAmount ?? 0)} />
-        <Metric label="待我确认" value={money(data?.summary.paidPendingConfirmAmount ?? 0)} tone="blue" />
+        <Metric label="待平台发布" value={money(data?.summary.dueAmount ?? 0)} />
+        <Metric label="待我确认" value={money(data?.summary.postedPendingConfirmAmount ?? 0)} tone="blue" />
         <Metric label="已确认收益" value={money(data?.summary.confirmedAmount ?? 0)} tone="emerald" />
-        <Metric label="未收到反馈" value={money(data?.summary.rejectedAmount ?? 0)} tone="red" />
+        <Metric label="结算异议" value={money(data?.summary.disputedAmount ?? 0)} tone="red" />
       </section>
 
       <section className="flex flex-wrap gap-2">
@@ -344,7 +337,7 @@ export default function FunderInterestSettlementsPage() {
 
       {pendingConfirm.length > 0 ? (
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-slate-900">待确认到账</h2>
+          <h2 className="text-lg font-semibold text-slate-900">待确认结算</h2>
           {pendingConfirm.map((item) => (
             <div key={item.id} className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -354,19 +347,19 @@ export default function FunderInterestSettlementsPage() {
                     {item.customerName} / {item.disbursementNo} · {modeLabel[item.ruleMode] ?? item.ruleMode} · 第 {item.cycleIndex} 期
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
-                    周期 {dateTime(item.cycleStart)} 至 {dateTime(item.cycleEnd)} · 平台打款 {dateTime(item.paidAt)}
+                    周期 {dateTime(item.cycleStart)} 至 {dateTime(item.cycleEnd)} · 平台发布 {dateTime(item.postedAt)}
                   </div>
                   {item.remark ? (
                     <div className="mt-2 rounded-lg border border-blue-100 bg-white/70 px-3 py-2 text-xs text-slate-600">
-                      平台打款备注：{item.remark}
+                      结算说明：{item.remark}
                     </div>
                   ) : null}
                 </div>
-                {rejectingId === item.id ? (
+                {disputingId === item.id ? (
                   <div className="flex w-full flex-col gap-2 lg:w-80">
                     <input
                       className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                      placeholder="填写未收到原因"
+                      placeholder="填写金额、周期或规则异议"
                       value={reason}
                       onChange={(event) => {
                         actionKeyRef.current = null;
@@ -378,16 +371,16 @@ export default function FunderInterestSettlementsPage() {
                         type="button"
                         className="rounded-lg bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-60"
                         disabled={processingId === item.id}
-                        onClick={() => submit(item.id, "not_received")}
+                        onClick={() => submit(item.id, "dispute_settlement")}
                       >
-                        提交未收到
+                        提交异议
                       </button>
                       <button
                         type="button"
                         className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700"
                         onClick={() => {
                           actionKeyRef.current = null;
-                          setRejectingId(null);
+                          setDisputingId(null);
                           setReason("");
                         }}
                       >
@@ -401,19 +394,19 @@ export default function FunderInterestSettlementsPage() {
                       type="button"
                       className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
                       disabled={processingId === item.id}
-                      onClick={() => submit(item.id, "confirm_received")}
+                      onClick={() => submit(item.id, "confirm_settlement")}
                     >
-                      确认已收到
+                      确认并入账
                     </button>
                     <button
                       type="button"
                       className="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
                       onClick={() => {
                         actionKeyRef.current = null;
-                        setRejectingId(item.id);
+                        setDisputingId(item.id);
                       }}
                     >
-                      未收到
+                      提出异议
                     </button>
                   </div>
                 )}

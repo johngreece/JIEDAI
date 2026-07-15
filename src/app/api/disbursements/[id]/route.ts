@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -56,6 +57,23 @@ export async function GET(
         orderBy: { periodNumber: "asc" },
       })
     : [];
+  const proofs = await prisma.attachment.findMany({
+    where: {
+      entityType: "disbursement",
+      entityId: disbursement.id,
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      fileName: true,
+      fileUrl: true,
+      fileSize: true,
+      mimeType: true,
+      category: true,
+      createdAt: true,
+    },
+  });
 
   return NextResponse.json({
     id: disbursement.id,
@@ -65,6 +83,10 @@ export async function GET(
     feeAmount: Number(disbursement.feeAmount),
     netAmount: Number(disbursement.netAmount),
     disbursedAt: disbursement.disbursedAt,
+    transactionId: disbursement.batchNo,
+    payerBank: disbursement.payerBank,
+    payerAccount: disbursement.payerAccount,
+    proofs: proofs.map(serializeProofAttachment),
     customerConfirmation: {
       confirmedAt: disbursement.customerConfirmedAt,
       ipAddress: disbursement.customerConfirmIp,
@@ -160,46 +182,53 @@ export async function DELETE(
     return NextResponse.json({ error: "该放款单已关联还款计划，不能直接删除" }, { status: 409 });
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.disbursement.update({
-      where: { id },
-      data: {
-        status: "CANCELLED",
-        remark: disbursement.remark
-          ? `${disbursement.remark}\nCancelled by operator before payment`
-          : "Cancelled by operator before payment",
-      },
-    });
-
-    if (disbursement.application.status === "CONTRACTED") {
-      await tx.loanApplication.update({
-        where: { id: disbursement.applicationId },
-        data: { status: "APPROVED" },
+  try {
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.disbursement.updateMany({
+        where: { id, status: "PENDING" },
+        data: {
+          status: "CANCELLED",
+          remark: disbursement.remark
+            ? `${disbursement.remark}\nCancelled by operator before payment`
+            : "Cancelled by operator before payment",
+        },
       });
-    }
-  });
 
-  await writeAuditLog({
-    userId: session.sub,
-    action: "cancel",
-    entityType: "disbursement",
-    entityId: id,
-    oldValue: {
-      disbursementNo: disbursement.disbursementNo,
-      status: disbursement.status,
-      amount: Number(disbursement.amount),
-      applicationNo: disbursement.application.applicationNo,
-    },
-    newValue: {
-      status: "CANCELLED",
-      applicationStatus: disbursement.application.status === "CONTRACTED" ? "APPROVED" : disbursement.application.status,
-    },
-    changeSummary: "删除待打款放款单",
-  }).catch(() => undefined);
+      if (claimed.count !== 1) {
+        throw new Error("DISBURSEMENT_STATUS_CHANGED");
+      }
+
+      await writeAuditLogInTransaction(tx, {
+        userId: session.sub,
+        action: "cancel",
+        entityType: "disbursement",
+        entityId: id,
+        oldValue: {
+          disbursementNo: disbursement.disbursementNo,
+          status: disbursement.status,
+          amount: Number(disbursement.amount),
+          applicationNo: disbursement.application.applicationNo,
+        },
+        newValue: {
+          status: "CANCELLED",
+          applicationStatus: disbursement.application.status,
+        },
+        changeSummary: "Cancel pending disbursement before payment",
+      });
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "DISBURSEMENT_STATUS_CHANGED") {
+      return NextResponse.json(
+        { error: "Disbursement status changed, please refresh and retry" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   return NextResponse.json({
     success: true,
     status: "CANCELLED",
-    applicationStatus: disbursement.application.status === "CONTRACTED" ? "APPROVED" : disbursement.application.status,
+    applicationStatus: disbursement.application.status,
   });
 }

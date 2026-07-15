@@ -2,6 +2,7 @@
  * 审计日志：关键操作记录 old/new 与操作人，供追责与对账
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export type AuditAction =
@@ -18,7 +19,8 @@ export type AuditAction =
   | "repay_confirm"
   | "pay_overdue_interest"
   | "settlement_persist"
-  | "settlement_settle";
+  | "settlement_settle"
+  | "reconcile";
 
 export type AuditEntityType =
   | "loan_application"
@@ -29,8 +31,10 @@ export type AuditEntityType =
   | "overdue_record"
   | "overdue_scan"
   | "extension"
+  | "restructure"
   | "customer"
   | "capital_inflow"
+  | "funder_withdrawal"
   | "contract_template"
   | "fund_account"
   | "funder"
@@ -40,9 +44,10 @@ export type AuditEntityType =
   | "system_setting"
   | "role"
   | "user"
-  | "fund_profit_share";
+  | "fund_profit_share"
+  | "finance_reconciliation";
 
-export async function writeAuditLog(params: {
+export type AuditLogParams = {
   userId: string;
   action: AuditAction;
   entityType: AuditEntityType;
@@ -52,20 +57,31 @@ export async function writeAuditLog(params: {
   changeSummary?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
-}) {
-  await prisma.auditLog.create({
-    data: {
-      userId: params.userId,
-      action: params.action,
-      entityType: params.entityType,
-      entityId: params.entityId,
-      oldValue: params.oldValue ? JSON.stringify(params.oldValue) : undefined,
-      newValue: params.newValue ? JSON.stringify(params.newValue) : undefined,
-      changeSummary: params.changeSummary ?? undefined,
-      ipAddress: params.ipAddress ?? undefined,
-      userAgent: params.userAgent ?? undefined,
-    },
-  });
+};
+
+function buildAuditLogData(params: AuditLogParams): Prisma.AuditLogUncheckedCreateInput {
+  return {
+    userId: params.userId,
+    action: params.action,
+    entityType: params.entityType,
+    entityId: params.entityId,
+    oldValue: params.oldValue ? JSON.stringify(params.oldValue) : undefined,
+    newValue: params.newValue ? JSON.stringify(params.newValue) : undefined,
+    changeSummary: params.changeSummary ?? undefined,
+    ipAddress: params.ipAddress ?? undefined,
+    userAgent: params.userAgent ?? undefined,
+  };
+}
+
+export async function writeAuditLogInTransaction(
+  tx: Prisma.TransactionClient,
+  params: AuditLogParams,
+) {
+  await tx.auditLog.create({ data: buildAuditLogData(params) });
+}
+
+export async function writeAuditLog(params: AuditLogParams) {
+  await prisma.auditLog.create({ data: buildAuditLogData(params) });
 }
 
 /**

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatMoney as money } from "@/lib/system-config";
+
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { DocumentScanner } from "@/components/DocumentScanner";
@@ -21,6 +23,7 @@ type DocType = {
   type: string;
   label: string;
   uploaded: boolean;
+  verified: boolean;
 };
 
 type DocumentItem = {
@@ -28,7 +31,9 @@ type DocumentItem = {
   kycType: string;
   label: string;
   documentUrl: string | null;
+  mimeType: string | null;
   status: string;
+  remark: string | null;
   createdAt: string;
 };
 
@@ -49,10 +54,11 @@ type ProfileData = {
 };
 
 const STATUS_MAP: Record<string, { label: string; className: string }> = {
-  UPLOADED: { label: "已上传", className: "bg-blue-50 text-blue-700" },
+  UPLOADED: { label: "待核验", className: "bg-blue-50 text-blue-700" },
   VERIFIED: { label: "已验证", className: "bg-emerald-50 text-emerald-700" },
   REJECTED: { label: "已驳回", className: "bg-red-50 text-red-700" },
-  PENDING: { label: "待上传", className: "bg-slate-100 text-slate-600" },
+  PENDING: { label: "待核验", className: "bg-blue-50 text-blue-700" },
+  MISSING: { label: "待上传", className: "bg-slate-100 text-slate-600" },
 };
 
 const EMPTY_FORM: ProfileForm = {
@@ -64,15 +70,6 @@ const EMPTY_FORM: ProfileForm = {
   residencePermitNumber: "",
   residencePermitExpiry: "",
 };
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 export default function ClientProfilePage() {
   const searchParams = useSearchParams();
@@ -161,7 +158,9 @@ export default function ClientProfilePage() {
       await fetchProfile();
       setMessage({
         type: "ok",
-        text: json.profileComplete ? "资料和复印件已全部完成" : `${json.label}已上传`,
+        text: json.profileComplete
+          ? "资料和证件已全部核验完成"
+          : `${json.label}已上传，等待内部核验`,
       });
     } catch (error) {
       setMessage({ type: "err", text: error instanceof Error ? error.message : "上传失败" });
@@ -194,7 +193,7 @@ export default function ClientProfilePage() {
 
   const completedItems =
     (data.profileFieldsComplete ? 1 : 0) +
-    data.docTypes.filter((item) => item.uploaded).length;
+    data.docTypes.filter((item) => item.verified).length;
   const totalItems = 1 + data.docTypes.length;
   const missingLabels = [
     ...data.missingFields.map((item) => item.label),
@@ -235,9 +234,9 @@ export default function ClientProfilePage() {
 
       {(required || !data.profileComplete) && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          客户端已开启强制资料认证，补齐资料和复印件后才可以继续进入借款、还款和签署流程。
+          客户端已开启强制资料认证，资料补齐且证件经内部核验通过后，才可以继续进入借款、还款和签署流程。
           {missingLabels.length > 0 ? (
-            <span className="mt-1 block text-xs text-amber-700">缺少：{missingLabels.join("、")}</span>
+            <span className="mt-1 block text-xs text-amber-700">待处理：{missingLabels.join("、")}</span>
           ) : null}
         </div>
       )}
@@ -340,7 +339,7 @@ export default function ClientProfilePage() {
       <section className="stat-tile rounded-xl p-4 sm:p-5">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">复印件上传</h2>
-          <p className="text-sm text-slate-500">身份证、护照、居留卡复印件必须全部上传。</p>
+          <p className="text-sm text-slate-500">身份证、护照、居留卡复印件必须全部上传并通过内部核验。</p>
         </div>
 
         <input
@@ -358,7 +357,7 @@ export default function ClientProfilePage() {
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           {data.docTypes.map((docType) => {
             const document = getExistingDoc(docType.type);
-            const status = STATUS_MAP[document?.status ?? "PENDING"] ?? STATUS_MAP.PENDING;
+            const status = STATUS_MAP[document?.status ?? "MISSING"] ?? STATUS_MAP.PENDING;
             const isUploading = uploading === docType.type;
             const isMissing = data.missingDocTypes.some((item) => item.type === docType.type);
 
@@ -376,17 +375,17 @@ export default function ClientProfilePage() {
                       {status.label}
                     </span>
                   </div>
-                  {isMissing ? <span className="text-xs font-semibold text-amber-700">必传</span> : null}
+                  {isMissing ? <span className="text-xs font-semibold text-amber-700">待处理</span> : null}
                 </div>
 
-                {document?.documentUrl?.startsWith("data:image") ? (
+                {document?.documentUrl && document.mimeType?.startsWith("image/") ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={document.documentUrl}
                     alt={docType.label}
                     className="mt-3 h-32 w-full rounded-lg border border-slate-200 object-cover"
                   />
-                ) : document?.documentUrl?.startsWith("data:application/pdf") ? (
+                ) : document?.documentUrl && document.mimeType === "application/pdf" ? (
                   <div className="mt-3 flex h-32 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
                     PDF 文件
                   </div>
@@ -399,6 +398,11 @@ export default function ClientProfilePage() {
                 {document ? (
                   <p className="mt-2 text-xs text-slate-500">
                     上传于 {new Date(document.createdAt).toLocaleString("zh-CN")}
+                  </p>
+                ) : null}
+                {document?.status === "REJECTED" && document.remark ? (
+                  <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+                    驳回原因：{document.remark}
                   </p>
                 ) : null}
 

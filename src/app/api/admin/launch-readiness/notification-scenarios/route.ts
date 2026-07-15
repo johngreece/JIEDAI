@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { isIsolatedRegressionRuntime } from "@/lib/regression-database-guard";
 import { requirePermission } from "@/lib/rbac";
 import { ClientNotificationService } from "@/services/client-notification.service";
 
@@ -18,6 +19,13 @@ function addDays(date: Date, days: number) {
 }
 
 export async function POST() {
+  if (!isIsolatedRegressionRuntime()) {
+    return NextResponse.json(
+      { error: "Notification scenario fixtures are available only in an isolated regression runtime" },
+      { status: 403 },
+    );
+  }
+
   const session = await requirePermission(["dashboard:view"]);
   if (session instanceof Response) return session;
 

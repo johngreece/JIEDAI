@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { formatMoney as money } from "@/lib/system-config";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveFunderSession } from "@/lib/portal-session";
-import { fileToDataUrl, createProofAttachment } from "@/lib/proof-attachment";
+import {
+  createProofAttachment,
+  serializeProofAttachment,
+  storeProofFile,
+} from "@/lib/proof-attachment";
+import { deletePrivateFile, privateStorageErrorResponse } from "@/lib/private-file-storage";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
+import { isCapitalInflowTransactionConstraintError } from "@/lib/capital-inflow-evidence";
 
 export const dynamic = "force-dynamic";
 
@@ -12,23 +19,27 @@ const inflowSchema = z.object({
   fundAccountId: z.string().min(1),
   amount: z.coerce.number().positive(),
   channel: z.string().trim().min(1).default("BANK_TRANSFER"),
+  transactionId: z
+    .string()
+    .trim()
+    .min(3)
+    .max(120)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/),
+  senderBank: z.string().trim().min(2).max(120),
+  senderAccount: z.string().trim().min(3).max(120),
   inflowDate: z.string().datetime().optional(),
   remark: z.string().trim().max(500).optional(),
-  proofUrl: z.string().trim().min(1).optional(),
+  proofUrl: z
+    .string()
+    .trim()
+    .url("凭证链接格式不正确")
+    .refine((value) => value.startsWith("https://"), "凭证链接必须使用 HTTPS")
+    .optional(),
   proofFileName: z.string().trim().max(160).optional(),
   proofMimeType: z.string().trim().max(100).optional(),
 });
 
 type InflowInput = z.infer<typeof inflowSchema>;
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 async function parseInflowRequest(req: NextRequest): Promise<{
   input: InflowInput;
@@ -43,6 +54,9 @@ async function parseInflowRequest(req: NextRequest): Promise<{
       fundAccountId: formData.get("fundAccountId"),
       amount: formData.get("amount"),
       channel: formData.get("channel") ?? "BANK_TRANSFER",
+      transactionId: formData.get("transactionId"),
+      senderBank: formData.get("senderBank"),
+      senderAccount: formData.get("senderAccount"),
       inflowDate: formData.get("inflowDate") || undefined,
       remark: formData.get("remark") || undefined,
       proofUrl: formData.get("proofUrl") || undefined,
@@ -144,13 +158,16 @@ export async function GET(req: NextRequest) {
       id: item.id,
       amount: Number(item.amount),
       channel: item.channel,
+      transactionId: item.transactionId,
+      senderBank: item.senderBank,
+      senderAccount: item.senderAccount,
       inflowDate: item.inflowDate,
       status: item.status,
       remark: item.remark,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       fundAccount: item.fundAccount,
-      proofs: proofsByInflowId.get(item.id) ?? [],
+      proofs: (proofsByInflowId.get(item.id) ?? []).map(serializeProofAttachment),
     })),
   });
 }
@@ -160,8 +177,7 @@ export async function POST(req: NextRequest) {
   if (session instanceof Response) return session;
 
   const idemKey = getScopedIdempotencyKey(req, ["funder", session.sub, "capital-inflow"]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   let parsed: Awaited<ReturnType<typeof parseInflowRequest>>;
   try {
@@ -198,6 +214,8 @@ export async function POST(req: NextRequest) {
   if (!account) {
     return NextResponse.json({ error: "资金账户不存在或不属于当前资金方" }, { status: 404 });
   }
+  const accountId = account.id;
+  const funderId = session.sub;
 
   let fileUrl = input.proofUrl ?? "";
   let fileName = input.proofFileName || "capital-inflow-proof";
@@ -206,42 +224,61 @@ export async function POST(req: NextRequest) {
 
   if (proofFile) {
     try {
-      fileUrl = await fileToDataUrl(proofFile);
+      fileUrl = await storeProofFile(proofFile, `funders/${session.sub}/inflows`);
       fileName = proofFile.name || fileName;
       fileSize = proofFile.size;
       mimeType = proofFile.type || "application/octet-stream";
     } catch (error) {
-      return NextResponse.json({ error: error instanceof Error ? error.message : "凭证文件无效" }, { status: 400 });
+      return privateStorageErrorResponse(error, "凭证上传失败");
     }
   }
 
   const inflowDate = input.inflowDate ? new Date(input.inflowDate) : new Date();
 
-  const result = await prisma.$transaction(async (tx) => {
-    const inflow = await tx.capitalInflow.create({
-      data: {
-        fundAccountId: account.id,
-        amount: input.amount,
-        channel: input.channel,
-        inflowDate,
-        status: "PENDING",
-        remark: input.remark ?? "资金方自助提交入金申请，待后台确认到账",
-      },
-    });
+  let result: Awaited<ReturnType<typeof createInflow>>;
+  async function createInflow() {
+    return prisma.$transaction(async (tx) => {
+      const inflow = await tx.capitalInflow.create({
+        data: {
+          fundAccountId: accountId,
+          amount: input.amount,
+          channel: input.channel,
+          transactionId: input.transactionId,
+          senderBank: input.senderBank,
+          senderAccount: input.senderAccount,
+          inflowDate,
+          status: "PENDING",
+          remark: input.remark ?? "资金方自助提交入金申请，待后台确认到账",
+        },
+      });
 
-    const proof = await createProofAttachment(tx, {
-      entityType: "capital_inflow",
-      entityId: inflow.id,
-      fileName,
-      fileUrl,
-      fileSize,
-      mimeType,
-      uploadedBy: `funder:${session.sub}`,
-      category: "FUNDER_INFLOW_PROOF",
-    });
+      const proof = await createProofAttachment(tx, {
+        entityType: "capital_inflow",
+        entityId: inflow.id,
+        fileName,
+        fileUrl,
+        fileSize,
+        mimeType,
+        uploadedBy: `funder:${funderId}`,
+        category: "FUNDER_INFLOW_PROOF",
+      });
 
-    return { inflow, proof };
-  });
+      return { inflow, proof };
+    });
+  }
+
+  try {
+    result = await createInflow();
+  } catch (error) {
+    if (proofFile) await deletePrivateFile(fileUrl).catch(() => undefined);
+    if (isCapitalInflowTransactionConstraintError(error)) {
+      return NextResponse.json(
+        { error: "This bank transaction ID is already used for the selected fund account" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   await InAppNotificationService.notifyAdmins({
     type: "FUNDER_CAPITAL_INFLOW_REQUESTED",
@@ -254,9 +291,9 @@ export async function POST(req: NextRequest) {
     id: result.inflow.id,
     amount: Number(result.inflow.amount),
     status: result.inflow.status,
-    proof: result.proof,
+    transactionId: result.inflow.transactionId,
+    proof: serializeProofAttachment(result.proof),
   };
-  await saveIdempotencyResult(idemKey, responseBody);
-
   return NextResponse.json(responseBody, { status: 201 });
+  });
 }

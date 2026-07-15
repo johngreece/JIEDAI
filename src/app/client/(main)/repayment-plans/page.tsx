@@ -2,15 +2,7 @@ import Link from "next/link";
 import { getActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
+import { formatMoney as money } from "@/lib/system-config";
 
 function formatDateTime(value: Date | string) {
   return new Date(value).toLocaleString("zh-CN", {

@@ -3,11 +3,19 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
+import { DisbursementConfirmationDialog } from "@/components/admin/DisbursementConfirmationDialog";
 
 type LoanItem = {
   id: string;
   applicationNo: string;
   amount: number;
+  contractTerms: {
+    currency: string;
+    basePrincipal: number;
+    legalServiceFee: number;
+    upfrontFeeAmount: number;
+    netDisbursementAmount: number;
+  } | null;
   customer: { name: string };
   product: { name: string };
 };
@@ -28,6 +36,14 @@ type Disbursement = {
   amount: number;
   feeAmount: number;
   netAmount: number;
+  transactionId: string | null;
+  payerBank: string | null;
+  payerAccount: string | null;
+  proofs: Array<{
+    id: string;
+    fileName: string;
+    fileUrl: string;
+  }>;
   createdAt: string;
   application: { id: string; applicationNo: string; customer: { name: string; phone: string } };
   fundAccount: { id: string; accountName: string; accountNo: string };
@@ -40,6 +56,11 @@ export function DisbursementsPageClient() {
   const [error, setError] = useState("");
   const [acting, setActing] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{
+    id: string;
+    disbursementNo: string;
+    idempotencyKey: string;
+  } | null>(null);
 
   const [approvedApps, setApprovedApps] = useState<LoanItem[]>([]);
   const [fundAccounts, setFundAccounts] = useState<FundAccount[]>([]);
@@ -71,7 +92,7 @@ export function DisbursementsPageClient() {
 
   async function loadOptions() {
     const [appRes, accRes] = await Promise.all([
-      fetch("/api/loan-applications?status=APPROVED"),
+      fetch("/api/loan-applications?status=CONTRACTED"),
       fetch("/api/fund-accounts"),
     ]);
 
@@ -96,6 +117,7 @@ export function DisbursementsPageClient() {
     pending: list.filter((item) => item.status === "PENDING").length,
     paid: list.filter((item) => item.status === "PAID").length,
   }), [list]);
+  const selectedApplication = approvedApps.find((item) => item.id === form.applicationId) ?? null;
 
   async function createDisbursement(e: React.FormEvent) {
     e.preventDefault();
@@ -134,36 +156,39 @@ export function DisbursementsPageClient() {
     }
   }
 
-  async function confirmPaid(id: string) {
-    setActing(id);
+  async function confirmPaid(evidence: FormData) {
+    if (!confirmTarget) return;
+    setActing(confirmTarget.id);
     try {
-      const res = await fetch(`/api/disbursements/${id}/confirm-paid`, {
+      const res = await fetch(`/api/disbursements/${confirmTarget.id}/confirm-paid`, {
         method: "POST",
         headers: {
-          "x-idempotency-key": makeClientIdempotencyKey("admin-disbursement-confirm-paid"),
+          "x-idempotency-key": confirmTarget.idempotencyKey,
         },
+        body: evidence,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to confirm disbursement");
       await Promise.all([loadList(), loadOptions()]);
+      setConfirmTarget(null);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to confirm disbursement");
+      throw e instanceof Error ? e : new Error("Failed to confirm disbursement");
     } finally {
       setActing(null);
     }
   }
 
   async function deleteDisbursement(item: Disbursement) {
-    if (!window.confirm(`Delete disbursement "${item.disbursementNo}"? Only pending records can be removed.`)) return;
+    if (!window.confirm(`Cancel disbursement "${item.disbursementNo}"? Pending records remain in the audit trail.`)) return;
 
     setDeletingId(item.id);
     try {
       const res = await fetch(`/api/disbursements/${item.id}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Failed to delete disbursement");
+      if (!res.ok) throw new Error(data.error ?? "Failed to cancel disbursement");
       await Promise.all([loadList(), loadOptions()]);
     } catch (e) {
-      alert(e instanceof Error ? e.message : "Failed to delete disbursement");
+      alert(e instanceof Error ? e.message : "Failed to cancel disbursement");
     } finally {
       setDeletingId(null);
     }
@@ -209,7 +234,8 @@ export function DisbursementsPageClient() {
                 setForm((current) => ({
                   ...current,
                   applicationId: e.target.value,
-                  amount: app ? String(app.amount) : current.amount,
+                  amount: app ? String(app.contractTerms?.basePrincipal ?? app.amount) : current.amount,
+                  feeAmount: app ? String(app.contractTerms?.upfrontFeeAmount ?? 0) : current.feeAmount,
                 }));
               }}
               className="input-base"
@@ -241,7 +267,7 @@ export function DisbursementsPageClient() {
           </label>
 
           <label className="space-y-1 text-sm">
-            <span className="text-slate-500">Gross Amount</span>
+            <span className="text-slate-500">合同基础本金（EUR）</span>
             <input
               required
               type="number"
@@ -249,11 +275,12 @@ export function DisbursementsPageClient() {
               value={form.amount}
               onChange={(e) => setForm((current) => ({ ...current, amount: e.target.value }))}
               className="input-base"
+              readOnly={Boolean(selectedApplication?.contractTerms)}
             />
           </label>
 
           <label className="space-y-1 text-sm">
-            <span className="text-slate-500">Fee Amount</span>
+            <span className="text-slate-500">本次放款前置扣费（EUR）</span>
             <input
               required
               type="number"
@@ -261,6 +288,7 @@ export function DisbursementsPageClient() {
               value={form.feeAmount}
               onChange={(e) => setForm((current) => ({ ...current, feeAmount: e.target.value }))}
               className="input-base"
+              readOnly={Boolean(selectedApplication?.contractTerms)}
             />
           </label>
 
@@ -316,6 +344,7 @@ export function DisbursementsPageClient() {
                 <th className="px-4 py-3 text-left">Application / Customer</th>
                 <th className="px-4 py-3 text-left">Amount</th>
                 <th className="px-4 py-3 text-left">Fund Account</th>
+                <th className="px-4 py-3 text-left">Bank Evidence</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Actions</th>
               </tr>
@@ -323,13 +352,13 @@ export function DisbursementsPageClient() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-slate-500">Loading...</td>
+                  <td colSpan={7} className="px-4 py-6 text-slate-500">Loading...</td>
                 </tr>
               ) : null}
 
               {!loading && list.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-slate-500">No disbursement records</td>
+                  <td colSpan={7} className="px-4 py-6 text-slate-500">No disbursement records</td>
                 </tr>
               ) : null}
 
@@ -350,6 +379,24 @@ export function DisbursementsPageClient() {
                     {item.fundAccount.accountName}
                     <div className="text-xs text-slate-500">{item.fundAccount.accountNo}</div>
                   </td>
+                  <td className="px-4 py-3">
+                    <div className="font-mono text-xs text-slate-700">{item.transactionId || "-"}</div>
+                    {item.proofs.length > 0 ? (
+                      <div className="mt-1 space-x-2 text-xs">
+                        {item.proofs.map((proof) => (
+                          <a
+                            key={proof.id}
+                            href={proof.fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            {proof.fileName}
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3">{item.status}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -357,7 +404,15 @@ export function DisbursementsPageClient() {
                       {item.status === "PENDING" ? (
                         <button
                           disabled={acting === item.id}
-                          onClick={() => confirmPaid(item.id)}
+                          onClick={() =>
+                            setConfirmTarget({
+                              id: item.id,
+                              disbursementNo: item.disbursementNo,
+                              idempotencyKey: makeClientIdempotencyKey(
+                                "admin-disbursement-confirm-paid",
+                              ),
+                            })
+                          }
                           className="text-emerald-700 hover:underline disabled:opacity-50"
                         >
                           {acting === item.id ? "Processing..." : "Confirm Paid"}
@@ -369,7 +424,7 @@ export function DisbursementsPageClient() {
                           onClick={() => deleteDisbursement(item)}
                           className="text-rose-600 hover:underline disabled:opacity-50"
                         >
-                          {deletingId === item.id ? "Deleting..." : "Delete"}
+                          {deletingId === item.id ? "Cancelling..." : "Cancel"}
                         </button>
                       ) : null}
                     </div>
@@ -380,6 +435,16 @@ export function DisbursementsPageClient() {
           </table>
         </div>
       </section>
+
+      <DisbursementConfirmationDialog
+        open={Boolean(confirmTarget)}
+        disbursementNo={confirmTarget?.disbursementNo ?? ""}
+        busy={Boolean(confirmTarget && acting === confirmTarget.id)}
+        onClose={() => {
+          if (!acting) setConfirmTarget(null);
+        }}
+        onConfirm={confirmPaid}
+      />
     </div>
   );
 }

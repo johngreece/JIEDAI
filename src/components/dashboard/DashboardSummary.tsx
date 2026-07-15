@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { useAdminAccess } from "@/components/admin/AdminAccessProvider";
+import { canAccessAdminPath } from "@/lib/admin-access-policy";
+
 type SummaryData = Record<string, any>;
 type SmartData = Record<string, any>;
 type Tone = "default" | "success" | "warn" | "danger";
@@ -63,6 +66,7 @@ export function DashboardSummary({
   initialSmart = null,
   initialLoadedAt = null,
 }: DashboardSummaryProps) {
+  const access = useAdminAccess();
   const hasInitialData = Boolean(initialSummary && initialSmart);
   const [summary, setSummary] = useState<SummaryData | null>(initialSummary);
   const [smart, setSmart] = useState<SmartData | null>(initialSmart);
@@ -303,52 +307,58 @@ export function DashboardSummary({
           </div>
         </div>
         <div className="mt-5 space-y-3">
-          <WorkbenchLane
-            title="今日借款申请"
-            count={smart.workbench?.summary?.loanApplicationsToday}
-            actionHref="/admin/loan-applications"
-            actionLabel="去审申请"
-            emptyText="今天还没有新的借款申请。"
-            items={smart.workbench?.todayLoanApplications || []}
-            mapItem={(item: any): WorkbenchRow => ({
-              title: item.customerName,
-              subtitle: `${item.applicationNo} · ${item.phone || "未留电话"}`,
-              primary: `金额 ${formatCurrency(item.amount)}`,
-              secondary: `${item.riskLevel} · ${formatDateTime(item.createdAt)}`,
-              href: item.href,
-            })}
-          />
-          <WorkbenchLane
-            title="今日应还名单"
-            count={smart.workbench?.summary?.repaymentsDueToday}
-            actionHref="/admin/repayments"
-            actionLabel="去看还款"
-            emptyText="今天没有到期应还账单。"
-            items={smart.workbench?.todayRepayments || []}
-            mapItem={(item: any): WorkbenchRow => ({
-              title: item.customerName,
-              subtitle: `${item.planNo} · ${item.phone || "未留电话"}`,
-              primary: `应还 ${formatCurrency(item.amount)}`,
-              secondary: `${item.status} · ${formatDateTime(item.dueDate)}`,
-              href: item.href,
-            })}
-          />
-          <WorkbenchLane
-            title="今日逾期名单"
-            count={smart.workbench?.summary?.overdueToday}
-            actionHref="/admin/overdue"
-            actionLabel="去催收"
-            emptyText="今天没有新增逾期。"
-            tone="danger"
-            items={smart.workbench?.todayOverdues || []}
-            mapItem={(item: any): WorkbenchRow => ({
-              title: item.customerName,
-              subtitle: `${item.phone || "未留电话"} · ${item.riskLevel}`,
-              primary: `逾期 ${formatCurrency(item.overdueAmount)}`,
-              secondary: `罚息 ${formatCurrency(item.penaltyAmount)} · ${item.overdueDays} 天`,
-              href: item.href,
-            })}
-          />
+          {canAccessAdminPath("/admin/loan-applications", access) ? (
+            <WorkbenchLane
+              title="今日借款申请"
+              count={smart.workbench?.summary?.loanApplicationsToday}
+              actionHref="/admin/loan-applications"
+              actionLabel="去审申请"
+              emptyText="今天还没有新的借款申请。"
+              items={smart.workbench?.todayLoanApplications || []}
+              mapItem={(item: any): WorkbenchRow => ({
+                title: item.customerName,
+                subtitle: `${item.applicationNo} · ${item.phone || "未留电话"}`,
+                primary: `金额 ${formatCurrency(item.amount)}`,
+                secondary: `${item.riskLevel} · ${formatDateTime(item.createdAt)}`,
+                href: item.href,
+              })}
+            />
+          ) : null}
+          {canAccessAdminPath("/admin/repayments", access) ? (
+            <WorkbenchLane
+              title="今日应还名单"
+              count={smart.workbench?.summary?.repaymentsDueToday}
+              actionHref="/admin/repayments"
+              actionLabel="去看还款"
+              emptyText="今天没有到期应还账单。"
+              items={smart.workbench?.todayRepayments || []}
+              mapItem={(item: any): WorkbenchRow => ({
+                title: item.customerName,
+                subtitle: `${item.planNo} · ${item.phone || "未留电话"}`,
+                primary: `应还 ${formatCurrency(item.amount)}`,
+                secondary: `${item.status} · ${formatDateTime(item.dueDate)}`,
+                href: item.href,
+              })}
+            />
+          ) : null}
+          {canAccessAdminPath("/admin/overdue", access) ? (
+            <WorkbenchLane
+              title="今日逾期名单"
+              count={smart.workbench?.summary?.overdueToday}
+              actionHref="/admin/overdue"
+              actionLabel="去催收"
+              emptyText="今天没有新增逾期。"
+              tone="danger"
+              items={smart.workbench?.todayOverdues || []}
+              mapItem={(item: any): WorkbenchRow => ({
+                title: item.customerName,
+                subtitle: `${item.phone || "未留电话"} · ${item.riskLevel}`,
+                primary: `逾期 ${formatCurrency(item.overdueAmount)}`,
+                secondary: `罚息 ${formatCurrency(item.penaltyAmount)} · ${item.overdueDays} 天`,
+                href: item.href,
+              })}
+            />
+          ) : null}
         </div>
       </Panel>
 
@@ -383,7 +393,7 @@ export function DashboardSummary({
             <ActionChip href="/admin/finance" primary>
               财务中心
             </ActionChip>
-            <ActionChip href="/admin/funders">录入入金</ActionChip>
+            <ActionChip href="/admin/capital-inflows">录入入金</ActionChip>
             <ActionChip href="/admin/settlement">结算中心</ActionChip>
             <ActionChip href="/admin/funder-withdrawals">提现审批</ActionChip>
             <ActionChip href="/admin/ledger">资金流水</ActionChip>
@@ -443,35 +453,38 @@ export function DashboardSummary({
             hint="改为紧凑型横向行卡，优先级和入口一眼能看完。"
           />
           <div className="mt-5 space-y-3">
-            {(smart.smartTodos || []).slice(0, 8).map((item: any) => (
-              <Link
-                key={`${item.type}-${item.href}`}
-                href={item.href}
-                prefetch={false}
-                className={`dashboard-tone-card px-4 py-3 hover:no-underline ${
-                  item.urgency === "critical"
-                    ? "dashboard-tone-card--critical"
-                    : item.urgency === "high"
-                      ? "dashboard-tone-card--high"
-                      : item.urgency === "medium"
-                        ? "dashboard-tone-card--medium"
-                        : "dashboard-tone-card--default"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold tracking-[0.12em]">
-                      {String(item.urgency).toUpperCase()}
+            {(smart.smartTodos || [])
+              .filter((item: any) => canAccessAdminPath(item.href, access))
+              .slice(0, 8)
+              .map((item: any) => (
+                <Link
+                  key={`${item.type}-${item.href}`}
+                  href={item.href}
+                  prefetch={false}
+                  className={`dashboard-tone-card px-4 py-3 hover:no-underline ${
+                    item.urgency === "critical"
+                      ? "dashboard-tone-card--critical"
+                      : item.urgency === "high"
+                        ? "dashboard-tone-card--high"
+                        : item.urgency === "medium"
+                          ? "dashboard-tone-card--medium"
+                          : "dashboard-tone-card--default"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold tracking-[0.12em]">
+                        {String(item.urgency).toUpperCase()}
+                      </div>
+                      <div className="mt-1 truncate text-base font-semibold">{item.label}</div>
+                      <p className="mt-1 text-sm leading-6 opacity-90">{item.description}</p>
                     </div>
-                    <div className="mt-1 truncate text-base font-semibold">{item.label}</div>
-                    <p className="mt-1 text-sm leading-6 opacity-90">{item.description}</p>
+                    <div className="dashboard-pill bg-white/90 px-3 py-1 text-sm font-bold">
+                      {formatNumber(item.count)}
+                    </div>
                   </div>
-                  <div className="dashboard-pill bg-white/90 px-3 py-1 text-sm font-bold">
-                    {formatNumber(item.count)}
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              ))}
           </div>
         </Panel>
       </section>
@@ -856,6 +869,11 @@ function ActionChip({
   children: React.ReactNode;
   primary?: boolean;
 }) {
+  const access = useAdminAccess();
+  if (!canAccessAdminPath(href, access)) {
+    return null;
+  }
+
   return (
     <Link
       href={href}

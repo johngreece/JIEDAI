@@ -1,9 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { formatMoney } from "@/lib/system-config";
+
 import { useEffect, useState } from "react";
 
 type ReadinessData = {
+  scenarioFixturesEnabled: boolean;
   testClient: null | {
     id: string;
     name: string;
@@ -77,15 +79,6 @@ type ScenarioResult = {
   }>;
 };
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value || 0);
-}
-
 function formatDate(value: string | null) {
   if (!value) return "-";
   return new Date(value).toLocaleString("zh-CN", { hour12: false });
@@ -114,6 +107,11 @@ export function LaunchReadinessPageClient() {
   }
 
   async function runScenario() {
+    if (!data?.scenarioFixturesEnabled) {
+      setError("生产环境只允许只读巡检，通知场景写入仅可在隔离回归库执行");
+      return;
+    }
+
     setRunning(true);
     try {
       const response = await fetch("/api/admin/launch-readiness/notification-scenarios", {
@@ -152,18 +150,14 @@ export function LaunchReadinessPageClient() {
       <section className="panel-soft rounded-2xl px-5 py-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-sm text-slate-500">上线巡检 · QA / 验收专用</div>
+            <div className="text-sm text-slate-500">上线巡检 · 生产只读 / 隔离库验收</div>
             <h1 className="text-2xl font-bold text-slate-900">智能链路验收台</h1>
             <p className="mt-1 text-sm text-slate-600">
-              这页是用来&ldquo;拿一个真实在途的客户去验证整条通知 / 风控 / 资金链路是否打通&rdquo;的。
-              系统会自动挑一笔在途借款（CONTRACTED / DISBURSED 等），把这位客户看到的所有通知样本、智能仪表盘里推送给他的预警都铺在这一屏，方便上线前一次性看完。
+              生产环境仅汇总当前业务的通知、风控和资金指标，不会修改还款日、逾期记录或客户通知。
+              可写通知场景只在隔离回归数据库启用。
             </p>
             <p className="mt-2 text-xs text-slate-500">
-              如果整页都是空的，说明系统里还没有任何在途借款 — 不是 bug。先在
-              <Link href="/admin/customers" className="mx-1 underline">客户管理</Link>
-              建客户、在
-              <Link href="/admin/loan-applications" className="mx-1 underline">借款申请</Link>
-              发起一笔；或者直接跑一次 <code className="rounded bg-slate-100 px-1 py-0.5">npm run db:seed-demo</code> 注入演示数据。
+              当前模式：{data?.scenarioFixturesEnabled ? "隔离回归场景" : "生产只读巡检"}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -178,10 +172,19 @@ export function LaunchReadinessPageClient() {
             <button
               type="button"
               onClick={() => void runScenario()}
-              disabled={running}
+              disabled={running || !data?.scenarioFixturesEnabled}
+              title={
+                data?.scenarioFixturesEnabled
+                  ? "生成隔离回归通知场景"
+                  : "生产环境禁止写入通知场景"
+              }
               className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
             >
-              {running ? "正在生成场景..." : "一键生成通知场景"}
+              {running
+                ? "正在生成场景..."
+                : data?.scenarioFixturesEnabled
+                  ? "生成隔离通知场景"
+                  : "生产环境禁止场景写入"}
             </button>
           </div>
         </div>
@@ -195,18 +198,8 @@ export function LaunchReadinessPageClient() {
         <>
           {!data.testClient ? (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-              <p className="text-base font-semibold">当前系统没有任何在途借款，验收台暂时没东西可看。</p>
-              <p className="mt-2 leading-7">
-                这页面需要至少一笔状态在 CONTRACTED / DISBURSED / PENDING_DISBURSEMENT / CONTRACT_SIGNED 的真实借款作为&ldquo;演练对象&rdquo;。两种快速注入方式：
-              </p>
-              <ol className="mt-2 list-decimal pl-5 leading-7">
-                <li>
-                  在终端运行 <code className="rounded bg-white px-1 py-0.5 font-mono">npm run db:seed-demo</code>，会自动建 1 个资金方 + 3 个客户 + 3 笔不同状态的借款。
-                </li>
-                <li>
-                  或者手动：到 <Link href="/admin/register" className="underline">客户登记</Link> 建客户 → <Link href="/admin/loan-applications" className="underline">借款申请</Link> 创建一笔 → 走完风控、审批、合同、放款。
-                </li>
-              </ol>
+              <p className="text-base font-semibold">当前没有可观察的在途借款。</p>
+              <p className="mt-2 leading-7">只读巡检保持空态，生产库不会自动注入演示业务。</p>
             </div>
           ) : null}
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -214,12 +207,12 @@ export function LaunchReadinessPageClient() {
             <ReadinessCard title="异常总数" value={`${data.smartSummary.anomalyCount}`} note="同设备/频改资料/异常提现" />
             <ReadinessCard title="30天净利润" value={formatMoney(data.smartSummary.realNetProfit30d)} note="已计入资金方收益预测" />
             <ReadinessCard
-              title="测试客户"
+              title="观察客户"
               value={data.testClient?.phone ?? "—"}
               note={
                 data.testClient
                   ? `${data.testClient.name} · ${data.activeApplication?.applicationNo || "无在途借款"}`
-                  : "暂无在途借款客户可用"
+                  : "暂无在途借款"
               }
             />
           </section>
@@ -229,7 +222,7 @@ export function LaunchReadinessPageClient() {
               <div className="stat-tile rounded-2xl p-5">
                 <h2 className="text-lg font-semibold text-slate-900">通知场景准备状态</h2>
                 <div className="mt-4 space-y-3 text-sm text-slate-600">
-                  <div>当前测试客户：{data.testClient ? `${data.testClient.name} / ${data.testClient.phone}` : "—"}</div>
+                  <div>当前观察客户：{data.testClient ? `${data.testClient.name} / ${data.testClient.phone}` : "—"}</div>
                   <div>在途借款：{data.activeApplication?.applicationNo || "无"}</div>
                   <div>借款状态：{data.activeApplication?.status || "-"}</div>
                   <div>下一期状态：{data.activeApplication?.nextScheduleItem?.status || "-"}</div>
@@ -256,7 +249,9 @@ export function LaunchReadinessPageClient() {
                 <div className="mt-4 space-y-3">
                   {data.notifications.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-                      当前测试客户暂无通知。点击“一键生成通知场景”即可自动生成到期/逾期提醒。
+                      {data.scenarioFixturesEnabled
+                        ? "当前回归样本暂无通知，可生成隔离通知场景。"
+                        : "当前观察样本暂无通知。"}
                     </div>
                   ) : (
                     data.notifications.map((item) => (
@@ -317,7 +312,9 @@ export function LaunchReadinessPageClient() {
                 <div className="mt-4 space-y-3">
                   {!scenario ? (
                     <div className="rounded-xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-                      还没有执行通知场景。
+                      {data.scenarioFixturesEnabled
+                        ? "还没有执行隔离通知场景。"
+                        : "生产只读模式不执行通知场景。"}
                     </div>
                   ) : (
                     <>

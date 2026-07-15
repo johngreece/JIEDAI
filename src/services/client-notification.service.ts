@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { INTEREST_FREEZE_REPAYMENT_STATUSES } from "@/lib/repayment-runtime";
 import { MessageDeliveryService } from "@/services/message-delivery.service";
+import { formatMoney as money } from "@/lib/system-config";
 
 function startOfDay(date = new Date()) {
   const next = new Date(date);
@@ -18,15 +19,6 @@ function diffDays(from: Date, to: Date) {
   const left = startOfDay(from).getTime();
   const right = startOfDay(to).getTime();
   return Math.round((right - left) / 86400000);
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 function buildAppUrl(path: string) {

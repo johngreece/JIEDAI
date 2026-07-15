@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { writeAuditLog } from "@/lib/audit";
+import { EXTENSION_DECISION_ACTIONS } from "@/lib/extension-lifecycle";
 import { requirePermission } from "@/lib/rbac";
-import { approveExtension } from "@/services/extension.service";
+import {
+  approveExtension,
+  ExtensionConflictError,
+} from "@/services/extension.service";
 
 export const dynamic = "force-dynamic";
 
 const approveSchema = z.object({
-  action: z.enum(["APPROVED", "REJECTED"]),
+  action: z.enum(EXTENSION_DECISION_ACTIONS),
   remark: z.string().optional(),
 });
 
@@ -33,17 +36,11 @@ export async function POST(
       operatorId: session.sub,
     });
 
-    await writeAuditLog({
-      userId: session.sub,
-      action: parsed.data.action === "APPROVED" ? "approve" : "reject",
-      entityType: "extension",
-      entityId: id,
-      newValue: { action: parsed.data.action },
-      changeSummary: `展期${parsed.data.action === "APPROVED" ? "审批通过" : "已拒绝"}`,
-    }).catch((e) => console.error("[AuditLog] extension-approve", e));
-
     return NextResponse.json(result);
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "操作失败" },
+      { status: err instanceof ExtensionConflictError ? 409 : 400 },
+    );
   }
 }

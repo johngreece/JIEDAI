@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLog } from "@/lib/audit";
+import { resolveLoanContractTerms } from "@/lib/loan-contract-terms";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import { requirePermission } from "@/lib/rbac";
 
@@ -41,6 +42,20 @@ export async function GET(req: Request) {
       include: {
         customer: { select: { id: true, name: true, phone: true } },
         product: { select: { id: true, name: true } },
+        contracts: {
+          where: { contractType: "MAIN", status: "SIGNED", deletedAt: null },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            variableData: true,
+            currency: true,
+            basePrincipal: true,
+            capitalizedInterestAmount: true,
+            contractPrincipal: true,
+            legalServiceFee: true,
+            feePaymentMode: true,
+          },
+        },
       },
       ...toPrismaArgs(pagination),
     }),
@@ -57,6 +72,15 @@ export async function GET(req: Request) {
       termUnit: string;
       customer: { id: string; name: string; phone: string };
       product: { id: string; name: string };
+      contracts: Array<{
+        variableData: string | null;
+        currency: string;
+        basePrincipal: unknown | null;
+        capitalizedInterestAmount: unknown | null;
+        contractPrincipal: unknown | null;
+        legalServiceFee: unknown | null;
+        feePaymentMode: string | null;
+      }>;
       createdAt: Date;
     }) => ({
       id: x.id,
@@ -67,6 +91,9 @@ export async function GET(req: Request) {
       termUnit: x.termUnit,
       customer: x.customer,
       product: x.product,
+      contractTerms: x.contracts[0]
+        ? resolveLoanContractTerms(x.contracts[0], x.amount)
+        : null,
       createdAt: x.createdAt,
     })),
     total,

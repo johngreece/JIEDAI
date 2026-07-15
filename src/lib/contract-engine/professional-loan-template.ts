@@ -148,6 +148,12 @@ export const PROFESSIONAL_LOAN_TEMPLATE_HTML = `
         <td>{{ contract_display_interest_note }}</td>
       </tr>
       <tr>
+        <th>法律服务费</th>
+        <td>{{ service_fee }}</td>
+        <th>合同总应还</th>
+        <td>{{ total_repay }}</td>
+      </tr>
+      <tr>
         <th>放款金额</th>
         <td>{{ disbursement_amount }}</td>
         <th>还款摘要</th>

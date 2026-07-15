@@ -29,6 +29,18 @@ describe("contract variable engine", () => {
     expect(fillTemplate(html, { a: "1" })).toBe("1 ");
   });
 
+  it("fillTemplate escapes values that could change contract markup", () => {
+    const html = '<p data-name="{{ customer_name }}">{{ customer_name }}</p>';
+    const out = fillTemplate(html, {
+      customer_name: '</p><img src="https://attacker.invalid/x" onerror="alert(1)">',
+    });
+
+    expect(out).not.toContain("<img");
+    expect(out).not.toContain('src="https://attacker.invalid/x"');
+    expect(out).toContain("&lt;/p&gt;&lt;img");
+    expect(out).toContain("&quot;https://attacker.invalid/x&quot;");
+  });
+
   it("validateRequired returns missing list", () => {
     const ctx = { a: "1", b: "" };
     const r = validateRequired(ctx, ["a", "b", "c"]);

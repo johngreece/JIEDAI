@@ -2,9 +2,21 @@ import { prisma } from "@/lib/prisma";
 import { getNextCalendarMonthBoundary } from "@/lib/calendar-period";
 import { orderWithdrawalFundAccountIds } from "@/lib/fund-account-withdrawal";
 import { getFunderDisplayRate, resolveFunderRuleMode } from "@/lib/funder-cooperation";
+import { writeAuditLogInTransaction } from "@/lib/audit";
+import { createProofAttachment } from "@/lib/proof-attachment";
 import { writeDebitFundAccountLedgerEntryFromCandidates } from "@/services/fund-account-ledger.service";
 
 type WithdrawalType = "PRINCIPAL" | "INTEREST" | "PRINCIPAL_AND_INTEREST";
+
+type WithdrawalPaymentEvidence = {
+  transactionId: string;
+  proof: {
+    fileName: string;
+    fileUrl: string;
+    fileSize: number;
+    mimeType: string;
+  };
+};
 
 interface EarningPeriod {
   periodStart: Date;
@@ -138,7 +150,7 @@ export class FunderInterestService {
       .aggregate({
         where: {
           funderId: funder.id,
-          status: { in: ["DUE", "PAID_BY_PLATFORM", "CONFIRMED_BY_FUNDER"] },
+          status: { in: ["DUE", "POSTED_BY_PLATFORM", "CONFIRMED_BY_FUNDER"] },
         },
         _sum: { interestAmount: true },
       })
@@ -529,7 +541,15 @@ export class FunderInterestService {
     );
   }
 
-  static async approveWithdrawal(withdrawalId: string, adminId: string) {
+  static async approveWithdrawal(
+    withdrawalId: string,
+    adminId: string,
+    evidence: WithdrawalPaymentEvidence,
+  ) {
+    if (!evidence.transactionId.trim() || !evidence.proof.fileUrl.trim()) {
+      throw new Error("WITHDRAWAL_BANK_EVIDENCE_REQUIRED");
+    }
+
     const withdrawal = await prisma.funderWithdrawal.findUniqueOrThrow({
       where: { id: withdrawalId },
       include: {
@@ -634,12 +654,68 @@ export class FunderInterestService {
           funderId: withdrawal.funderId,
           withdrawalType: withdrawal.type,
           interestAmount: Number(withdrawal.interestAmount),
+          transactionId: evidence.transactionId,
         },
       });
 
+      const payingAccount = accounts.find((account) => account.id === ledgerResult.fundAccountId);
+      if (!payingAccount) {
+        throw new Error("WITHDRAWAL_PAYMENT_ACCOUNT_MISSING");
+      }
+
+      const duplicateTransaction = await tx.funderWithdrawal.findFirst({
+        where: {
+          id: { not: withdrawal.id },
+          accountId: ledgerResult.fundAccountId,
+          transactionId: evidence.transactionId,
+        },
+        select: { id: true },
+      });
+      if (duplicateTransaction) {
+        throw new Error("WITHDRAWAL_TRANSACTION_ID_DUPLICATE");
+      }
+
       await tx.funderWithdrawal.update({
         where: { id: withdrawal.id },
-        data: { accountId: ledgerResult.fundAccountId },
+        data: {
+          accountId: ledgerResult.fundAccountId,
+          transactionId: evidence.transactionId,
+          payerBank: payingAccount.bankName,
+          payerAccount: payingAccount.accountNo,
+        },
+      });
+
+      const proofAttachment = await createProofAttachment(tx, {
+        entityType: "funder_withdrawal",
+        entityId: withdrawal.id,
+        fileName: evidence.proof.fileName,
+        fileUrl: evidence.proof.fileUrl,
+        fileSize: evidence.proof.fileSize,
+        mimeType: evidence.proof.mimeType,
+        uploadedBy: adminId,
+        category: "withdrawal_payment_proof",
+      });
+
+      await writeAuditLogInTransaction(tx, {
+        userId: adminId,
+        action: "approve",
+        entityType: "funder_withdrawal",
+        entityId: withdrawal.id,
+        oldValue: {
+          status: withdrawal.status,
+          amount: Number(withdrawal.amount),
+          funderId: withdrawal.funderId,
+        },
+        newValue: {
+          status: "APPROVED",
+          accountId: ledgerResult.fundAccountId,
+          transactionId: evidence.transactionId,
+          payerBank: payingAccount.bankName,
+          payerAccount: payingAccount.accountNo,
+          proofAttachmentId: proofAttachment.id,
+          balanceAfter: ledgerResult.balanceAfter,
+        },
+        changeSummary: "Confirm funder withdrawal payment and debit fund account",
       });
 
       return {
@@ -650,11 +726,15 @@ export class FunderInterestService {
         amount: Number(withdrawal.amount),
         interestAmount: Number(withdrawal.interestAmount),
         type: withdrawal.type,
+        transactionId: evidence.transactionId,
+        payerBank: payingAccount.bankName,
+        payerAccount: payingAccount.accountNo,
+        proofAttachment,
       };
     }, { isolationLevel: "Serializable" });
   }
 
-  static async rejectWithdrawal(withdrawalId: string, reason: string) {
+  static async rejectWithdrawal(withdrawalId: string, adminId: string, reason: string) {
     return prisma.$transaction(
       async (tx) => {
         const claimed = await tx.funderWithdrawal.updateMany({
@@ -670,7 +750,19 @@ export class FunderInterestService {
           throw new Error("This withdrawal request has already been processed");
         }
 
-        return tx.funderWithdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+        const rejected = await tx.funderWithdrawal.findUniqueOrThrow({
+          where: { id: withdrawalId },
+        });
+        await writeAuditLogInTransaction(tx, {
+          userId: adminId,
+          action: "reject",
+          entityType: "funder_withdrawal",
+          entityId: withdrawalId,
+          oldValue: { status: "PENDING" },
+          newValue: { status: rejected.status, rejectedReason: reason },
+          changeSummary: "Reject funder withdrawal request",
+        });
+        return rejected;
       },
       { isolationLevel: "Serializable" },
     );

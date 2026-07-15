@@ -14,6 +14,7 @@ type CustomerDetail = {
   passportNumber: string | null;
   residencePermitNumber: string | null;
   residencePermitExpiry: string | null;
+  profileComplete: boolean;
   profileCompletedAt: string | null;
   email: string | null;
   address: string | null;
@@ -38,6 +39,7 @@ type CreditInfo = {
   effectiveLimit: number;
   baseLimit: number;
   allDocumentsUploaded: boolean;
+  allDocumentsVerified: boolean;
   documents: { kycType: string; status: string; hasDocument: boolean; createdAt: string }[];
 };
 
@@ -45,8 +47,11 @@ type DocItem = {
   id: string;
   kycType: string;
   documentUrl: string;
+  mimeType: string | null;
   status: string;
   verifiedAt: string | null;
+  expiresAt: string | null;
+  remark: string | null;
   createdAt: string;
 };
 
@@ -65,7 +70,7 @@ const STATUS_STYLES: Record<string, string> = {
   PENDING: "bg-slate-100 text-slate-500",
 };
 const STATUS_LABELS: Record<string, string> = {
-  UPLOADED: "已上传", VERIFIED: "已验证", REJECTED: "已驳回", PENDING: "待上传",
+  UPLOADED: "待核验", VERIFIED: "已验证", REJECTED: "已驳回", PENDING: "待上传",
 };
 
 export default function CustomerDetailPage() {
@@ -93,6 +98,7 @@ export default function CustomerDetailPage() {
   // 证件管理
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [uploading, setUploading] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState<string | null>(null);
   const [uploadMsg, setUploadMsg] = useState("");
   const [previewDoc, setPreviewDoc] = useState<DocItem | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -211,7 +217,7 @@ export default function CustomerDetailPage() {
       const res = await fetch(`/api/customers/${id}/documents`, { method: "POST", body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "上传失败");
-      setUploadMsg(`${KYC_TYPE_LABELS[kycType]} 上传成功`);
+      setUploadMsg(`${KYC_TYPE_LABELS[kycType]} 上传成功，等待内部核验`);
       loadDocs();
       loadCredit();
       load();
@@ -222,10 +228,51 @@ export default function CustomerDetailPage() {
     }
   }
 
+  async function handleDocumentReview(kycType: string, action: "VERIFY" | "REJECT") {
+    let remark: string | null = null;
+    if (action === "REJECT") {
+      const input = window.prompt(`请输入${KYC_TYPE_LABELS[kycType]}的驳回原因`);
+      if (input === null) return;
+      remark = input.trim();
+      if (!remark) {
+        setUploadMsg("驳回证件时必须填写原因");
+        return;
+      }
+    }
+
+    setReviewing(`${kycType}:${action}`);
+    setUploadMsg("");
+    try {
+      const res = await fetch(`/api/customers/${id}/documents`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kycType, action, remark }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "证件核验失败");
+      setUploadMsg(
+        action === "VERIFY"
+          ? `${KYC_TYPE_LABELS[kycType]}核验成功`
+          : `${KYC_TYPE_LABELS[kycType]}已驳回成功`
+      );
+      await Promise.all([loadDocs(), loadCredit(), load()]);
+    } catch (e) {
+      setUploadMsg(e instanceof Error ? e.message : "证件核验失败");
+    } finally {
+      setReviewing(null);
+    }
+  }
+
   function handleDownload(doc: DocItem) {
     const link = document.createElement("a");
     link.href = doc.documentUrl;
-    const ext = doc.documentUrl.startsWith("data:application/pdf") ? "pdf" : "jpg";
+    const ext = doc.mimeType === "application/pdf"
+      ? "pdf"
+      : doc.mimeType === "image/png"
+        ? "png"
+        : doc.mimeType === "image/webp"
+          ? "webp"
+          : "jpg";
     link.download = `${data?.name ?? "客户"}_${KYC_TYPE_LABELS[doc.kycType]}.${ext}`;
     link.click();
   }
@@ -260,6 +307,7 @@ export default function CustomerDetailPage() {
   }
 
   const uploadedCount = DOC_TYPES.filter((t) => getDocByType(t)).length;
+  const verifiedCount = DOC_TYPES.filter((t) => getDocByType(t)?.status === "VERIFIED").length;
 
   async function removeCustomer() {
     if (!data) return;
@@ -385,7 +433,7 @@ export default function CustomerDetailPage() {
                 ["身份证号", data.idNumber], ["税号", data.taxNumber ?? "-"], ["护照号", data.passportNumber ?? "-"],
                 ["居留卡号", data.residencePermitNumber ?? "-"],
                 ["居留有效期", data.residencePermitExpiry ? new Date(data.residencePermitExpiry).toLocaleDateString() : "-"],
-                ["资料认证", data.profileCompletedAt ? "已完成" : "未完成"],
+                ["资料认证", data.profileComplete ? "已核验完成" : "待补齐或待核验"],
                 ["邮箱", data.email ?? "-"], ["地址", data.address ?? "-"],
                 ["紧急联系人", data.emergencyContact ?? "-"], ["联系人电话", data.emergencyContactPhone ?? "-"],
                 ["银行账号", data.bankAccount ?? "-"], ["开户行", data.bankName ?? "-"],
@@ -407,8 +455,8 @@ export default function CustomerDetailPage() {
               <div>
                 <div className="admin-section-card__title">证件管理</div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  已上传 {uploadedCount}/{DOC_TYPES.length} 种证件
-                  {uploadedCount === DOC_TYPES.length && <span className="ml-2 text-emerald-600 font-medium">✓ 全部齐全</span>}
+                  已上传 {uploadedCount}/{DOC_TYPES.length}，已核验 {verifiedCount}/{DOC_TYPES.length}
+                  {verifiedCount === DOC_TYPES.length && <span className="ml-2 text-emerald-600 font-medium">全部核验通过</span>}
                 </p>
               </div>
             </div>
@@ -422,7 +470,7 @@ export default function CustomerDetailPage() {
               {DOC_TYPES.map((type) => {
                 const doc = getDocByType(type);
                 const isUploading = uploading === type;
-                const isPdf = doc?.documentUrl?.startsWith("data:application/pdf");
+                const isPdf = doc?.mimeType === "application/pdf";
 
                 return (
                   <div key={type} className="rounded-[1.2rem] border border-slate-200 overflow-hidden bg-white">
@@ -467,13 +515,21 @@ export default function CustomerDetailPage() {
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-medium text-sm text-slate-800">{KYC_TYPE_LABELS[type]}</span>
                         <span className={`rounded px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[doc?.status ?? "PENDING"]}`}>
-                          {STATUS_LABELS[doc?.status ?? "PENDING"]}
+                          {doc
+                            ? doc.status === "PENDING"
+                              ? "待核验"
+                              : STATUS_LABELS[doc.status] ?? doc.status
+                            : "待上传"}
                         </span>
                       </div>
                       {doc && (
                         <p className="text-xs text-slate-400 mb-2">
                           上传于 {new Date(doc.createdAt).toLocaleString()}
+                          {doc.verifiedAt ? ` · 核验于 ${new Date(doc.verifiedAt).toLocaleString()}` : ""}
                         </p>
+                      )}
+                      {doc?.remark && (
+                        <p className="mb-2 text-xs text-red-600">核验备注：{doc.remark}</p>
                       )}
                       <div className="flex gap-2">
                         {/* 上传按钮 */}
@@ -513,6 +569,28 @@ export default function CustomerDetailPage() {
                           </button>
                         )}
                       </div>
+                      {doc && ["PENDING", "UPLOADED", "VERIFIED"].includes(doc.status) && (
+                        <div className="mt-2 grid grid-cols-2 gap-2 border-t border-slate-100 pt-2">
+                          {(doc.status === "PENDING" || doc.status === "UPLOADED") && (
+                            <button
+                              type="button"
+                              onClick={() => void handleDocumentReview(type, "VERIFY")}
+                              disabled={reviewing !== null}
+                              className="admin-btn admin-btn-primary admin-btn-sm"
+                            >
+                              {reviewing === `${type}:VERIFY` ? "核验中..." : "核验通过"}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleDocumentReview(type, "REJECT")}
+                            disabled={reviewing !== null}
+                            className="admin-btn admin-btn-danger admin-btn-sm"
+                          >
+                            {reviewing === `${type}:REJECT` ? "驳回中..." : "驳回"}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -542,7 +620,7 @@ export default function CustomerDetailPage() {
                   </div>
                 </div>
                 <div className="overflow-auto max-h-[80vh] p-2 bg-slate-50 flex items-center justify-center">
-                  {previewDoc.documentUrl.startsWith("data:application/pdf") ? (
+                  {previewDoc.mimeType === "application/pdf" ? (
                     <iframe src={previewDoc.documentUrl} className="w-[800px] h-[75vh] border-0" title="PDF预览" />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -579,7 +657,7 @@ export default function CustomerDetailPage() {
                   </div>
                   <div className="stat-tile admin-stat-card">
                     <p className="text-xs text-slate-500">证件完成度</p>
-                    <p className="text-lg font-bold">{credit.allDocumentsUploaded ? <span className="text-emerald-600">全部完成</span> : <span className="text-amber-600">{uploadedCount}/3</span>}</p>
+                    <p className="text-lg font-bold">{credit.allDocumentsVerified ? <span className="text-emerald-600">全部已核验</span> : <span className="text-amber-600">{verifiedCount}/3 已核验</span>}</p>
                   </div>
                 </div>
                 <form onSubmit={saveCreditOverride} className="flex gap-2 items-end border-t pt-4">

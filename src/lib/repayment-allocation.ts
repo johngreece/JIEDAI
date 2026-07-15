@@ -19,6 +19,16 @@ export type RepaymentAllocationScheduleItem = {
   interest: unknown;
   fee: unknown;
   remaining: unknown;
+  remainingPrincipal?: unknown;
+  remainingInterest?: unknown;
+  remainingFee?: unknown;
+};
+
+export type RepaymentOpenComponents = {
+  principal: number;
+  interest: number;
+  fee: number;
+  penalty: number;
 };
 
 export type RepaymentAllocationComponentError = {
@@ -68,6 +78,32 @@ function getTypeTotals(
   return map.get(itemId) ?? emptyTypeTotals();
 }
 
+export function deriveRepaymentOpenComponents(
+  item: Pick<
+    RepaymentAllocationScheduleItem,
+    "remainingPrincipal" | "remainingInterest" | "remainingFee"
+  >,
+  totalOpen: number,
+): RepaymentOpenComponents {
+  let available = Math.max(0, Number(totalOpen) || 0);
+  const take = (value: unknown) => {
+    const amount = Math.min(available, Math.max(0, Number(value) || 0));
+    available = Math.max(0, available - amount);
+    return amount;
+  };
+
+  const principal = take(item.remainingPrincipal);
+  const interest = take(item.remainingInterest);
+  const fee = take(item.remainingFee);
+
+  return {
+    principal,
+    interest,
+    fee,
+    penalty: available,
+  };
+}
+
 function getRequestedTypeTotals(allocations: RepaymentAllocationInput[]) {
   const map = new Map<string, Record<RepaymentAllocationType, number>>();
 
@@ -112,6 +148,7 @@ export function validateRepaymentAllocationComponentCaps(params: {
   dynamicAvailableByItem: Map<string, number>;
   confirmedRows: RepaymentAllocationRow[];
   pendingRows: RepaymentAllocationRow[];
+  dynamicComponentsByItem?: Map<string, RepaymentOpenComponents>;
   epsilon?: number;
 }): RepaymentAllocationComponentError | null {
   const epsilon = params.epsilon ?? 0.000001;
@@ -125,13 +162,36 @@ export function validateRepaymentAllocationComponentCaps(params: {
 
     const confirmed = getTypeTotals(confirmedMap, itemId);
     const pending = getTypeTotals(pendingMap, itemId);
-    const principalCap = Math.max(0, Number(item.principal) - confirmed.PRINCIPAL - pending.PRINCIPAL);
-    const interestCap = Math.max(0, Number(item.interest) - confirmed.INTEREST - pending.INTEREST);
-    const feeCap = Math.max(0, Number(item.fee) - confirmed.FEE - pending.FEE);
+    const dynamicComponents = params.dynamicComponentsByItem?.get(itemId);
+    const hasComponentBalances =
+      item.remainingPrincipal != null &&
+      item.remainingInterest != null &&
+      item.remainingFee != null;
+    const principalCap = Math.max(0, (
+      dynamicComponents?.principal ??
+      (hasComponentBalances
+        ? Number(item.remainingPrincipal)
+        : Number(item.principal) - confirmed.PRINCIPAL)
+    ) - pending.PRINCIPAL);
+    const interestCap = Math.max(0, (
+      dynamicComponents?.interest ??
+      (hasComponentBalances
+        ? Number(item.remainingInterest)
+        : Number(item.interest) - confirmed.INTEREST)
+    ) - pending.INTEREST);
+    const feeCap = Math.max(0, (
+      dynamicComponents?.fee ??
+      (hasComponentBalances ? Number(item.remainingFee) : Number(item.fee) - confirmed.FEE)
+    ) - pending.FEE);
     const totalOpen = params.dynamicAvailableByItem.get(itemId) ?? Number(item.remaining);
     const pendingTotal = REPAYMENT_ALLOCATION_TYPES.reduce((sum, type) => sum + pending[type], 0);
     const totalAvailable = Math.max(0, totalOpen - pendingTotal);
-    const penaltyCap = Math.max(0, totalAvailable - principalCap - interestCap - feeCap);
+    const penaltyCap = Math.max(
+      0,
+      dynamicComponents
+        ? dynamicComponents.penalty - pending.PENALTY
+        : totalAvailable - principalCap - interestCap - feeCap,
+    );
     const caps: Record<RepaymentAllocationType, number> = {
       PRINCIPAL: principalCap,
       INTEREST: interestCap,

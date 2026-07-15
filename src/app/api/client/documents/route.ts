@@ -2,11 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   CLIENT_DOCUMENT_TYPE_LABELS,
   REQUIRED_CLIENT_DOCUMENT_TYPES,
+  getClientBaseCreditLimit,
   getClientProfileCompletion,
   resolveProfileCompletedAt,
 } from "@/lib/client-profile";
 import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
+import {
+  deletePrivateFile,
+  getCustomerDocumentAccessUrl,
+  getPrivateFileContentType,
+  privateStorageErrorResponse,
+  uploadPrivateFile,
+} from "@/lib/private-file-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +41,7 @@ const customerSelect = {
       status: true,
       verifiedAt: true,
       expiresAt: true,
+      remark: true,
       createdAt: true,
     },
     orderBy: { createdAt: "desc" as const },
@@ -48,7 +57,7 @@ async function loadCustomer(customerId: string) {
 
 function serializeDocuments(customer: NonNullable<Awaited<ReturnType<typeof loadCustomer>>>) {
   const completion = getClientProfileCompletion(customer);
-  const baseLimit = completion.documentsComplete ? 30000 : 10000;
+  const baseLimit = getClientBaseCreditLimit(completion);
   const effectiveLimit = customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : baseLimit;
 
   return {
@@ -56,14 +65,17 @@ function serializeDocuments(customer: NonNullable<Awaited<ReturnType<typeof load
       id: document.id,
       kycType: document.kycType,
       label: CLIENT_DOCUMENT_TYPE_LABELS[document.kycType] ?? document.kycType,
-      documentUrl: document.documentUrl,
+      documentUrl: document.documentUrl ? getCustomerDocumentAccessUrl(document.id) : null,
+      mimeType: getPrivateFileContentType(document.documentUrl),
       status: document.status,
       verifiedAt: document.verifiedAt?.toISOString() ?? null,
       expiresAt: document.expiresAt?.toISOString() ?? null,
+      remark: document.remark,
       createdAt: document.createdAt.toISOString(),
     })),
     creditLimit: effectiveLimit,
-    allDocumentsUploaded: completion.documentsComplete,
+    allDocumentsUploaded: completion.documentsUploaded,
+    allDocumentsVerified: completion.documentsComplete,
     profileComplete: completion.profileComplete,
     profileFieldsComplete: completion.profileFieldsComplete,
     documentsComplete: completion.documentsComplete,
@@ -72,7 +84,8 @@ function serializeDocuments(customer: NonNullable<Awaited<ReturnType<typeof load
     docTypes: REQUIRED_CLIENT_DOCUMENT_TYPES.map((type) => ({
       type,
       label: CLIENT_DOCUMENT_TYPE_LABELS[type],
-      uploaded: completion.validDocumentTypes.has(type),
+      uploaded: completion.uploadedDocumentTypes.has(type),
+      verified: completion.verifiedDocumentTypes.has(type),
     })),
   };
 }
@@ -116,57 +129,91 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "仅支持 JPG/PNG/WebP/PDF 格式" }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const dataUrl = `data:${file.type};base64,${buffer.toString("base64")}`;
-
-  const doc = await prisma.customerKyc.upsert({
-    where: {
-      customerId_kycType: {
-        customerId: session.sub,
-        kycType,
-      },
-    },
-    create: {
-      customerId: session.sub,
-      kycType,
-      documentUrl: dataUrl,
-      status: "UPLOADED",
-    },
-    update: {
-      documentUrl: dataUrl,
-      status: "UPLOADED",
-      verifiedAt: null,
-    },
-  });
-
-  const customer = await loadCustomer(session.sub);
-  if (!customer) {
-    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
-  }
-
-  const completion = getClientProfileCompletion(customer);
-  const profileCompletedAt = resolveProfileCompletedAt(customer, completion.profileComplete);
-  const effectiveLimit = customer.creditLimitOverride != null
-    ? Number(customer.creditLimitOverride)
-    : completion.documentsComplete
-      ? 30000
-      : 10000;
-  if (completion.documentsComplete || customer.profileCompletedAt !== profileCompletedAt) {
-    await prisma.customer.update({
-      where: { id: session.sub },
-      data: {
-        ...(completion.documentsComplete ? { creditLimit: 30000 } : {}),
-        profileCompletedAt,
-      },
+  let storedReference: string;
+  try {
+    storedReference = await uploadPrivateFile({
+      file,
+      pathPrefix: `customers/${session.sub}/kyc/${kycType}`,
+      maxBytes: MAX_FILE_SIZE,
+      allowedMimeTypes: ALLOWED_TYPES,
+      label: "证件文件",
     });
+  } catch (error) {
+    return privateStorageErrorResponse(error, "证件上传失败");
   }
+
+  let result: {
+    doc: { id: string; kycType: string; status: string };
+    completion: ReturnType<typeof getClientProfileCompletion>;
+    effectiveLimit: number;
+    previousDocumentUrl: string | null;
+  };
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const previous = await tx.customerKyc.findUnique({
+        where: { customerId_kycType: { customerId: session.sub, kycType } },
+        select: { documentUrl: true },
+      });
+      const doc = await tx.customerKyc.upsert({
+        where: { customerId_kycType: { customerId: session.sub, kycType } },
+        create: {
+          customerId: session.sub,
+          kycType,
+          documentUrl: storedReference,
+          status: "UPLOADED",
+        },
+        update: {
+          documentUrl: storedReference,
+          status: "UPLOADED",
+          verifiedAt: null,
+          expiresAt: null,
+          remark: null,
+        },
+        select: { id: true, kycType: true, status: true },
+      });
+
+      const customer = await tx.customer.findFirst({
+        where: { id: session.sub, deletedAt: null },
+        select: customerSelect,
+      });
+      if (!customer) throw new Error("CUSTOMER_NOT_FOUND");
+
+      const completion = getClientProfileCompletion(customer);
+      const baseLimit = getClientBaseCreditLimit(completion);
+      await tx.customer.update({
+        where: { id: session.sub },
+        data: {
+          creditLimit: baseLimit,
+          profileCompletedAt: resolveProfileCompletedAt(customer, completion.profileComplete),
+        },
+      });
+
+      return {
+        doc,
+        completion,
+        effectiveLimit:
+          customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : baseLimit,
+        previousDocumentUrl: previous?.documentUrl ?? null,
+      };
+    });
+  } catch (error) {
+    await deletePrivateFile(storedReference).catch(() => undefined);
+    if (error instanceof Error && error.message === "CUSTOMER_NOT_FOUND") {
+      return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+    }
+    throw error;
+  }
+
+  await deletePrivateFile(result.previousDocumentUrl).catch(() => undefined);
+  const { doc, completion, effectiveLimit } = result;
 
   return NextResponse.json({
     id: doc.id,
     kycType: doc.kycType,
     label: CLIENT_DOCUMENT_TYPE_LABELS[kycType] ?? kycType,
     status: doc.status,
-    allDocumentsUploaded: completion.documentsComplete,
+    allDocumentsUploaded: completion.documentsUploaded,
+    allDocumentsVerified: completion.documentsComplete,
     profileComplete: completion.profileComplete,
     profileFieldsComplete: completion.profileFieldsComplete,
     documentsComplete: completion.documentsComplete,

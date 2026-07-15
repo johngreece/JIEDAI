@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveFunderSession } from "@/lib/portal-session";
 import { FunderInterestService } from "@/services/funder-interest.service";
 import { prisma } from "@/lib/prisma";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,32 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
+  const withdrawalIds = withdrawals.map((withdrawal) => withdrawal.id);
+  const proofs = withdrawalIds.length
+    ? await prisma.attachment.findMany({
+        where: {
+          entityType: "funder_withdrawal",
+          entityId: { in: withdrawalIds },
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          entityId: true,
+          fileName: true,
+          fileUrl: true,
+          mimeType: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const proofsByWithdrawalId = new Map<string, typeof proofs>();
+  for (const proof of proofs) {
+    const current = proofsByWithdrawalId.get(proof.entityId) ?? [];
+    current.push(proof);
+    proofsByWithdrawalId.set(proof.entityId, current);
+  }
+
   const earnings = await FunderInterestService.getEarnings(session.sub);
 
   return NextResponse.json({
@@ -46,6 +73,10 @@ export async function GET() {
       status: w.status,
       includeInterest: w.includeInterest,
       interestAmount: Number(w.interestAmount),
+      transactionId: w.transactionId,
+      payerBank: w.payerBank,
+      payerAccount: w.payerAccount,
+      proofs: (proofsByWithdrawalId.get(w.id) ?? []).map(serializeProofAttachment),
       remark: w.remark,
       createdAt: w.createdAt,
       approvedAt: w.approvedAt,
@@ -62,8 +93,7 @@ export async function POST(req: NextRequest) {
   if (session instanceof Response) return session;
 
   const idemKey = getScopedIdempotencyKey(req, ["funder", session.sub, "withdrawal"]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const body = await req.json().catch(() => ({}));
   const { amount, type, includeInterest, remark } = body;
@@ -89,7 +119,6 @@ export async function POST(req: NextRequest) {
       amount: Number(withdrawal.amount),
       status: withdrawal.status,
     };
-    await saveIdempotencyResult(idemKey, result);
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json(
@@ -97,4 +126,5 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  });
 }

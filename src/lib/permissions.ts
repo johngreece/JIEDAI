@@ -3,6 +3,10 @@
  */
 
 export const PERMISSION_DEFINITIONS = [
+  { code: "inflow:view", module: "inflow", name: "View capital inflows" },
+  { code: "inflow:create", module: "inflow", name: "Record capital inflows" },
+  { code: "inflow:review", module: "inflow", name: "Review capital inflows" },
+  { code: "inflow:cancel", module: "inflow", name: "Cancel capital inflows" },
   // ── 客户管理 ──
   { code: "customer:view", module: "customer", name: "查看客户" },
   { code: "customer:create", module: "customer", name: "创建客户" },
@@ -22,6 +26,14 @@ export const PERMISSION_DEFINITIONS = [
   { code: "disbursement:view", module: "disbursement", name: "查看放款" },
   { code: "disbursement:create", module: "disbursement", name: "创建放款" },
   { code: "disbursement:confirm", module: "disbursement", name: "确认打款" },
+
+  // ── 资金方提现 ──
+  { code: "withdrawal:view", module: "withdrawal", name: "查看提现" },
+  { code: "withdrawal:review", module: "withdrawal", name: "确认提现出账" },
+
+  // ── 资金方收益结算 ──
+  { code: "settlement:view", module: "settlement", name: "查看收益结算" },
+  { code: "settlement:manage", module: "settlement", name: "发布收益结算" },
 
   // ── 还款 ──
   { code: "repayment:view", module: "repayment", name: "查看还款" },

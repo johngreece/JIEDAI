@@ -67,6 +67,17 @@ export interface CustomerSettlement {
   isOverdue: boolean;
 }
 
+export interface FunderSettlementSummary {
+  total: number;
+  due: number;
+  posted: number;
+  confirmed: number;
+  disputed: number;
+  cancelled: number;
+  amount: number;
+  confirmedAmount: number;
+}
+
 function toNumber(value: unknown) {
   return Number(value || 0);
 }
@@ -113,15 +124,50 @@ function calculateMonthlyOverlapShare(params: {
   return total;
 }
 
+function summarizeFunderSettlements(
+  settlements: Array<{ status: string; interestAmount: unknown }>,
+): FunderSettlementSummary | null {
+  if (settlements.length === 0) return null;
+
+  const summary: FunderSettlementSummary = {
+    total: settlements.length,
+    due: 0,
+    posted: 0,
+    confirmed: 0,
+    disputed: 0,
+    cancelled: 0,
+    amount: 0,
+    confirmedAmount: 0,
+  };
+
+  for (const settlement of settlements) {
+    const amount = toNumber(settlement.interestAmount);
+    summary.amount += amount;
+
+    if (settlement.status === "DUE") summary.due += 1;
+    if (settlement.status === "POSTED_BY_PLATFORM") summary.posted += 1;
+    if (settlement.status === "CONFIRMED_BY_FUNDER") {
+      summary.confirmed += 1;
+      summary.confirmedAmount += amount;
+    }
+    if (settlement.status === "FUNDER_DISPUTED") summary.disputed += 1;
+    if (settlement.status === "CANCELLED") summary.cancelled += 1;
+  }
+
+  summary.amount = roundNumber(summary.amount);
+  summary.confirmedAmount = roundNumber(summary.confirmedAmount);
+  return summary;
+}
+
 async function calculateFunderShareRows(period: SettlementPeriod) {
   const { start, end } = period;
   const funders = await prisma.funder.findMany({
     where: { isActive: true },
     include: {
       accounts: { where: { isActive: true } },
-      profitShares: {
-        where: { periodStart: start, periodEnd: end },
-        take: 1,
+      interestSettlements: {
+        where: { cycleEnd: { gte: start, lt: end } },
+        select: { status: true, interestAmount: true },
       },
     },
   });
@@ -150,13 +196,7 @@ async function calculateFunderShareRows(period: SettlementPeriod) {
       shareRatioLabel: `${(toNumber(funder.profitShareRatio || 0) * 100).toFixed(1)}%`,
       shareAmountNumber: 0,
       periodIncomeNumber: 0,
-      existingSettlement: funder.profitShares[0]
-        ? {
-            id: funder.profitShares[0].id,
-            status: funder.profitShares[0].status,
-            settledAt: funder.profitShares[0].settledAt,
-          }
-        : null,
+      settlementSummary: summarizeFunderSettlements(funder.interestSettlements),
     }));
   }
 
@@ -214,7 +254,7 @@ async function calculateFunderShareRows(period: SettlementPeriod) {
       shareRatioLabel: string;
       shareAmountNumber: number;
       periodIncomeNumber: number;
-      existingSettlement: { id: string; status: string; settledAt: Date | null } | null;
+      settlementSummary: FunderSettlementSummary | null;
     }
   >();
 
@@ -244,13 +284,7 @@ async function calculateFunderShareRows(period: SettlementPeriod) {
       shareRatioLabel: ratioLabel,
       shareAmountNumber: 0,
       periodIncomeNumber: 0,
-      existingSettlement: funder.profitShares[0]
-        ? {
-            id: funder.profitShares[0].id,
-            status: funder.profitShares[0].status,
-            settledAt: funder.profitShares[0].settledAt,
-          }
-        : null,
+      settlementSummary: summarizeFunderSettlements(funder.interestSettlements),
     });
   }
 
@@ -713,94 +747,8 @@ export class SettlementService {
       shareRatio: row.shareRatioLabel,
       shareAmount: row.shareAmountNumber.toFixed(2),
       periodTotalInterest: row.periodIncomeNumber.toFixed(2),
-      existingSettlement: row.existingSettlement,
+      settlementSummary: row.settlementSummary,
     }));
-  }
-
-  /**
-   * Persist computed funder profit shares for a period into FundProfitShare rows.
-   * Idempotent: if a row for (funderId, periodStart, periodEnd) already exists
-   * AND is still PENDING, update the amounts. SETTLED rows are never touched.
-   */
-  static async persistFunderProfitShares(period: SettlementPeriod) {
-    const rows = await calculateFunderShareRows(period);
-
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
-
-    for (const row of rows) {
-      if (row.existingSettlement?.status === "SETTLED") {
-        skipped += 1;
-        continue;
-      }
-
-      if (row.shareAmountNumber <= 0 && row.periodIncomeNumber <= 0) {
-        skipped += 1;
-        continue;
-      }
-
-      if (row.existingSettlement?.id) {
-        await prisma.fundProfitShare.update({
-          where: { id: row.existingSettlement.id },
-          data: {
-            totalInterest: row.periodIncomeNumber,
-            shareRatio: row.shareRatioNumber,
-            shareAmount: row.shareAmountNumber,
-            status: "PENDING",
-          },
-        });
-        updated += 1;
-      } else {
-        await prisma.fundProfitShare.create({
-          data: {
-            funderId: row.funderId,
-            periodStart: period.start,
-            periodEnd: period.end,
-            totalInterest: row.periodIncomeNumber,
-            shareRatio: row.shareRatioNumber,
-            shareAmount: row.shareAmountNumber,
-            status: "PENDING",
-          },
-        });
-        created += 1;
-      }
-    }
-
-    return { created, updated, skipped, total: rows.length };
-  }
-
-  /**
-   * Transition a single FundProfitShare from PENDING to SETTLED.
-   * Records settledAt and an optional remark. Caller is expected to have already
-   * disbursed cash (e.g. via FunderWithdrawal). This call does NOT move money;
-   * it only marks the analytical row as closed for the period.
-   */
-  static async markFunderProfitShareSettled(profitShareId: string, remark?: string) {
-    const existing = await prisma.fundProfitShare.findUnique({
-      where: { id: profitShareId },
-    });
-
-    if (!existing) {
-      throw new Error("Profit share record not found");
-    }
-
-    if (existing.status === "SETTLED") {
-      return existing;
-    }
-
-    if (existing.status !== "PENDING") {
-      throw new Error(`Cannot settle profit share with status ${existing.status}`);
-    }
-
-    return prisma.fundProfitShare.update({
-      where: { id: profitShareId },
-      data: {
-        status: "SETTLED",
-        settledAt: new Date(),
-        remark: remark ?? existing.remark,
-      },
-    });
   }
 
   static async profitMaximizationAnalysis() {

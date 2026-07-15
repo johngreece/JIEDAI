@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { formatMoney } from "@/lib/system-config";
 
 interface DashboardData {
   funder: {
@@ -66,9 +67,9 @@ interface DashboardData {
   };
   interestSettlementSummary: {
     dueAmount: number;
-    paidPendingConfirmAmount: number;
+    postedPendingConfirmAmount: number;
     confirmedAmount: number;
-    rejectedAmount: number;
+    disputedAmount: number;
   };
   interestSettlements: Array<{
     id: string;
@@ -99,15 +100,6 @@ interface DashboardData {
   }>;
 }
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function formatDate(value: string | null) {
   if (!value) return "-";
   return new Date(value).toLocaleDateString("zh-CN", {
@@ -119,7 +111,7 @@ function formatDate(value: string | null) {
 
 const withdrawalStatusLabel: Record<string, string> = {
   PENDING: "待审核",
-  APPROVED: "已通过",
+  APPROVED: "已出账",
   REJECTED: "已拒绝",
   PAID: "已打款",
   CONFIRMED: "已确认",
@@ -209,9 +201,9 @@ export default function FunderDashboardPage() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <KpiCard label="待确认到账收益" value={formatMoney(interestSettlementSummary.paidPendingConfirmAmount)} />
+        <KpiCard label="待确认结算收益" value={formatMoney(interestSettlementSummary.postedPendingConfirmAmount)} />
         <KpiCard label="已确认收益" value={formatMoney(interestSettlementSummary.confirmedAmount)} />
-        <KpiCard label="平台待打款收益" value={formatMoney(interestSettlementSummary.dueAmount)} />
+        <KpiCard label="平台待发布收益" value={formatMoney(interestSettlementSummary.dueAmount)} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
@@ -351,12 +343,12 @@ export default function FunderDashboardPage() {
                       <div className="text-right">
                         <div className="text-sm font-semibold text-amber-600">{formatMoney(item.interestAmount)}</div>
                         <div className="mt-1 text-xs text-slate-500">
-                          {item.status === "PAID_BY_PLATFORM"
+                          {item.status === "POSTED_BY_PLATFORM"
                             ? "待确认"
                             : item.status === "CONFIRMED_BY_FUNDER"
                               ? "已确认"
                               : item.status === "DUE"
-                                ? "待平台打款"
+                                ? "待平台发布"
                                 : item.status}
                         </div>
                       </div>

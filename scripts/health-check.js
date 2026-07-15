@@ -15,34 +15,18 @@
  */
 "use strict";
 
-// 手动加载 .env（避免引入 dotenv 依赖）
-const fs = require("node:fs");
-const path = require("node:path");
-function loadDotenv() {
-  const envPath = path.resolve(process.cwd(), ".env");
-  if (!fs.existsSync(envPath)) return;
-  const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.*)$/i);
-    if (!m) continue;
-    let [, key, val] = m;
-    val = val.trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    if (process.env[key] === undefined) process.env[key] = val;
-  }
-}
-loadDotenv();
+const { loadEnvConfig } = require("@next/env");
+loadEnvConfig(process.cwd());
 
 const REQUIRED_ENV = [
   ["DATABASE_URL", "运行时数据库连接（推荐 pooler URL）"],
   ["DIRECT_URL", "Prisma migrate/seed 用直连"],
   ["JWT_SECRET", "JWT 签名密钥（非默认值）"],
-  ["CRON_SECRET", "四个 cron 路由强校验密钥"],
+  ["CRON_SECRET", "每日 cron 路由强校验密钥"],
   ["ALLOWED_ORIGINS", "CORS 白名单，逗号分隔"],
+  ["NEXT_PUBLIC_SUPABASE_URL", "Supabase Storage API 地址"],
+  ["SUPABASE_SERVICE_ROLE_KEY", "私有文件服务端访问密钥"],
+  ["SUPABASE_STORAGE_BUCKET", "私有证件和资金凭证 bucket"],
 ];
 
 const FORBIDDEN_JWT = "loan-system-secret-change-in-production";
@@ -63,6 +47,12 @@ async function checkEnv() {
       allOk = false;
     } else if (key === "JWT_SECRET" && value === FORBIDDEN_JWT) {
       record(`env.${key}`, false, "仍是默认占位值，应用启动时会 throw");
+      allOk = false;
+    } else if (
+      ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"].includes(key) &&
+      (/\[[A-Z-]+\]/i.test(value) || value.includes("eyJhbGci..."))
+    ) {
+      record(`env.${key}`, false, "仍是示例占位值");
       allOk = false;
     } else {
       record(`env.${key}`, true);
@@ -111,6 +101,8 @@ async function checkDatabase() {
     ["disbursements", "应已存在"],
     ["rate_limit_buckets", "P0-9 新表，缺则需 npm run db:push"],
     ["idempotency_keys", "P0-10 新表，缺则需 npm run db:push"],
+    ["finance_reconciliation_runs", "资金对账批次表，缺则需 npm run db:push"],
+    ["finance_reconciliation_findings", "资金对账差异表，缺则需 npm run db:push"],
   ];
   for (const [table, hint] of tablesToProbe) {
     try {
@@ -155,8 +147,9 @@ function runCmd(label, cmd) {
   const ok3 = ok2 ? await checkDatabase() : (record("db.connect", false, "Prisma client 异常，跳过 DB 检查"), false);
   console.log("");
 
-  const ok4 = await runCmd("typecheck (tsc --noEmit)", "npx tsc --noEmit");
-  const ok5 = await runCmd("vitest run", "npx vitest run --reporter=dot");
+  const ok4 = await runCmd("system invariants", "npm run check:invariants");
+  const ok5 = await runCmd("typecheck (tsc --noEmit)", "npm run typecheck");
+  const ok6 = await runCmd("vitest run", "npx vitest run --reporter=dot");
 
   console.log("\n=== 汇总 ===");
   const failed = results.filter((r) => !r.ok);
@@ -174,11 +167,14 @@ function runCmd(label, cmd) {
   if (failed.some((f) => f.name === "db.connect")) {
     console.log("  • 数据库不可达：检查 Supabase 项目状态，或 docker compose up -d 用本地 Postgres");
   }
-  if (failed.some((f) => /db\.table\.(rate_limit_buckets|idempotency_keys)/.test(f.name))) {
+  if (failed.some((f) => /db\.table\.(rate_limit_buckets|idempotency_keys|finance_reconciliation_runs|finance_reconciliation_findings)/.test(f.name))) {
     console.log("  • 缺基础设施表：npm run db:push");
   }
   if (failed.some((f) => f.name === "prisma.client")) {
     console.log("  • Prisma client 失效：npx prisma generate");
+  }
+  if (failed.some((f) => f.name.startsWith("env.SUPABASE_") || f.name === "env.NEXT_PUBLIC_SUPABASE_URL")) {
+    console.log("  • 补齐 Supabase Storage 配置后执行：npm run storage:ensure");
   }
   process.exit(1);
 })();

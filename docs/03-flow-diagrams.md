@@ -85,8 +85,8 @@ flowchart TB
 ```mermaid
 flowchart TB
     Start(["客户还款<br/>现金/转账/第三方代付"]) --> A["财务登记还款"]
-    A --> A1["录入：金额、到账时间、支付方式"]
-    A1 --> A2["上传还款凭证<br/>（银行截图/收据）"]
+    A --> A1["录入：金额、支付方式、交易或收据号、付款来源"]
+    A1 --> A2["强制上传私有还款凭证<br/>银行截图/PDF/现金收据"]
     A2 --> B["创建还款单<br/>status: registered<br/>✅ 写 audit_log"]
 
     B --> Match["系统自动匹配"]
@@ -103,7 +103,9 @@ flowchart TB
     CustConfirm -->|"确认金额与用途<br/>手写签字确认"| E["创建 repayment_confirmation<br/>result: confirmed<br/>记录: IP/设备/签名"]
     CustConfirm -->|"客户驳回<br/>金额不符/对象错误"| F["confirmation result: rejected<br/>还款 status: rejected<br/>记录驳回原因"]
 
-    E --> E1["还款 status: confirmed<br/>✅ 写 audit_log"]
+    E --> EvidenceGate{"交易号、付款来源、<br/>未删除凭证是否完整?"}
+    EvidenceGate -->|否| Block["返回 409<br/>禁止客户台账和资金流水入账"]
+    EvidenceGate -->|是| E1["还款 status: confirmed<br/>凭证 ID 写哈希事件、资金流水和 audit_log"]
     E1 --> WriteOff["核销入账"]
     WriteOff --> G["更新 schedule_item<br/>principal_paid += xxx<br/>interest_paid += xxx<br/>fee_paid += xxx<br/>overdue_paid += xxx"]
     G --> CheckPeriod{本期是否全部还清?}
@@ -206,9 +208,10 @@ flowchart TB
 
     F --> Repay(["客户还款回收"])
     Repay --> G["还款核销后<br/>按分配方案：<br/>本金 → 回归资金池<br/>利息 → 收益<br/>费用 → 收益"]
-    G --> ProfitCalc["资金方收益计算<br/>profit_type: interest/fee<br/>gross_amount: 利息+费用总额<br/>share_ratio: 分润比例<br/>share_amount: 资金方分得"]
-    ProfitCalc --> ProfitRecord["写入 fund_profit_shares<br/>更新 fund_accounts<br/>total_profit += 分得金额"]
-    ProfitRecord --> ProfitLedger["写入 ledger_entries<br/>entry_type: profit_share"]
+    G --> ProfitCalc["资金方收益计算<br/>按固定月/周规则或实际收益分润<br/>生成 DUE 结算单"]
+    ProfitCalc --> ProfitRecord["平台核对并发布<br/>POSTED_BY_PLATFORM<br/>此时不移动资金"]
+    ProfitRecord --> FunderConfirm["资金方确认<br/>CONFIRMED_BY_FUNDER"]
+    FunderConfirm --> ProfitLedger["同一事务写 fund_account_journal<br/>INTEREST_SETTLEMENT / CREDIT<br/>更新 balance 与 total_profit"]
 
     ProfitLedger --> Statement(["📊 资金方对账单"])
     Statement --> Report["对账单内容：<br/>入金合计<br/>出金(放款)合计<br/>回款合计<br/>收益合计<br/>当前余额<br/>明细列表"]

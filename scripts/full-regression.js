@@ -1,14 +1,29 @@
 const { spawn } = require("child_process");
 const bcrypt = require("bcryptjs");
+const { loadEnvConfig } = require("@next/env");
 const { PrismaClient } = require("@prisma/client");
+const {
+  buildRegressionServerEnvironment,
+  createRegressionUsers,
+  createRuntimePassword,
+  deactivateRegressionUsers,
+  requireIsolatedRegressionDatabase,
+} = require("./lib/regression-runtime");
+
+loadEnvConfig(process.cwd());
+
+const regressionDatabaseUrl = requireIsolatedRegressionDatabase(process.env);
+process.env.DATABASE_URL = regressionDatabaseUrl;
+process.env.DIRECT_URL = regressionDatabaseUrl;
 
 const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DIRECT_URL || process.env.DATABASE_URL } },
+  datasources: { db: { url: regressionDatabaseUrl } },
 });
 
 const BASE_URL = process.env.REGRESSION_BASE_URL || "http://127.0.0.1:3001";
 const SIGNATURE_DATA =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sM9lV4AAAAASUVORK5CYII=";
+let regressionUserIds = [];
 
 function buildPhone(prefix, seed) {
   const numeric = String(seed).replace(/\D/g, "").slice(-7).padStart(7, "0");
@@ -16,7 +31,7 @@ function buildPhone(prefix, seed) {
 }
 
 async function createRegressionCustomer(tag) {
-  const password = "customer123";
+  const password = createRuntimePassword();
   const phone = buildPhone("695", `${Date.now()}1`);
   const passwordHash = await bcrypt.hash(password, 10);
 
@@ -35,7 +50,7 @@ async function createRegressionCustomer(tag) {
 }
 
 async function createRegressionFunder(tag, index, cooperationMode) {
-  const password = "funder123";
+  const password = createRuntimePassword();
   const phone = buildPhone(`69${index}`, `${Date.now()}${index}`);
   const passwordHash = await bcrypt.hash(password, 10);
 
@@ -180,7 +195,7 @@ async function loginFunder(phone, password) {
 
 async function runParallelSmokeChecks(context) {
   const [operatorJar, funderPrimaryJar, funderMonthlyJar, funderVolumeJar] = await Promise.all([
-    loginAdmin("operator", "operator123"),
+    loginAdmin(context.operatorUser.username, context.operatorUser.password),
     loginFunder(context.funders.primary.loginPhone, context.funders.primary.password),
     loginFunder(context.funders.monthly.loginPhone, context.funders.monthly.password),
     loginFunder(context.funders.volume.loginPhone, context.funders.volume.password),
@@ -362,6 +377,13 @@ async function stopTree(child) {
 async function main() {
   const tag = `REG-${Date.now()}`;
   const summary = { tag, baseUrl: BASE_URL };
+  const roleUsers = await createRegressionUsers({
+    prisma,
+    bcrypt,
+    tag,
+    roleCodes: ["super_admin", "manager", "finance", "operator"],
+  });
+  regressionUserIds = Object.values(roleUsers).map((user) => user.id);
 
   const customer = await createRegressionCustomer(tag);
   const funders = {
@@ -376,9 +398,9 @@ async function main() {
 
   if (!product) throw new Error("Missing seeded product FULL_AMOUNT_7D");
 
-  const adminJar = await loginAdmin("admin", "Wanjin888@");
-  const managerJar = await loginAdmin("manager", "manager123");
-  const financeJar = await loginAdmin("finance", "finance123");
+  const adminJar = await loginAdmin(roleUsers.super_admin.username, roleUsers.super_admin.password);
+  const managerJar = await loginAdmin(roleUsers.manager.username, roleUsers.manager.password);
+  const financeJar = await loginAdmin(roleUsers.finance.username, roleUsers.finance.password);
   const clientJar = await loginClient(customer.phone, customer.password);
 
   const created = await expectOk(
@@ -607,6 +629,7 @@ async function main() {
     clientJar,
     applicationId: created.id,
     funders,
+    operatorUser: roleUsers.operator,
   });
 
   console.log(JSON.stringify(summary, null, 2));
@@ -615,11 +638,12 @@ async function main() {
 async function run() {
   const shouldStartLocalServer = !process.env.REGRESSION_BASE_URL;
   const child = shouldStartLocalServer
-    ? spawn("cmd.exe", ["/c", "npm run dev"], {
-        cwd: process.cwd(),
-        stdio: ["ignore", "pipe", "pipe"],
-      })
-    : null;
+      ? spawn("cmd.exe", ["/c", "npm run dev"], {
+          cwd: process.cwd(),
+          stdio: ["ignore", "pipe", "pipe"],
+          env: buildRegressionServerEnvironment(regressionDatabaseUrl),
+        })
+      : null;
 
   try {
     if (child) {
@@ -629,6 +653,7 @@ async function run() {
     await main();
   } finally {
     await stopTree(child);
+    await deactivateRegressionUsers(prisma, regressionUserIds);
     await prisma.$disconnect();
   }
 }

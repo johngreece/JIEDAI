@@ -1,29 +1,31 @@
 import type { Prisma } from "@prisma/client";
+import {
+  ALLOWED_PRIVATE_FILE_MIME_TYPES,
+  getAttachmentAccessUrl,
+  uploadPrivateFile,
+} from "./private-file-storage";
 
 export const MAX_PROOF_FILE_SIZE = 10 * 1024 * 1024;
 
 export const ALLOWED_PROOF_MIME_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "application/pdf",
+  ...ALLOWED_PRIVATE_FILE_MIME_TYPES,
 ] as const;
 
-export async function fileToDataUrl(file: File) {
-  if (file.size <= 0) {
-    throw new Error("凭证文件不能为空");
-  }
+export async function storeProofFile(file: File, pathPrefix: string) {
+  return uploadPrivateFile({
+    file,
+    pathPrefix,
+    maxBytes: MAX_PROOF_FILE_SIZE,
+    allowedMimeTypes: ALLOWED_PROOF_MIME_TYPES,
+    label: "凭证文件",
+  });
+}
 
-  if (file.size > MAX_PROOF_FILE_SIZE) {
-    throw new Error("凭证文件不能超过 10MB");
-  }
-
-  if (!ALLOWED_PROOF_MIME_TYPES.includes(file.type as (typeof ALLOWED_PROOF_MIME_TYPES)[number])) {
-    throw new Error("凭证仅支持 JPG/PNG/WebP/PDF");
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  return `data:${file.type};base64,${buffer.toString("base64")}`;
+export function serializeProofAttachment<
+  T extends { id: string; fileUrl: string },
+>(attachment: T) {
+  const accessUrl = getAttachmentAccessUrl(attachment.id);
+  return { ...attachment, fileUrl: accessUrl, accessUrl };
 }
 
 export async function createProofAttachment(

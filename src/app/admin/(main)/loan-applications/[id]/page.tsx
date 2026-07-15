@@ -1,8 +1,11 @@
 "use client";
 
+import { formatMoney } from "@/lib/system-config";
+
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ContractHtmlFrame } from "@/components/ContractHtmlFrame";
 import RealtimeTimer from "@/components/RealtimeTimer";
 import { getStatusBadgeClass, getStatusLabel } from "@/lib/status-ui";
 
@@ -28,6 +31,7 @@ type Detail = {
   };
   totalApprovedAmount: number | null;
   rejectedReason: string | null;
+  returnedReason: string | null;
   customer: {
     id: string;
     name: string;
@@ -79,15 +83,6 @@ type ProfileCompletion = {
   issueLabels: string[];
 };
 
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 export default function LoanApplicationDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -112,6 +107,7 @@ export default function LoanApplicationDetailPage() {
     basePrincipal: "",
     capitalizedInterestAmount: "0",
     contractPrincipal: "",
+    legalServiceFee: "0",
     contractDisplayInterestRate: "2%",
     weeklyInterestAmount: "",
     monthlyInterestAmount: "",
@@ -138,11 +134,13 @@ export default function LoanApplicationDetailPage() {
       const defaultBase = Number(saved?.basePrincipal ?? json.amount ?? 0);
       const defaultCapitalized = Number(saved?.capitalizedInterestAmount ?? 0);
       const defaultPrincipal = Number(saved?.contractPrincipal ?? defaultBase + defaultCapitalized);
+      const defaultLegalServiceFee = Number(saved?.legalServiceFee ?? 0);
 
       setContractForm({
         basePrincipal: String(defaultBase || ""),
         capitalizedInterestAmount: String(defaultCapitalized || 0),
         contractPrincipal: String(defaultPrincipal || ""),
+        legalServiceFee: String(defaultLegalServiceFee || 0),
         contractDisplayInterestRate: String(
           saved?.contractDisplayInterestRate ?? json.pricingQuote?.contractDisplayInterestRate ?? "2%"
         ),
@@ -161,13 +159,14 @@ export default function LoanApplicationDetailPage() {
   }, [load]);
 
   const editable = useMemo(
-    () => (data ? ["DRAFT", "REJECTED"].includes(data.status) : false),
+    () => (data ? ["DRAFT", "RETURNED"].includes(data.status) : false),
     [data]
   );
 
   const parsedBasePrincipal = Number(contractForm.basePrincipal || 0);
   const parsedCapitalizedInterestAmount = Number(contractForm.capitalizedInterestAmount || 0);
   const parsedContractPrincipal = Number(contractForm.contractPrincipal || 0);
+  const parsedLegalServiceFee = Number(contractForm.legalServiceFee || 0);
   const expectedContractPrincipal = parsedBasePrincipal + parsedCapitalizedInterestAmount;
   const contractPrincipalMismatch =
     contractForm.contractPrincipal.trim() !== "" &&
@@ -179,6 +178,9 @@ export default function LoanApplicationDetailPage() {
     parsedCapitalizedInterestAmount < 0 ||
     !Number.isFinite(parsedContractPrincipal) ||
     parsedContractPrincipal <= 0 ||
+    !Number.isFinite(parsedLegalServiceFee) ||
+    parsedLegalServiceFee < 0 ||
+    parsedLegalServiceFee >= parsedBasePrincipal ||
     contractForm.contractDisplayInterestRate.trim().length === 0;
   const profileComplete = data?.customer.profileCompletion.profileComplete ?? false;
 
@@ -225,6 +227,17 @@ export default function LoanApplicationDetailPage() {
     }
   }
 
+  function postReasonedAction(url: string, action: "RETURN" | "REJECT", promptText: string) {
+    const comment = window.prompt(promptText);
+    if (comment === null) return;
+    const normalized = comment.trim();
+    if (!normalized) {
+      window.alert("原因不能为空");
+      return;
+    }
+    void postAction(url, { action, comment: normalized });
+  }
+
   function calculateContractPrincipal() {
     const base = Number(contractForm.basePrincipal || 0);
     const capitalized = Number(contractForm.capitalizedInterestAmount || 0);
@@ -240,6 +253,7 @@ export default function LoanApplicationDetailPage() {
       basePrincipal: Number(contractForm.basePrincipal),
       capitalizedInterestAmount: Number(contractForm.capitalizedInterestAmount || 0),
       contractPrincipal: Number(contractForm.contractPrincipal),
+      legalServiceFee: Number(contractForm.legalServiceFee || 0),
       contractDisplayInterestRate: contractForm.contractDisplayInterestRate,
       weeklyInterestAmount: contractForm.weeklyInterestAmount || undefined,
       monthlyInterestAmount: contractForm.monthlyInterestAmount || undefined,
@@ -324,7 +338,7 @@ export default function LoanApplicationDetailPage() {
           <Link href="/admin/loan-applications" className="admin-btn admin-btn-secondary">
             返回列表
           </Link>
-          {!["DISBURSED", "CONTRACTED"].includes(data.status) ? (
+          {["DRAFT", "RETURNED", "REJECTED"].includes(data.status) ? (
             <button
               type="button"
               onClick={() => void removeApplication()}
@@ -342,7 +356,7 @@ export default function LoanApplicationDetailPage() {
           <div className="admin-section-card__header">
             <div>
               <div className="admin-section-card__title">申请信息</div>
-              <p className="admin-section-card__description">草稿和被拒状态支持直接在详情页修改后重新提交。</p>
+              <p className="admin-section-card__description">草稿和退回补件状态支持直接修改后重新提交。</p>
             </div>
           </div>
           <div className="admin-section-card__body space-y-3">
@@ -452,6 +466,9 @@ export default function LoanApplicationDetailPage() {
             </div>
           ) : null}
           {data.rejectedReason ? <p className="text-sm text-red-700">拒绝原因：{data.rejectedReason}</p> : null}
+          {data.status === "RETURNED" && data.returnedReason ? (
+            <p className="text-sm text-amber-700">退回原因：{data.returnedReason}</p>
+          ) : null}
           {data.totalApprovedAmount != null ? (
             <p className="text-sm text-emerald-700">审批金额：{formatMoney(data.totalApprovedAmount)}</p>
           ) : null}
@@ -463,7 +480,7 @@ export default function LoanApplicationDetailPage() {
         <div className="admin-section-card__header">
           <div>
             <div className="admin-section-card__title">审批动作</div>
-            <p className="admin-section-card__description">根据不同状态直接执行风控通过、拒绝或正式审批。</p>
+            <p className="admin-section-card__description">根据当前节点执行通过、退回补件或拒绝终止。</p>
           </div>
         </div>
         <div className="admin-section-card__body">
@@ -473,13 +490,13 @@ export default function LoanApplicationDetailPage() {
           </div>
         ) : null}
         <div className="admin-btn-group">
-          {(data.status === "DRAFT" || data.status === "REJECTED") && (
+          {(data.status === "DRAFT" || data.status === "RETURNED") && (
             <button
               disabled={saving || !profileComplete}
               onClick={() => void postAction(`/api/loan-applications/${params.id}/submit`)}
                 className="admin-btn admin-btn-secondary admin-btn-sm"
             >
-              提交风控
+              {data.status === "RETURNED" ? "重新提交风控" : "提交风控"}
             </button>
           )}
           {data.status === "PENDING_RISK" && (
@@ -499,10 +516,24 @@ export default function LoanApplicationDetailPage() {
               <button
                 disabled={saving}
                 onClick={() =>
-                  void postAction(`/api/loan-applications/${params.id}/risk`, {
-                    action: "REJECT",
-                    comment: "详情页拒绝",
-                  })
+                  postReasonedAction(
+                    `/api/loan-applications/${params.id}/risk`,
+                    "RETURN",
+                    "填写退回补件原因",
+                  )
+                }
+                className="admin-btn admin-btn-secondary admin-btn-sm disabled:opacity-50"
+              >
+                退回补件
+              </button>
+              <button
+                disabled={saving}
+                onClick={() =>
+                  postReasonedAction(
+                    `/api/loan-applications/${params.id}/risk`,
+                    "REJECT",
+                    "填写风控拒绝原因",
+                  )
                 }
                 className="admin-btn admin-btn-danger admin-btn-sm disabled:opacity-50"
               >
@@ -526,10 +557,24 @@ export default function LoanApplicationDetailPage() {
               <button
                 disabled={saving}
                 onClick={() =>
-                  void postAction(`/api/loan-applications/${params.id}/approve`, {
-                    action: "REJECT",
-                    comment: "审批拒绝",
-                  })
+                  postReasonedAction(
+                    `/api/loan-applications/${params.id}/approve`,
+                    "RETURN",
+                    "填写退回补件原因",
+                  )
+                }
+                className="admin-btn admin-btn-secondary admin-btn-sm disabled:opacity-50"
+              >
+                退回补件
+              </button>
+              <button
+                disabled={saving}
+                onClick={() =>
+                  postReasonedAction(
+                    `/api/loan-applications/${params.id}/approve`,
+                    "REJECT",
+                    "填写审批拒绝原因",
+                  )
                 }
                 className="admin-btn admin-btn-danger admin-btn-sm disabled:opacity-50"
               >
@@ -612,6 +657,17 @@ export default function LoanApplicationDetailPage() {
               />
             </label>
             <label className="space-y-1 text-sm">
+              <span className="text-slate-500">法律服务费</span>
+              <input
+                value={contractForm.legalServiceFee}
+                onChange={(event) =>
+                  setContractForm((current) => ({ ...current, legalServiceFee: event.target.value }))
+                }
+                className="input-base"
+                disabled={!!data.mainContract}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
               <span className="text-slate-500">每周正常利息展示</span>
               <input
                 value={contractForm.weeklyInterestAmount}
@@ -640,6 +696,7 @@ export default function LoanApplicationDetailPage() {
           <div className="admin-note-block admin-note-block--soft text-sm text-slate-600">
             当前口径预览：基础本金 {contractForm.basePrincipal || "0"} + 并入本金利息{" "}
             {contractForm.capitalizedInterestAmount || "0"} = 合同本金 {contractForm.contractPrincipal || "0"}。
+            法律服务费 {contractForm.legalServiceFee || "0"} EUR。
             合同中另列展示利率 {contractForm.contractDisplayInterestRate || "2%"}，该利率不参与系统正常利息重复计算。
           </div>
 
@@ -652,7 +709,7 @@ export default function LoanApplicationDetailPage() {
 
           {contractFieldsInvalid ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              请先填写有效的合同参数：基础本金和合同本金必须大于 0，并入本金的正常利息不能小于 0，合同展示利率不能为空。
+              请先填写有效的合同参数：基础本金和合同本金必须大于 0，并入本金的正常利息不能小于 0，法律服务费不能小于 0 或达到基础本金，合同展示利率不能为空。
             </div>
           ) : null}
 
@@ -722,6 +779,7 @@ export default function LoanApplicationDetailPage() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                   <div>基础本金：{String(data.mainContract.contractGenerationOptions.basePrincipal ?? "-")}</div>
                   <div>并入本金利息：{String(data.mainContract.contractGenerationOptions.capitalizedInterestAmount ?? "-")}</div>
+                  <div>法律服务费：{String(data.mainContract.contractGenerationOptions.legalServiceFee ?? "0")} EUR</div>
                   <div>合同本金：{String(data.mainContract.contractGenerationOptions.contractPrincipal ?? "-")}</div>
                   <div>展示利率：{String(data.mainContract.contractGenerationOptions.contractDisplayInterestRate ?? "-")}</div>
                 </div>
@@ -765,10 +823,11 @@ export default function LoanApplicationDetailPage() {
               </button>
             </div>
           </div>
-          <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white p-4">
-            <div
-              dangerouslySetInnerHTML={{ __html: preview.content }}
-              className="prose prose-sm max-w-none"
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <ContractHtmlFrame
+              content={preview.content}
+              title="合同生成预览"
+              className="h-[70vh] min-h-[36rem]"
             />
           </div>
           </div>

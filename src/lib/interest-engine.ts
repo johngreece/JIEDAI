@@ -64,6 +64,9 @@ export interface RealtimeCalcInput {
   dueDate: Date;
   currentTime?: Date;
   paidDates?: string[];
+  normalInterestCapitalized?: boolean;
+  fixedFeeAmount?: number;
+  netDisbursementAmount?: number;
 }
 
 export interface RealtimeCalcResult {
@@ -274,7 +277,10 @@ export function calculateRealtimeRepayment(input: RealtimeCalcInput): RealtimeCa
   const currentTime = input.currentTime ?? new Date();
   const elapsedMs = Math.max(0, currentTime.getTime() - startTime.getTime());
   const elapsedDays = daysBetween(startTime, currentTime);
-  const netDisbursement = calcNetDisbursement(principal, upfrontFeeRate, channel);
+  const netDisbursement = input.netDisbursementAmount == null
+    ? calcNetDisbursement(principal, upfrontFeeRate, channel)
+    : roundMoney(input.netDisbursementAmount);
+  const fixedFeeAmount = roundMoney(Math.max(0, input.fixedFeeAmount ?? 0));
   const tiers = sortTiers(input.tiers);
   const { tier: currentTier, index: tierIndex } = findCurrentTier(currentTime, startTime, tiers);
   const dueAt = new Date(dueDate);
@@ -282,11 +288,16 @@ export function calculateRealtimeRepayment(input: RealtimeCalcInput): RealtimeCa
   const isOverdue = currentTime.getTime() > overdueStartDate.getTime();
   const normalTier = currentTier ?? tiers[tiers.length - 1] ?? null;
   const normalRate = normalTier?.ratePercent ?? 0;
-  const repaymentAmount = calcRepaymentAmount(principal, normalRate, channel);
-  const feeAmount =
-    channel === "UPFRONT_DEDUCTION"
+  const normalRepaymentAmount = input.normalInterestCapitalized
+    ? roundMoney(principal)
+    : calcRepaymentAmount(principal, normalRate, channel);
+  const repaymentAmount = roundMoney(new Decimal(normalRepaymentAmount).plus(fixedFeeAmount));
+  const pricingFeeAmount = input.normalInterestCapitalized
+    ? 0
+    : channel === "UPFRONT_DEDUCTION"
       ? roundMoney(new Decimal(principal).minus(netDisbursement))
-      : roundMoney(new Decimal(repaymentAmount).minus(principal));
+      : roundMoney(new Decimal(normalRepaymentAmount).minus(principal));
+  const feeAmount = roundMoney(new Decimal(pricingFeeAmount).plus(fixedFeeAmount));
 
   if (!isOverdue) {
     return {
@@ -315,7 +326,10 @@ export function calculateRealtimeRepayment(input: RealtimeCalcInput): RealtimeCa
   const overdueMs = currentTime.getTime() - overdueStartDate.getTime();
   const overdueDays = Math.max(1, Math.ceil(overdueMs / DAY_MS));
   const dueTier = tiers[tiers.length - 1] ?? normalTier;
-  const dueAmount = calcRepaymentAmount(principal, dueTier?.ratePercent ?? 0, channel);
+  const duePrincipalAmount = input.normalInterestCapitalized
+    ? roundMoney(principal)
+    : calcRepaymentAmount(principal, dueTier?.ratePercent ?? 0, channel);
+  const dueAmount = roundMoney(new Decimal(duePrincipalAmount).plus(fixedFeeAmount));
   const overdue = calculateOverdueBreakdown({
     baseAmount: dueAmount,
     overdueDays,
@@ -337,9 +351,10 @@ export function calculateRealtimeRepayment(input: RealtimeCalcInput): RealtimeCa
     tierIndex: tiers.length > 0 ? tiers.length - 1 : -1,
     tiers,
     repaymentAmount: dueAmount,
-    feeAmount:
-      channel === "UPFRONT_DEDUCTION"
-        ? roundMoney(new Decimal(principal).minus(netDisbursement))
+    feeAmount: input.normalInterestCapitalized
+      ? fixedFeeAmount
+      : channel === "UPFRONT_DEDUCTION"
+        ? roundMoney(new Decimal(principal).minus(netDisbursement).plus(fixedFeeAmount))
         : roundMoney(new Decimal(dueAmount).minus(principal)),
     isOverdue: true,
     overdueDays,

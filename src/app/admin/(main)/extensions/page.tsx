@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { ExtensionDecisionAction } from "@/lib/extension-lifecycle";
 
 type Extension = {
   id: string;
@@ -45,7 +46,7 @@ export default function ExtensionsPage() {
     void load();
   }, [load]);
 
-  async function approve(id: string, action: "APPROVE" | "REJECT") {
+  async function approve(id: string, action: ExtensionDecisionAction) {
     setActing(id);
     try {
       const res = await fetch(`/api/extensions/${id}/approve`, {
