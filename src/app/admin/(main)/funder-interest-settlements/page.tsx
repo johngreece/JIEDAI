@@ -23,10 +23,10 @@ type Settlement = {
   rate: number;
   interestAmount: number;
   status: string;
-  paidAt: string | null;
+  postedAt: string | null;
   confirmedAt: string | null;
-  rejectedAt: string | null;
-  rejectReason: string | null;
+  disputedAt: string | null;
+  disputeReason: string | null;
   remark: string | null;
 };
 
@@ -34,9 +34,9 @@ type ApiPayload = {
   items: Settlement[];
   summary: {
     dueAmount: number;
-    paidPendingConfirmAmount: number;
+    postedPendingConfirmAmount: number;
     confirmedAmount: number;
-    rejectedAmount: number;
+    disputedAmount: number;
   };
   filters?: {
     startDate: string | null;
@@ -46,18 +46,18 @@ type ApiPayload = {
 };
 
 const statusLabel: Record<string, string> = {
-  DUE: "待平台打款",
-  PAID_BY_PLATFORM: "平台已打款",
+  DUE: "待平台发布",
+  POSTED_BY_PLATFORM: "待资金方确认",
   CONFIRMED_BY_FUNDER: "资金方已确认",
-  FUNDER_REJECTED: "资金方反馈未收到",
+  FUNDER_DISPUTED: "资金方提出异议",
   CANCELLED: "已取消",
 };
 
 const statusBadge: Record<string, string> = {
   DUE: "border-amber-200 bg-amber-50 text-amber-700",
-  PAID_BY_PLATFORM: "border-blue-200 bg-blue-50 text-blue-700",
+  POSTED_BY_PLATFORM: "border-blue-200 bg-blue-50 text-blue-700",
   CONFIRMED_BY_FUNDER: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  FUNDER_REJECTED: "border-red-200 bg-red-50 text-red-700",
+  FUNDER_DISPUTED: "border-red-200 bg-red-50 text-red-700",
   CANCELLED: "border-slate-200 bg-slate-50 text-slate-600",
 };
 
@@ -69,10 +69,10 @@ const modeLabel: Record<string, string> = {
 
 const statusFilters = [
   { value: "all", label: "全部" },
-  { value: "DUE", label: "待平台打款" },
-  { value: "PAID_BY_PLATFORM", label: "已打款待确认" },
+  { value: "DUE", label: "待平台发布" },
+  { value: "POSTED_BY_PLATFORM", label: "待资金方确认" },
   { value: "CONFIRMED_BY_FUNDER", label: "资金方已确认" },
-  { value: "FUNDER_REJECTED", label: "反馈未收到" },
+  { value: "FUNDER_DISPUTED", label: "结算异议" },
 ] as const;
 
 function isKnownStatusFilter(value: string | null) {
@@ -105,7 +105,7 @@ export default function AdminFunderInterestSettlementsPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [error, setError] = useState("");
-  const [paymentDraft, setPaymentDraft] = useState<{ settlement: Settlement; remark: string } | null>(null);
+  const [postingDraft, setPostingDraft] = useState<{ settlement: Settlement; remark: string } | null>(null);
   const actionKeyRef = useRef<{ scope: string; key: string } | null>(null);
 
   const load = useCallback(async (nextStatus = statusFilter ?? "all") => {
@@ -214,29 +214,29 @@ export default function AdminFunderInterestSettlementsPage() {
     }
   }
 
-  function openMarkPaid(item: Settlement) {
+  function openPosting(item: Settlement) {
     actionKeyRef.current = null;
-    setPaymentDraft({ settlement: item, remark: item.remark?.trim() ?? "" });
+    setPostingDraft({ settlement: item, remark: item.remark?.trim() ?? "" });
   }
 
-  async function submitPaymentDraft() {
-    if (!paymentDraft) return;
-    const remark = paymentDraft.remark.trim();
+  async function submitPostingDraft() {
+    if (!postingDraft) return;
+    const remark = postingDraft.remark.trim();
     if (!remark) {
-      alert("请填写平台打款流水号或付款备注");
+      alert("请填写收益结算说明");
       return;
     }
 
     const ok = await postAction(
-      { action: "mark_paid", settlementId: paymentDraft.settlement.id, remark },
-      `funder-interest-paid-${paymentDraft.settlement.id}`,
+      { action: "post_settlement", settlementId: postingDraft.settlement.id, remark },
+      `funder-interest-posted-${postingDraft.settlement.id}`,
     );
-    if (ok) setPaymentDraft(null);
+    if (ok) setPostingDraft(null);
   }
 
   const items = data?.items ?? [];
   const summary = data?.summary;
-  const dueItems = items.filter((item) => item.status === "DUE" || item.status === "FUNDER_REJECTED");
+  const dueItems = items.filter((item) => item.status === "DUE" || item.status === "FUNDER_DISPUTED");
   const periodLabel = data?.filters?.periodLabel ?? (
     startDate && endDate
       ? `${startDate} 至 ${endDate}`
@@ -254,7 +254,7 @@ export default function AdminFunderInterestSettlementsPage() {
           <span className="admin-page-header__eyebrow">Funder Yield</span>
           <h1 className="admin-page-header__title">资金方收益结算</h1>
           <p className="admin-page-header__description">
-            按资金方周息/月息规则生成应付利息，平台打款后等待资金方确认到账。
+            按资金方周息/月息规则生成应计收益，资金方确认后计入内部资金账户；银行出金统一走提现审批。
           </p>
         </div>
         <div className="admin-toolbar-group">
@@ -286,7 +286,7 @@ export default function AdminFunderInterestSettlementsPage() {
           <div>
             <div className="text-sm font-semibold text-slate-900">到期时间筛选</div>
             <p className="mt-1 text-xs text-slate-500">
-              按结算单到期时间筛选，待打款、待确认、已确认和未收到金额会同步重算。
+              按结算单到期时间筛选，待发布、待确认、已确认和异议金额会同步重算。
             </p>
           </div>
           <div className="admin-toolbar-group">
@@ -329,10 +329,10 @@ export default function AdminFunderInterestSettlementsPage() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <Metric label="待打款" value={money(summary?.dueAmount ?? 0)} tone="amber" />
-        <Metric label="已打款待确认" value={money(summary?.paidPendingConfirmAmount ?? 0)} tone="blue" />
+        <Metric label="待发布" value={money(summary?.dueAmount ?? 0)} tone="amber" />
+        <Metric label="待资金方确认" value={money(summary?.postedPendingConfirmAmount ?? 0)} tone="blue" />
         <Metric label="资金方已确认" value={money(summary?.confirmedAmount ?? 0)} tone="emerald" />
-        <Metric label="反馈未收到" value={money(summary?.rejectedAmount ?? 0)} tone="red" />
+        <Metric label="结算异议" value={money(summary?.disputedAmount ?? 0)} tone="red" />
       </section>
 
       <section className="flex flex-wrap gap-2">
@@ -374,16 +374,16 @@ export default function AdminFunderInterestSettlementsPage() {
                     <div className="mt-1 text-xs text-slate-500">
                       {item.customerName} / {item.disbursementNo} · 本金 {money(item.principal)} · 利率 {item.rate}%
                     </div>
-                    {item.remark ? <div className="mt-2 text-xs text-slate-600">打款备注：{item.remark}</div> : null}
-                    {item.rejectReason ? <div className="mt-2 text-xs text-red-600">资金方反馈：{item.rejectReason}</div> : null}
+                    {item.remark ? <div className="mt-2 text-xs text-slate-600">结算说明：{item.remark}</div> : null}
+                    {item.disputeReason ? <div className="mt-2 text-xs text-red-600">资金方异议：{item.disputeReason}</div> : null}
                   </div>
                   <button
                     type="button"
                     className="admin-btn admin-btn-success admin-btn-sm"
                     disabled={processing}
-                    onClick={() => openMarkPaid(item)}
+                    onClick={() => openPosting(item)}
                   >
-                    登记打款信息
+                    发布结算
                   </button>
                 </div>
               </div>
@@ -392,32 +392,32 @@ export default function AdminFunderInterestSettlementsPage() {
         </section>
       ) : null}
 
-      {paymentDraft ? (
+      {postingDraft ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6" role="dialog" aria-modal="true">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-lg font-semibold text-slate-900">登记平台打款</div>
+                <div className="text-lg font-semibold text-slate-900">发布收益结算</div>
                 <p className="mt-1 text-sm text-slate-500">
-                  {paymentDraft.settlement.funderName} · {money(paymentDraft.settlement.interestAmount)}
+                  {postingDraft.settlement.funderName} · {money(postingDraft.settlement.interestAmount)}
                 </p>
               </div>
-              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadge[paymentDraft.settlement.status] ?? "border-slate-200 bg-slate-50 text-slate-600"}`}>
-                {statusLabel[paymentDraft.settlement.status] ?? paymentDraft.settlement.status}
+              <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadge[postingDraft.settlement.status] ?? "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                {statusLabel[postingDraft.settlement.status] ?? postingDraft.settlement.status}
               </span>
             </div>
             <div className="mt-4 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              {paymentDraft.settlement.customerName} / {paymentDraft.settlement.disbursementNo} · 到期 {dateTime(paymentDraft.settlement.dueDate)}
+              {postingDraft.settlement.customerName} / {postingDraft.settlement.disbursementNo} · 到期 {dateTime(postingDraft.settlement.dueDate)}
             </div>
             <label className="mt-4 block">
-              <span className="text-sm font-medium text-slate-700">打款流水号或付款备注</span>
+              <span className="text-sm font-medium text-slate-700">收益结算说明</span>
               <textarea
                 className="admin-field mt-2 min-h-[104px] text-sm"
-                placeholder="例如：SEPA 付款流水号、银行回执号、付款批次号"
-                value={paymentDraft.remark}
+                placeholder="例如：第 3 期固定月息，金额和周期已复核"
+                value={postingDraft.remark}
                 onChange={(event) => {
                   actionKeyRef.current = null;
-                  setPaymentDraft((current) =>
+                  setPostingDraft((current) =>
                     current ? { ...current, remark: event.target.value } : current,
                   );
                 }}
@@ -431,7 +431,7 @@ export default function AdminFunderInterestSettlementsPage() {
                 disabled={processing}
                 onClick={() => {
                   actionKeyRef.current = null;
-                  setPaymentDraft(null);
+                  setPostingDraft(null);
                 }}
               >
                 取消
@@ -439,10 +439,10 @@ export default function AdminFunderInterestSettlementsPage() {
               <button
                 type="button"
                 className="admin-btn admin-btn-success"
-                disabled={processing || !paymentDraft.remark.trim()}
-                onClick={() => void submitPaymentDraft()}
+                disabled={processing || !postingDraft.remark.trim()}
+                onClick={() => void submitPostingDraft()}
               >
-                确认已打款
+                发布待确认
               </button>
             </div>
           </div>
@@ -453,35 +453,38 @@ export default function AdminFunderInterestSettlementsPage() {
         <div className="admin-table-toolbar">
           <div>
             <div className="admin-table-title">收益结算单</div>
-            <p className="admin-table-note">每一行都是一笔资金方应收利息，状态会跟随平台打款和资金方确认更新。</p>
+            <p className="admin-table-note">每一行都是一笔资金方应计收益，资金方确认后才写入内部账户；该流程不代表银行付款。</p>
           </div>
           <div className="text-right text-xs font-medium text-slate-500">{periodLabel}</div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left">
-                <th className="px-4 py-3">结算单</th>
-                <th className="px-4 py-3">资金方</th>
-                <th className="px-4 py-3">客户/放款</th>
-                <th className="px-4 py-3">周期</th>
-                <th className="px-4 py-3">规则</th>
-                <th className="px-4 py-3">利息</th>
-                <th className="px-4 py-3">状态</th>
-                <th className="px-4 py-3">平台打款</th>
-                <th className="px-4 py-3">打款备注</th>
-                <th className="px-4 py-3">资金方确认</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {items.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-400">
-                    暂无收益结算单，可先点击“生成到期结算单”。
-                  </td>
+        {items.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-slate-400">
+            暂无收益结算单，可先点击“生成到期结算单”。
+          </div>
+        ) : (
+          <div
+            className="overflow-x-auto overscroll-x-contain"
+            role="region"
+            aria-label="收益结算单明细，可横向滚动"
+            tabIndex={0}
+          >
+            <table className="w-full min-w-[1120px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left">
+                  <th className="px-4 py-3">结算单</th>
+                  <th className="px-4 py-3">资金方</th>
+                  <th className="px-4 py-3">客户/放款</th>
+                  <th className="px-4 py-3">周期</th>
+                  <th className="px-4 py-3">规则</th>
+                  <th className="px-4 py-3">利息</th>
+                  <th className="px-4 py-3">状态</th>
+                  <th className="px-4 py-3">平台发布</th>
+                  <th className="px-4 py-3">结算说明</th>
+                  <th className="px-4 py-3">资金方确认</th>
                 </tr>
-              ) : (
-                items.map((item) => (
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item) => (
                   <tr key={item.id}>
                     <td className="px-4 py-3 font-mono text-xs">{item.settlementNo}</td>
                     <td className="px-4 py-3">
@@ -504,17 +507,17 @@ export default function AdminFunderInterestSettlementsPage() {
                         {statusLabel[item.status] ?? item.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{dateTime(item.paidAt)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{dateTime(item.postedAt)}</td>
                     <td className="max-w-xs px-4 py-3 text-xs text-slate-500">
                       <span className="break-words" title={item.remark ?? undefined}>{item.remark || "-"}</span>
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500">{dateTime(item.confirmedAt)}</td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

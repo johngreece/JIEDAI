@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 const MIB = 1024 * 1024;
 const DEFAULT_DATABASE_LIMIT = 500 * MIB;
@@ -10,7 +13,8 @@ const FAILURE_RATIO = 0.9;
 
 function argumentValue(name) {
   const index = process.argv.indexOf(name);
-  const value = index === -1 ? "" : process.argv[index + 1];
+  if (index === -1) return null;
+  const value = process.argv[index + 1];
   if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`);
   return value;
 }
@@ -18,6 +22,12 @@ function argumentValue(name) {
 function positiveInteger(value, name, fallback) {
   const parsed = Number(value === undefined || value === "" ? fallback : value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${name} must be a positive integer`);
+  return parsed;
+}
+
+function nonNegativeInteger(value, name) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
   return parsed;
 }
 
@@ -33,11 +43,52 @@ function evaluate(label, used, limit) {
   return { level: "ok", summary };
 }
 
+async function loadLiveUsage() {
+  const { loadEnvConfig } = require("@next/env");
+  const { PrismaClient } = require("@prisma/client");
+  loadEnvConfig(process.cwd());
+
+  const prisma = new PrismaClient();
+  try {
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT
+        pg_database_size(current_database())::text AS "databaseBytes",
+        COALESCE((
+          SELECT SUM(
+            CASE
+              WHEN metadata->>'size' ~ '^[0-9]+$' THEN (metadata->>'size')::bigint
+              ELSE 0
+            END
+          )
+          FROM storage.objects
+        ), 0)::text AS "storageBytes"
+    `);
+    const usage = rows[0];
+    if (!usage) throw new Error("Supabase capacity query returned no result");
+    return {
+      databaseBytes: positiveInteger(usage.databaseBytes, "database bytes"),
+      storageBytes: nonNegativeInteger(usage.storageBytes, "storage bytes"),
+    };
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 async function main() {
-  const databaseBytes = positiveInteger(argumentValue("--database-bytes"), "database bytes");
-  const manifest = JSON.parse(await readFile(argumentValue("--storage-manifest"), "utf8"));
-  if (!Number.isSafeInteger(manifest?.totalBytes) || manifest.totalBytes < 0) {
-    throw new Error("Storage manifest does not contain a valid totalBytes value");
+  const databaseArgument = argumentValue("--database-bytes");
+  const storageManifest = argumentValue("--storage-manifest");
+  if (Boolean(databaseArgument) !== Boolean(storageManifest)) {
+    throw new Error("--database-bytes and --storage-manifest must be provided together");
+  }
+
+  let databaseBytes;
+  let storageBytes;
+  if (databaseArgument && storageManifest) {
+    databaseBytes = positiveInteger(databaseArgument, "database bytes");
+    const manifest = JSON.parse(await readFile(storageManifest, "utf8"));
+    storageBytes = nonNegativeInteger(manifest?.totalBytes, "Storage manifest totalBytes");
+  } else {
+    ({ databaseBytes, storageBytes } = await loadLiveUsage());
   }
 
   const databaseLimit = positiveInteger(
@@ -52,7 +103,7 @@ async function main() {
   );
   const results = [
     evaluate("Database", databaseBytes, databaseLimit),
-    evaluate("Private Storage", manifest.totalBytes, storageLimit),
+    evaluate("Private Storage", storageBytes, storageLimit),
   ];
 
   for (const result of results) {

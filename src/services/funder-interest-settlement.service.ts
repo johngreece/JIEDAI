@@ -16,9 +16,9 @@ import { formatMoney as money } from "@/lib/system-config";
 
 export const FUNDER_INTEREST_SETTLEMENT_STATUS = {
   DUE: "DUE",
-  PAID_BY_PLATFORM: "PAID_BY_PLATFORM",
+  POSTED_BY_PLATFORM: "POSTED_BY_PLATFORM",
   CONFIRMED_BY_FUNDER: "CONFIRMED_BY_FUNDER",
-  FUNDER_REJECTED: "FUNDER_REJECTED",
+  FUNDER_DISPUTED: "FUNDER_DISPUTED",
   CANCELLED: "CANCELLED",
 } as const;
 
@@ -56,10 +56,10 @@ type SerializedSettlement = {
   rate: number;
   interestAmount: number;
   status: string;
-  paidAt: Date | string | null;
+  postedAt: Date | string | null;
   confirmedAt: Date | string | null;
-  rejectedAt: Date | string | null;
-  rejectReason: string | null;
+  disputedAt: Date | string | null;
+  disputeReason: string | null;
   remark: string | null;
 };
 
@@ -92,10 +92,10 @@ function dateOnly(value: Date) {
 }
 
 const statusLabel: Record<string, string> = {
-  DUE: "待平台打款",
-  PAID_BY_PLATFORM: "待资金方确认",
+  DUE: "待平台发布",
+  POSTED_BY_PLATFORM: "待资金方确认",
   CONFIRMED_BY_FUNDER: "资金方已确认",
-  FUNDER_REJECTED: "资金方反馈未收到",
+  FUNDER_DISPUTED: "资金方提出异议",
   CANCELLED: "已取消",
 };
 
@@ -417,7 +417,7 @@ export class FunderInterestSettlementService {
           item.funderId,
           "FUNDER_INTEREST_DUE",
           "收益结算单已到期",
-          `结算单 ${item.settlementNo} 已到期，金额 ${money(item.interestAmount)}。平台标记打款后，请进入收益结算页确认是否到账。`,
+          `结算单 ${item.settlementNo} 已到期，金额 ${money(item.interestAmount)}。平台发布结算后，请进入收益结算页核对并确认，确认后收益计入内部资金账户。`,
         ),
       ),
     );
@@ -433,7 +433,7 @@ export class FunderInterestSettlementService {
     const adminResult = await InAppNotificationService.notifyAdmins({
       type: "FUNDER_INTEREST_DUE",
       title: "资金方收益结算单已到期",
-      content: `系统自动生成 ${items.length} 笔资金方收益结算单，合计 ${money(totalAmount)}。请进入收益结算页核对并标记打款。${preview ? `明细：${preview}` : ""}`,
+      content: `系统自动生成 ${items.length} 笔资金方收益结算单，合计 ${money(totalAmount)}。请进入收益结算页核对并发布。${preview ? `明细：${preview}` : ""}`,
     }).catch(() => ({ created: 0 }));
 
     return {
@@ -505,10 +505,10 @@ export class FunderInterestSettlementService {
     return items.map(serializeSettlement);
   }
 
-  static async markPaidByPlatform(settlementId: string, operatorId: string, remark?: string) {
-    const paymentRemark = remark?.trim();
-    if (!paymentRemark) {
-      throw new Error("请填写平台打款流水号或付款备注");
+  static async postByPlatform(settlementId: string, operatorId: string, remark?: string) {
+    const postingRemark = remark?.trim();
+    if (!postingRemark) {
+      throw new Error("请填写收益结算说明");
     }
 
     const settlement = await prisma.funderInterestSettlement.findUnique({
@@ -519,12 +519,12 @@ export class FunderInterestSettlementService {
     if (!settlement) throw new Error("资金方收益结算单不存在");
     if (
       settlement.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.DUE &&
-      settlement.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED
+      settlement.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_DISPUTED
     ) {
-      throw new Error("当前状态不能标记为已打款");
+      throw new Error("当前状态不能发布结算");
     }
 
-    const paidAt = new Date();
+    const postedAt = new Date();
     const updated = await prisma.$transaction(
       async (tx: Prisma.TransactionClient) => {
         const claimed = await tx.funderInterestSettlement.updateMany({
@@ -533,17 +533,17 @@ export class FunderInterestSettlementService {
             status: {
               in: [
                 FUNDER_INTEREST_SETTLEMENT_STATUS.DUE,
-                FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED,
+                FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_DISPUTED,
               ],
             },
           },
           data: {
-            status: FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM,
-            paidAt,
-            paidById: operatorId,
-            rejectReason: null,
-            rejectedAt: null,
-            remark: paymentRemark,
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.POSTED_BY_PLATFORM,
+            postedAt,
+            postedById: operatorId,
+            disputeReason: null,
+            disputedAt: null,
+            remark: postingRemark,
           },
         });
 
@@ -562,14 +562,14 @@ export class FunderInterestSettlementService {
           oldValue: {
             status: settlement.status,
             remark: settlement.remark,
-            rejectReason: settlement.rejectReason,
+            disputeReason: settlement.disputeReason,
           },
           newValue: {
             status: paid.status,
-            paidAt: paidAt.toISOString(),
-            remark: paymentRemark,
+            postedAt: postedAt.toISOString(),
+            remark: postingRemark,
           },
-          changeSummary: "平台标记资金方收益已打款",
+          changeSummary: "平台发布资金方收益结算，待资金方确认后内部入账",
         });
         return paid;
       },
@@ -578,11 +578,11 @@ export class FunderInterestSettlementService {
 
     await FunderNotificationService.send(
       settlement.funderId,
-      "FUNDER_INTEREST_PAID",
-      "收益已打款，请确认",
-      `结算单 ${settlement.settlementNo} 已由平台标记为已打款，金额 ${money(Number(settlement.interestAmount))}。打款备注：${paymentRemark}。收到后请进入收益结算页确认。`,
+      "FUNDER_INTEREST_POSTED",
+      "收益结算待确认",
+      `结算单 ${settlement.settlementNo} 已由平台发布，金额 ${money(Number(settlement.interestAmount))}。结算说明：${postingRemark}。请核对周期和金额，确认后收益将计入内部资金账户；银行出金需另行发起提现。`,
     ).catch((error) => {
-      console.error("Failed to notify funder about paid interest settlement", error);
+      console.error("Failed to notify funder about posted interest settlement", error);
     });
 
     return serializeSettlement(updated);
@@ -606,21 +606,21 @@ export class FunderInterestSettlementService {
         if (latest.status === FUNDER_INTEREST_SETTLEMENT_STATUS.CONFIRMED_BY_FUNDER) {
           return { settlement: latest, confirmedNow: false };
         }
-        if (latest.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM) {
-          throw new Error("只有平台已打款的结算单才能确认收到");
+        if (latest.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.POSTED_BY_PLATFORM) {
+          throw new Error("只有平台已发布的结算单才能确认入账");
         }
 
         const claimed = await tx.funderInterestSettlement.updateMany({
           where: {
             id: latest.id,
             funderId,
-            status: FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM,
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.POSTED_BY_PLATFORM,
           },
           data: {
             status: FUNDER_INTEREST_SETTLEMENT_STATUS.CONFIRMED_BY_FUNDER,
             confirmedAt: now,
-            rejectedAt: null,
-            rejectReason: null,
+            disputedAt: null,
+            disputeReason: null,
           },
         });
         if (claimed.count !== 1) {
@@ -657,8 +657,8 @@ export class FunderInterestSettlementService {
               dueDate: latest.dueDate.toISOString(),
               cycleStart: latest.cycleStart.toISOString(),
               cycleEnd: latest.cycleEnd.toISOString(),
-              paidAt: latest.paidAt?.toISOString() ?? null,
-              paymentRemark: latest.remark ?? null,
+              postedAt: latest.postedAt?.toISOString() ?? null,
+              postingRemark: latest.remark ?? null,
             },
           });
         }
@@ -675,15 +675,15 @@ export class FunderInterestSettlementService {
       await InAppNotificationService.notifyAdmins({
         type: "FUNDER_INTEREST_CONFIRMED",
         templateCode: `FUNDER_INTEREST_CONFIRMED_${settlement.id}`,
-        title: "资金方已确认收益到账",
-        content: `资金方确认结算单 ${settlement.settlementNo} 已到账，金额 ${money(Number(settlement.interestAmount))}。`,
+        title: "资金方已确认收益结算",
+        content: `资金方确认结算单 ${settlement.settlementNo}，金额 ${money(Number(settlement.interestAmount))} 已计入内部资金账户。`,
       }).catch(() => undefined);
     }
 
     return serializeSettlement(result.settlement);
   }
 
-  static async rejectByFunder(settlementId: string, funderId: string, reason: string) {
+  static async disputeByFunder(settlementId: string, funderId: string, reason: string) {
     const settlement = await prisma.funderInterestSettlement.findFirst({
       where: { id: settlementId, funderId },
     });
@@ -697,23 +697,23 @@ export class FunderInterestSettlementService {
         });
 
         if (!latest) throw new Error("资金方收益结算单不存在");
-        if (latest.status === FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED) {
-          return { settlement: latest, rejectedNow: false };
+        if (latest.status === FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_DISPUTED) {
+          return { settlement: latest, disputedNow: false };
         }
-        if (latest.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM) {
-          throw new Error("只有平台已打款的结算单才能反馈未收到");
+        if (latest.status !== FUNDER_INTEREST_SETTLEMENT_STATUS.POSTED_BY_PLATFORM) {
+          throw new Error("只有平台已发布的结算单才能提出异议");
         }
 
         const claimed = await tx.funderInterestSettlement.updateMany({
           where: {
             id: latest.id,
             funderId,
-            status: FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM,
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.POSTED_BY_PLATFORM,
           },
           data: {
-            status: FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED,
-            rejectedAt: new Date(),
-            rejectReason: reason,
+            status: FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_DISPUTED,
+            disputedAt: new Date(),
+            disputeReason: reason,
           },
         });
         if (claimed.count !== 1) {
@@ -723,17 +723,17 @@ export class FunderInterestSettlementService {
         const updated = await tx.funderInterestSettlement.findUniqueOrThrow({
           where: { id: latest.id },
         });
-        return { settlement: updated, rejectedNow: true };
+        return { settlement: updated, disputedNow: true };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    if (result.rejectedNow) {
+    if (result.disputedNow) {
       await InAppNotificationService.notifyAdmins({
-        type: "FUNDER_INTEREST_REJECTED",
-        templateCode: `FUNDER_INTEREST_REJECTED_${settlement.id}`,
-        title: "资金方反馈收益未到账",
-        content: `资金方反馈结算单 ${settlement.settlementNo} 未收到，金额 ${money(Number(settlement.interestAmount))}。原因：${reason}`,
+        type: "FUNDER_INTEREST_DISPUTED",
+        templateCode: `FUNDER_INTEREST_DISPUTED_${settlement.id}`,
+        title: "资金方对收益结算提出异议",
+        content: `资金方对结算单 ${settlement.settlementNo} 提出异议，金额 ${money(Number(settlement.interestAmount))}。原因：${reason}`,
       }).catch(() => undefined);
     }
 
@@ -745,14 +745,14 @@ export class FunderInterestSettlementService {
       dueAmount: items
         .filter((item) => item.status === FUNDER_INTEREST_SETTLEMENT_STATUS.DUE)
         .reduce((sum, item) => sum + item.interestAmount, 0),
-      paidPendingConfirmAmount: items
-        .filter((item) => item.status === FUNDER_INTEREST_SETTLEMENT_STATUS.PAID_BY_PLATFORM)
+      postedPendingConfirmAmount: items
+        .filter((item) => item.status === FUNDER_INTEREST_SETTLEMENT_STATUS.POSTED_BY_PLATFORM)
         .reduce((sum, item) => sum + item.interestAmount, 0),
       confirmedAmount: items
         .filter((item) => item.status === FUNDER_INTEREST_SETTLEMENT_STATUS.CONFIRMED_BY_FUNDER)
         .reduce((sum, item) => sum + item.interestAmount, 0),
-      rejectedAmount: items
-        .filter((item) => item.status === FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_REJECTED)
+      disputedAmount: items
+        .filter((item) => item.status === FUNDER_INTEREST_SETTLEMENT_STATUS.FUNDER_DISPUTED)
         .reduce((sum, item) => sum + item.interestAmount, 0),
     };
   }
@@ -771,12 +771,12 @@ export class FunderInterestSettlementService {
       `导出时间: ${formatDateTime(new Date())}`,
       `到期时间: ${payload.filters.periodLabel}`,
       `记录数: ${payload.items.length}`,
-      `待平台打款: €${summary.dueAmount.toFixed(2)}`,
-      `待资金方确认: €${summary.paidPendingConfirmAmount.toFixed(2)}`,
+      `待平台发布: €${summary.dueAmount.toFixed(2)}`,
+      `待资金方确认: €${summary.postedPendingConfirmAmount.toFixed(2)}`,
       `资金方已确认: €${summary.confirmedAmount.toFixed(2)}`,
-      `反馈未收到: €${summary.rejectedAmount.toFixed(2)}`,
+      `资金方异议: €${summary.disputedAmount.toFixed(2)}`,
       "",
-      "结算单号,资金方,账户,客户,放款单,规则,期数,周期开始,周期结束,到期时间,本金(€),利率(%),利息(€),状态,平台打款时间,资金方确认时间,反馈未收到时间,打款备注,拒绝原因",
+      "结算单号,资金方,账户,客户,放款单,规则,期数,周期开始,周期结束,到期时间,本金(€),利率(%),利息(€),状态,平台发布时间,资金方确认时间,提出异议时间,结算说明,异议原因",
     ].join("\n");
 
     const rows = payload.items.map((item) =>
@@ -795,11 +795,11 @@ export class FunderInterestSettlementService {
         item.rate.toFixed(4),
         item.interestAmount.toFixed(2),
         csvCell(statusLabel[item.status] ?? item.status),
-        csvCell(formatDateTime(item.paidAt)),
+        csvCell(formatDateTime(item.postedAt)),
         csvCell(formatDateTime(item.confirmedAt)),
-        csvCell(formatDateTime(item.rejectedAt)),
+        csvCell(formatDateTime(item.disputedAt)),
         csvCell(item.remark ?? ""),
-        csvCell(item.rejectReason ?? ""),
+        csvCell(item.disputeReason ?? ""),
       ].join(","),
     );
 

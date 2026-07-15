@@ -7,13 +7,13 @@ import { FunderInterestSettlementService } from "@/services/funder-interest-sett
 export const dynamic = "force-dynamic";
 
 const postSchema = z.object({
-  action: z.enum(["generate_due", "mark_paid"]),
+  action: z.enum(["generate_due", "post_settlement"]),
   settlementId: z.string().trim().optional(),
   remark: z.string().trim().max(500).optional(),
 });
 
 export async function GET(req: NextRequest) {
-  const session = await requirePermission(["ledger:view"]);
+  const session = await requirePermission(["settlement:view"]);
   if (session instanceof Response) return session;
 
   const url = new URL(req.url);
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await requirePermission(["ledger:view"]);
+  const session = await requirePermission(["settlement:manage"]);
   if (session instanceof Response) return session;
 
   const body = await req.json().catch(() => ({}));
@@ -57,13 +57,13 @@ export async function POST(req: NextRequest) {
   }
 
   const settlementId = parsed.data.settlementId;
-  const paymentRemark = parsed.data.remark;
-  if (parsed.data.action === "mark_paid") {
+  const postingRemark = parsed.data.remark;
+  if (parsed.data.action === "post_settlement") {
     if (!settlementId) {
-      return NextResponse.json({ error: "请选择要标记打款的结算单" }, { status: 400 });
+      return NextResponse.json({ error: "请选择要发布的结算单" }, { status: 400 });
     }
-    if (!paymentRemark) {
-      return NextResponse.json({ error: "请填写平台打款流水号或付款备注" }, { status: 400 });
+    if (!postingRemark) {
+      return NextResponse.json({ error: "请填写收益结算说明" }, { status: 400 });
     }
   }
 
@@ -75,23 +75,23 @@ export async function POST(req: NextRequest) {
     settlementId ?? "all",
   ]);
   return withIdempotencyResponse(idemKey, async () => {
+    try {
+      const result =
+        parsed.data.action === "generate_due"
+          ? await FunderInterestSettlementService.generateDueSettlements()
+          : await FunderInterestSettlementService.postByPlatform(
+              settlementId ?? "",
+              session.sub,
+              postingRemark,
+            );
 
-  try {
-    const result =
-      parsed.data.action === "generate_due"
-        ? await FunderInterestSettlementService.generateDueSettlements()
-        : await FunderInterestSettlementService.markPaidByPlatform(
-            settlementId ?? "",
-            session.sub,
-            paymentRemark,
-          );
-
-    return NextResponse.json(result);
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "资金方收益结算操作失败" },
-      { status: 400 },
-    );
-  }
+      return NextResponse.json(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "资金方收益结算操作失败";
+      return NextResponse.json(
+        { error: message },
+        { status: message.includes("状态已变化") ? 409 : 400 },
+      );
+    }
   });
 }

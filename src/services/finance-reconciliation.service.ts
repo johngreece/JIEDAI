@@ -675,7 +675,7 @@ async function inspectCurrentState() {
           entityId: settlement.id,
           label: "Funder interest settlement journal entry",
           actual: journal,
-          recommendedAction: "Verify funder confirmation evidence before any settlement income is recognized.",
+          recommendedAction: "Verify the funder acceptance event before crediting the internal fund account; bank payout must remain in the withdrawal workflow.",
         }),
       );
       continue;
@@ -694,7 +694,7 @@ async function inspectCurrentState() {
           ownerId: settlement.fundAccountId,
         },
         actual: journal,
-        recommendedAction: "Verify funder confirmation and settlement evidence; create only an approved compensating entry if required.",
+        recommendedAction: "Verify funder acceptance and the internal account posting; use the withdrawal evidence chain for any bank payout.",
       }),
     );
     addMoney(expectedBalance, settlement.fundAccountId, settlement.interestAmount);
@@ -752,7 +752,7 @@ async function inspectCurrentState() {
         label: "Fund account total profit",
         expected: expectedProfit.get(account.id) ?? 0,
         actual: account.totalProfit.toString(),
-        recommendedAction: "Verify confirmed repayment income components and confirmed funder interest settlements.",
+        recommendedAction: "Verify confirmed repayment income and funder-accepted internal interest postings; do not treat settlement publication as bank payout.",
       }),
     );
   }

@@ -31,6 +31,10 @@ export const PERMISSION_DEFINITIONS = [
   { code: "withdrawal:view", module: "withdrawal", name: "查看提现" },
   { code: "withdrawal:review", module: "withdrawal", name: "确认提现出账" },
 
+  // ── 资金方收益结算 ──
+  { code: "settlement:view", module: "settlement", name: "查看收益结算" },
+  { code: "settlement:manage", module: "settlement", name: "发布收益结算" },
+
   // ── 还款 ──
   { code: "repayment:view", module: "repayment", name: "查看还款" },
   { code: "repayment:create", module: "repayment", name: "登记还款" },

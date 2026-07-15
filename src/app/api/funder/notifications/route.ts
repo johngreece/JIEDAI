@@ -12,10 +12,10 @@ function toFunderAction(type: string) {
     };
   }
 
-  if (type === "FUNDER_INTEREST_PAID") {
+  if (type === "FUNDER_INTEREST_POSTED" || type === "FUNDER_INTEREST_PAID") {
     return {
-      actionUrl: "/funder/interest-settlements?status=PAID_BY_PLATFORM",
-      actionLabel: "确认到账",
+      actionUrl: "/funder/interest-settlements?status=POSTED_BY_PLATFORM",
+      actionLabel: "核对结算",
     };
   }
 

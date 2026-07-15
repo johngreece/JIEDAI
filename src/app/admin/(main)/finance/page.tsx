@@ -16,8 +16,8 @@ const ACTIONS = [
   {
     title: "收益结算",
     href: "/admin/funder-interest-settlements",
-    description: "按周息/月息规则生成资金方应付利息，平台打款后由资金方确认到账。",
-    note: "适合处理资金方收益应付、已付和到账确认。",
+    description: "按周息/月息规则生成资金方应计收益，资金方确认后计入内部资金账户。",
+    note: "银行出金统一通过提现审批和付款凭证处理。",
   },
   {
     title: "提现审批",

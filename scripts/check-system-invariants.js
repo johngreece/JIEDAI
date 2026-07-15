@@ -32,6 +32,7 @@ check(
 const packageJson = JSON.parse(read("package.json"));
 const seedSource = read("prisma/seed.js");
 const healthCheckSource = read("scripts/health-check.js");
+const capacityCheckSource = read("scripts/check-free-tier-capacity.mjs");
 const bootstrapSource = read("prisma/seed-bootstrap.js");
 const ensureInfraSource = read("scripts/ensure-infra-tables.ts");
 check(
@@ -67,6 +68,12 @@ check(
     healthCheckSource.includes("loadEnvConfig(process.cwd())"),
   "health check must load the same Next.js environment files as the application"
 );
+check(
+  packageJson.scripts?.["ops:check-capacity"] === "node scripts/check-free-tier-capacity.mjs" &&
+    capacityCheckSource.includes("pg_database_size(current_database())") &&
+    capacityCheckSource.includes("FROM storage.objects"),
+  "standalone free-tier capacity checks must read live Supabase database and Storage usage"
+);
 
 const prismaSchema = read("prisma/schema.prisma");
 const restructureCreateSource = read("src/app/api/restructures/route.ts");
@@ -76,6 +83,8 @@ const withdrawalRouteSource = read("src/app/api/funder-withdrawals/route.ts");
 const withdrawalServiceSource = read("src/services/funder-interest.service.ts");
 const inflowCreateSource = read("src/app/api/fund-accounts/[id]/inflows/route.ts");
 const inflowReviewSource = read("src/app/api/fund-accounts/[id]/inflows/[inflowId]/route.ts");
+const interestSettlementServiceSource = read("src/services/funder-interest-settlement.service.ts");
+const interestSettlementRouteSource = read("src/app/api/funder-interest-settlements/route.ts");
 for (const field of ["remainingPrincipal", "remainingInterest", "remainingFee"]) {
   check(
     prismaSchema.includes(field),
@@ -155,6 +164,37 @@ check(
     ensureInfraSource.includes("finance:inflow:create") &&
     ensureInfraSource.includes("finance:inflow:review"),
   "finance role seed and infrastructure sync must include dedicated capital inflow permissions"
+);
+check(
+  interestSettlementServiceSource.includes('POSTED_BY_PLATFORM: "POSTED_BY_PLATFORM"') &&
+    interestSettlementServiceSource.includes('FUNDER_DISPUTED: "FUNDER_DISPUTED"') &&
+    !interestSettlementServiceSource.includes('PAID_BY_PLATFORM:') &&
+    !interestSettlementServiceSource.includes('FUNDER_REJECTED:'),
+  "funder interest settlements must use internal posting states instead of direct bank-payment states"
+);
+const settlementPostSection = interestSettlementServiceSource.slice(
+  interestSettlementServiceSource.indexOf("static async postByPlatform"),
+  interestSettlementServiceSource.indexOf("static async confirmByFunder")
+);
+const settlementConfirmSection = interestSettlementServiceSource.slice(
+  interestSettlementServiceSource.indexOf("static async confirmByFunder"),
+  interestSettlementServiceSource.indexOf("static async disputeByFunder")
+);
+check(
+  !settlementPostSection.includes("writeFundAccountLedgerEntryAndUpdateAccount") &&
+    settlementConfirmSection.includes("writeFundAccountLedgerEntryAndUpdateAccount") &&
+    settlementConfirmSection.includes('referenceType: "funder_interest_settlement"') &&
+    settlementConfirmSection.includes("totalProfitDelta"),
+  "interest settlement publication must not credit funds; funder confirmation must atomically credit the internal account"
+);
+check(
+  interestSettlementRouteSource.includes('requirePermission(["settlement:view"])') &&
+    interestSettlementRouteSource.includes('requirePermission(["settlement:manage"])') &&
+    seedSource.includes('"settlement:view"') &&
+    seedSource.includes('"settlement:manage"') &&
+    ensureInfraSource.includes("finance:settlement:view") &&
+    ensureInfraSource.includes("finance:settlement:manage"),
+  "finance role seed and infrastructure sync must include dedicated settlement permissions"
 );
 
 const mutatingRegressionScripts = [

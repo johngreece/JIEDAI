@@ -20,7 +20,7 @@
 | 客户签署还款报备 | `PENDING_CONFIRM -> CUSTOMER_CONFIRMED` | 暂不入账 | 暂不入账 | 校验签署金额，保存当前快照并追加带哈希的签署证据事件 | 后台未收到走拒绝事件；历史签署事件不覆盖 |
 | 管理端确认还款到账 | `CUSTOMER_CONFIRMED -> CONFIRMED` | `REPAYMENT / DEBIT` | `REPAYMENT / CREDIT`，增加余额和收益累计 | 后台 `AuditLog` 同事务 | 未到账走拒绝分支；已确认不得取消 |
 | 资金方提现审批 | `PENDING -> APPROVED` | 无 | `WITHDRAWAL / DEBIT`，减少余额并增加累计流出 | 后台 `AuditLog` 同事务 | 审批前可拒绝，审批后不得覆盖 |
-| 资金方收益确认 | `PAID_BY_PLATFORM -> CONFIRMED_BY_FUNDER` | 无 | `INTEREST_SETTLEMENT / CREDIT`，增加余额和累计收益 | `confirmedAt` 与资金流水同事务 | 未收到走 `FUNDER_REJECTED`，不得改写已确认流水 |
+| 资金方收益确认 | `POSTED_BY_PLATFORM -> CONFIRMED_BY_FUNDER` | 无 | 仅确认时追加 `INTEREST_SETTLEMENT / CREDIT`，增加内部账户余额和累计收益 | `postedAt`、`postedById` 留下发布人轨迹；`confirmedAt` 与资金流水同事务 | 金额或周期有误走 `FUNDER_DISPUTED`；银行出款仅走提现审批，不得从结算单直接付款 |
 
 ## 3. 引用类型
 

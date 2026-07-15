@@ -150,7 +150,7 @@ export class FunderInterestService {
       .aggregate({
         where: {
           funderId: funder.id,
-          status: { in: ["DUE", "PAID_BY_PLATFORM", "CONFIRMED_BY_FUNDER"] },
+          status: { in: ["DUE", "POSTED_BY_PLATFORM", "CONFIRMED_BY_FUNDER"] },
         },
         _sum: { interestAmount: true },
       })

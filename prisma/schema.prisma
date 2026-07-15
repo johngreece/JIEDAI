@@ -42,6 +42,7 @@ model User {
   ledgerEntries             LedgerEntry[]        @relation("LedgerOperator")
   fundAccountJournalEntries FundAccountJournal[] @relation("FundAccountJournalOperator")
   reviewedCapitalInflows    CapitalInflow[]      @relation("CapitalInflowReviewer")
+  postedInterestSettlements FunderInterestSettlement[] @relation("FunderInterestSettlementPoster")
   pricingRules              PricingRule[]        @relation("PricingRuleCreator")
   notifications             Notification[]       @relation("NotificationTarget")
 
@@ -350,11 +351,11 @@ model FunderInterestSettlement {
   rate           Decimal   @db.Decimal(10, 6)
   interestAmount Decimal   @map("interest_amount") @db.Decimal(18, 4)
   status         String    @default("DUE")
-  paidAt         DateTime? @map("paid_at")
-  paidById       String?   @map("paid_by_id")
+  postedAt       DateTime? @map("paid_at")
+  postedById     String?   @map("paid_by_id")
   confirmedAt    DateTime? @map("confirmed_at")
-  rejectedAt     DateTime? @map("rejected_at")
-  rejectReason   String?   @map("reject_reason")
+  disputedAt     DateTime? @map("rejected_at")
+  disputeReason  String?   @map("reject_reason")
   remark         String?
   metadataJson   String?   @map("metadata_json")
   createdAt      DateTime  @default(now()) @map("created_at")
@@ -363,12 +364,14 @@ model FunderInterestSettlement {
   funder       Funder        @relation(fields: [funderId], references: [id])
   fundAccount  FundAccount   @relation(fields: [fundAccountId], references: [id])
   disbursement Disbursement? @relation(fields: [disbursementId], references: [id])
+  postedBy     User?          @relation("FunderInterestSettlementPoster", fields: [postedById], references: [id])
 
   @@unique([disbursementId, cycleStart, cycleEnd])
   @@index([funderId, status])
   @@index([fundAccountId, dueDate])
   @@index([status, dueDate])
   @@index([applicationId])
+  @@index([postedById])
   @@map("funder_interest_settlements")
 }
 

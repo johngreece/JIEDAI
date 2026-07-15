@@ -123,6 +123,8 @@ npm run storage:restore-backup -- --input /path/to/restored-backup/storage --app
 
 工作流会读取这两个 repository variables；未设置时使用上述默认值。达到 75% 应清理无引用文件并评估升级；达到 90% 时任务失败，必须在下一工作日前处理。
 
+本地或运维机可直接运行 `npm run ops:check-capacity`，命令会通过当前 `DATABASE_URL` 读取数据库体积和 `storage.objects` 元数据，不需要先生成备份。备份工作流仍显式传入数据库字节数和 Storage manifest，确保恢复校验阶段不依赖源数据库。
+
 ## 7. 仍需外部完成的首轮动作
 
 代码只建立恢复能力，不能在缺少生产 secrets 时伪造真实备份。上线前必须完成：

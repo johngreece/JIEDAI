@@ -102,7 +102,7 @@ export function describeFunderRule(input: FunderRateSnapshot) {
       title: label,
       rateText: `分润比例 ${formatRate(toNumber(input.profitShareRatio) * 100)}%`,
       formula: `按客户已确认回款中的利息、费用和罚息 × 分润比例 ${formatRate(toNumber(input.profitShareRatio) * 100)}% 计算。`,
-      settlement: "实际收益进入结算单后，平台登记打款，资金方在资金端确认到账；未收到可反馈给管理端继续核对。",
+      settlement: "实际收益进入结算单后，平台发布结算，资金方核对确认后计入内部资金账户；银行出金统一通过提现申请处理。",
     };
   }
 
@@ -111,6 +111,6 @@ export function describeFunderRule(input: FunderRateSnapshot) {
     title: label,
     rateText: `周利率 ${formatRate(toNumber(input.weeklyRate))}%`,
     formula: `按实际放款本金 × 周利率 ${formatRate(toNumber(input.weeklyRate))}% 计算，每满 7 天形成一笔利息。`,
-    settlement: "未放出的闲置资金不计息；已放出资金按 7 天周期生成收益结算单，平台打款后由资金方确认到账。",
+    settlement: "未放出的闲置资金不计息；已放出资金按 7 天周期生成收益结算单，平台发布后由资金方确认并计入内部资金账户。",
   };
 }
