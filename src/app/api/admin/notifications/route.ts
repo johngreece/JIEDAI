@@ -47,6 +47,13 @@ function toAdminAction(type: string) {
     };
   }
 
+  if (type === "FINANCE_RECONCILIATION_DIFFERENCE") {
+    return {
+      actionUrl: "/admin/finance-reconciliation",
+      actionLabel: "处理对账差异",
+    };
+  }
+
   return {
     actionUrl: "/admin/dashboard",
     actionLabel: "查看工作台",

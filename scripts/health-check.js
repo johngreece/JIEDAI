@@ -120,6 +120,8 @@ async function checkDatabase() {
     ["disbursements", "应已存在"],
     ["rate_limit_buckets", "P0-9 新表，缺则需 npm run db:push"],
     ["idempotency_keys", "P0-10 新表，缺则需 npm run db:push"],
+    ["finance_reconciliation_runs", "资金对账批次表，缺则需 npm run db:push"],
+    ["finance_reconciliation_findings", "资金对账差异表，缺则需 npm run db:push"],
   ];
   for (const [table, hint] of tablesToProbe) {
     try {
@@ -184,7 +186,7 @@ function runCmd(label, cmd) {
   if (failed.some((f) => f.name === "db.connect")) {
     console.log("  • 数据库不可达：检查 Supabase 项目状态，或 docker compose up -d 用本地 Postgres");
   }
-  if (failed.some((f) => /db\.table\.(rate_limit_buckets|idempotency_keys)/.test(f.name))) {
+  if (failed.some((f) => /db\.table\.(rate_limit_buckets|idempotency_keys|finance_reconciliation_runs|finance_reconciliation_findings)/.test(f.name))) {
     console.log("  • 缺基础设施表：npm run db:push");
   }
   if (failed.some((f) => f.name === "prisma.client")) {

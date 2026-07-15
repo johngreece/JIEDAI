@@ -41,3 +41,12 @@
 - `appendRepaymentConfirmationEvidence()`：客户签署和后台确认决定的追加式证据入口，哈希绑定金额、签名、主体和状态迁移。
 - `financial-record-immutability-guard.test.ts`：阻止流水改删、绕过服务创建流水和资金业务记录硬删除。
 - 真实 Supabase 可用后，补充 10 路并发、事务故障注入和对账零差异测试。
+
+## 5. 自动对账闭环
+
+- `FinanceReconciliationService` 每日全历史扫描业务单据、客户台账、资金流水、余额快照和账户累计值。
+- 对账批次写入 `finance_reconciliation_runs`，差异写入 `finance_reconciliation_findings`；每项差异都有责任域、建议动作和处理状态。
+- `/admin/finance-reconciliation` 只提供扫描、标记已处理和带说明忽略，不提供历史账本改写入口。
+- `npm run finance:reconcile` 是只读检查命令；发现差异时以非零状态退出。
+- 每日维护任务发现未处理差异时，该阶段失败并创建内部告警，阻止把当日资金链视为已闭环。
+- `financial-record-immutability-guard.test.ts` 同时扫描 `src` 与 TypeScript 运维脚本，防止重新引入账本更新、删除或旁路创建。

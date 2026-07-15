@@ -28,6 +28,7 @@ export default function AdminMainLayout({ children }: AdminMainLayoutProps) {
       overdue: "逾期管理",
       settlement: "结算中心",
       ledger: "资金台账",
+      "finance-reconciliation": "资金对账",
       funders: "资金方",
       "funder-interest-settlements": "收益结算",
       "funder-withdrawals": "资金方提现",

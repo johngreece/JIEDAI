@@ -8,6 +8,7 @@ function dependenciesFor(order: string[]): DailyMaintenanceDependencies {
   return {
     scanOverdue: vi.fn(async () => order.push("overdue")),
     generateFunderInterestSettlements: vi.fn(async () => order.push("settlements")),
+    runFinanceReconciliation: vi.fn(async () => order.push("reconciliation")),
     scanClientNotifications: vi.fn(async () => order.push("client")),
     scanFunderNotifications: vi.fn(async () => order.push("funder")),
     processMessageRetryQueue: vi.fn(async () => order.push("retry")),
@@ -20,7 +21,14 @@ describe("daily maintenance", () => {
     const result = await runDailyMaintenance(dependenciesFor(order));
 
     expect(result.success).toBe(true);
-    expect(order).toEqual(["overdue", "settlements", "client", "funder", "retry"]);
+    expect(order).toEqual([
+      "overdue",
+      "settlements",
+      "reconciliation",
+      "client",
+      "funder",
+      "retry",
+    ]);
     expect(result.stages.every((stage) => stage.status === "success")).toBe(true);
   });
 
@@ -36,13 +44,20 @@ describe("daily maintenance", () => {
     const result = await runDailyMaintenance(dependencies);
 
     expect(result.success).toBe(false);
-    expect(order).toEqual(["overdue", "settlements", "client", "funder", "retry"]);
+    expect(order).toEqual([
+      "overdue",
+      "settlements",
+      "reconciliation",
+      "client",
+      "funder",
+      "retry",
+    ]);
     expect(result.stages[1]).toMatchObject({
       name: "funderInterestSettlements",
       status: "failed",
       error: "settlement unavailable",
     });
-    expect(result.stages[4].status).toBe("success");
+    expect(result.stages[5].status).toBe("success");
     expect(errorLog).toHaveBeenCalledOnce();
     errorLog.mockRestore();
   });

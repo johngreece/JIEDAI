@@ -262,9 +262,9 @@ model FundAccountJournal {
   fundAccount FundAccount @relation(fields: [fundAccountId], references: [id])
   operator    User?       @relation("FundAccountJournalOperator", fields: [operatorId], references: [id])
 
+  @@unique([referenceType, referenceId])
   @@index([fundAccountId, createdAt])
   @@index([referenceType, referenceId])
-  @@unique([referenceType, referenceId])
   @@index([type, createdAt])
   @@index([direction, createdAt])
   @@index([operatorId])
@@ -872,19 +872,70 @@ model LedgerEntry {
   customer Customer? @relation("CustomerLedger", fields: [customerId], references: [id])
   operator User?     @relation("LedgerOperator", fields: [operatorId], references: [id])
 
+  @@unique([type, referenceType, referenceId])
   @@index([type])
   @@index([referenceType, referenceId])
   @@index([customerId])
   @@index([operatorId])
   @@index([createdAt])
   @@index([direction])
-  @@unique([type, referenceType, referenceId])
   @@map("ledger_entries")
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║  L — 审计日志                                                           ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
+
+model FinanceReconciliationRun {
+  id               String    @id @default(uuid())
+  runKey           String    @unique @map("run_key")
+  status           String    @default("RUNNING")
+  periodStart      DateTime  @map("period_start")
+  periodEnd        DateTime  @map("period_end")
+  findingCount     Int       @default(0) @map("finding_count")
+  openFindingCount Int       @default(0) @map("open_finding_count")
+  summaryJson      String?   @map("summary_json")
+  errorMessage     String?   @map("error_message")
+  triggeredById    String?   @map("triggered_by_id")
+  startedAt        DateTime  @default(now()) @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  findings FinanceReconciliationFinding[]
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@map("finance_reconciliation_runs")
+}
+
+model FinanceReconciliationFinding {
+  id                String    @id @default(uuid())
+  runId             String    @map("run_id")
+  fingerprint       String
+  code              String
+  severity          String    @default("ERROR")
+  entityType        String    @map("entity_type")
+  entityId          String?   @map("entity_id")
+  expectedValue     String?   @map("expected_value")
+  actualValue       String?   @map("actual_value")
+  description       String
+  owner             String    @default("FINANCE")
+  recommendedAction String    @map("recommended_action")
+  status            String    @default("OPEN")
+  resolvedById      String?   @map("resolved_by_id")
+  resolvedAt        DateTime? @map("resolved_at")
+  resolutionNote    String?   @map("resolution_note")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  run FinanceReconciliationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, status])
+  @@index([status, createdAt])
+  @@index([fingerprint, status])
+  @@index([entityType, entityId])
+  @@map("finance_reconciliation_findings")
+}
 
 model AuditLog {
   id             String   @id @default(uuid())

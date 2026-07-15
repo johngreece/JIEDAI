@@ -5,3 +5,8 @@ node_modules
 .env.production
 *.log
 .backup/
+
+.vercel
+.env*.local
+.playwright-cli/
+output/playwright/

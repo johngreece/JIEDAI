@@ -87,7 +87,9 @@ function findViolations(root: string, filePath: string): string[] {
 describe("financial record immutability guard", () => {
   it("keeps financial records append-only and guarded by expected-state claims", () => {
     const root = process.cwd();
-    const files = walkFiles(path.join(root, "src"));
+    const files = ["src", "scripts"].flatMap((directory) =>
+      walkFiles(path.join(root, directory)),
+    );
     expect(files.flatMap((file) => findViolations(root, file))).toEqual([]);
   });
 });

@@ -19,7 +19,8 @@ export type AuditAction =
   | "repay_confirm"
   | "pay_overdue_interest"
   | "settlement_persist"
-  | "settlement_settle";
+  | "settlement_settle"
+  | "reconcile";
 
 export type AuditEntityType =
   | "loan_application"
@@ -42,7 +43,8 @@ export type AuditEntityType =
   | "system_setting"
   | "role"
   | "user"
-  | "fund_profit_share";
+  | "fund_profit_share"
+  | "finance_reconciliation";
 
 export type AuditLogParams = {
   userId: string;
