@@ -3,7 +3,6 @@ import { Prisma } from "@prisma/client";
 import Decimal from "decimal.js";
 import { z } from "zod";
 import { writeAuditLogInTransaction } from "@/lib/audit";
-import { addCalendarMonths, addDays } from "@/lib/calendar-period";
 import { apiError, apiSuccess, ErrorCodes } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import {
@@ -11,21 +10,37 @@ import {
   RestructureConflictError,
   restructureDecisionStatus,
 } from "@/lib/restructure-lifecycle";
+import {
+  generateRestructurePlan,
+  restructureBalancesMatch,
+  type RestructureBalances,
+} from "@/lib/restructure-plan";
 import { requirePermission } from "@/lib/rbac";
+import { loadRestructurePlanSnapshot } from "@/services/restructure.service";
 
 export const dynamic = "force-dynamic";
 
 const approveSchema = z.object({
   action: z.enum(RESTRUCTURE_DECISION_ACTIONS),
-  remark: z.string().optional(),
+  remark: z.string().trim().max(500).optional(),
 });
 
 function genPlanNo() {
   return `RP${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 }
 
-function addTerm(value: number, unit: string) {
-  return unit === "DAY" ? addDays(new Date(), value) : addCalendarMonths(new Date(), value);
+function proposalBalances(record: {
+  remainingPrincipal: Decimal.Value;
+  remainingInterest: Decimal.Value;
+  remainingFee: Decimal.Value;
+  remainingPenalty: Decimal.Value;
+}): RestructureBalances {
+  return {
+    principal: new Decimal(record.remainingPrincipal.toString()),
+    interest: new Decimal(record.remainingInterest.toString()),
+    fee: new Decimal(record.remainingFee.toString()),
+    penalty: new Decimal(record.remainingPenalty.toString()),
+  };
 }
 
 export async function POST(
@@ -52,7 +67,7 @@ export async function POST(
           where: { id, status: "PENDING" },
           data: {
             status: targetStatus,
-            remark: parsed.data.remark ?? null,
+            remark: parsed.data.remark || null,
             approvedAt: targetStatus === "APPROVED" ? now : null,
           },
         });
@@ -73,33 +88,49 @@ export async function POST(
             entityType: "restructure",
             entityId: record.id,
             oldValue: { status: "PENDING" },
-            newValue: { status: targetStatus, remark: parsed.data.remark ?? null },
+            newValue: { status: targetStatus, remark: parsed.data.remark || null },
             changeSummary: "借款重组申请已拒绝",
           });
           return { record, oldPlanId: record.oldPlanId, newPlanId: null };
         }
 
-        const activePlans = await tx.repaymentPlan.findMany({
-          where: { applicationId: record.applicationId, status: "ACTIVE" },
-          include: { scheduleItems: true },
-          orderBy: { createdAt: "desc" },
-          take: 2,
-        });
-        if (activePlans.length !== 1) {
-          throw new RestructureConflictError("借款必须且只能有一份活跃还款计划");
+        if (!record.oldPlanId) {
+          throw new RestructureConflictError("重组申请缺少原还款计划快照，请重新申请");
         }
-        const oldPlan = activePlans[0];
-        if (record.oldPlanId && record.oldPlanId !== oldPlan.id) {
-          throw new RestructureConflictError("重组申请对应的还款计划已发生变化");
+        if (record.newTermUnit !== "MONTH" && record.newTermUnit !== "DAY") {
+          throw new RestructureConflictError("重组期限单位无效，请重新申请");
         }
 
-        const principal = new Decimal(record.remainingPrincipal.toString()).toDecimalPlaces(4);
-        const interest = new Decimal(record.remainingInterest.toString()).toDecimalPlaces(4);
-        const totalDue = principal.plus(interest).toDecimalPlaces(4);
-        if (totalDue.lte(0)) {
-          throw new RestructureConflictError("重组金额必须大于零");
+        const { plan: oldPlan, balances } = await loadRestructurePlanSnapshot(
+          tx,
+          record.oldPlanId,
+        );
+        if (
+          record.oldPlanId !== oldPlan.id ||
+          record.oldPlanVersion !== oldPlan.version
+        ) {
+          throw new RestructureConflictError("原还款计划版本已变化，请重新申请");
         }
-        const dueDate = addTerm(record.newTermValue, record.newTermUnit);
+        if (!restructureBalancesMatch(proposalBalances(record), balances)) {
+          throw new RestructureConflictError("待重组余额已变化，请刷新后重新申请");
+        }
+
+        const projectedPlan = generateRestructurePlan({
+          principal: balances.principal,
+          carriedFee: balances.fee,
+          newTermValue: record.newTermValue,
+          newTermUnit: record.newTermUnit,
+          newAnnualRate: record.newRate,
+          startDate: now,
+        });
+        if (!projectedPlan.totalInterest.eq(record.projectedInterest.toString())) {
+          throw new RestructureConflictError("重组定价结果已变化，请重新申请");
+        }
+
+        const item = projectedPlan.items[0];
+        if (!item || projectedPlan.items.length !== 1) {
+          throw new RestructureConflictError("重组计划生成失败，请检查期限配置");
+        }
 
         const newPlanId = randomUUID();
         const superseded = await tx.repaymentPlan.updateMany({
@@ -113,21 +144,30 @@ export async function POST(
             id: newPlanId,
             planNo: genPlanNo(),
             applicationId: record.applicationId,
-            totalPrincipal: principal.toNumber(),
-            totalInterest: interest.toNumber(),
-            totalFee: 0,
-            totalPeriods: 1,
+            totalPrincipal: projectedPlan.totalPrincipal.toNumber(),
+            totalInterest: projectedPlan.totalInterest.toNumber(),
+            totalFee: projectedPlan.totalFee.toNumber(),
+            totalPeriods: projectedPlan.totalPeriods,
             status: "ACTIVE",
             version: oldPlan.version + 1,
             rulesSnapshotJson: JSON.stringify({
+              source: "RESTRUCTURE",
+              pricingModel: "FIXED_SCHEDULE",
               restructureId: record.id,
               oldPlanId: oldPlan.id,
-              remainingPrincipal: principal.toString(),
-              remainingInterest: interest.toString(),
+              oldPlanVersion: oldPlan.version,
+              oldOutstandingPrincipal: balances.principal.toString(),
+              oldOutstandingInterest: balances.interest.toString(),
+              oldOutstandingFee: balances.fee.toString(),
+              oldOutstandingPenalty: balances.penalty.toString(),
+              waivedInterest: balances.interest.toString(),
+              waivedPenalty: balances.penalty.toString(),
+              carriedFee: balances.fee.toString(),
+              newAnnualRate: record.newRate.toString(),
               newTermValue: record.newTermValue,
               newTermUnit: record.newTermUnit,
-              newRate: record.newRate.toString(),
-              dueDate: dueDate.toISOString(),
+              projectedInterest: projectedPlan.totalInterest.toString(),
+              dueDate: item.dueDate.toISOString(),
             }),
           },
         });
@@ -135,13 +175,16 @@ export async function POST(
         await tx.repaymentScheduleItem.create({
           data: {
             planId: newPlan.id,
-            periodNumber: 1,
-            dueDate,
-            principal: principal.toNumber(),
-            interest: interest.toNumber(),
-            fee: 0,
-            totalDue: totalDue.toNumber(),
-            remaining: totalDue.toNumber(),
+            periodNumber: item.periodNumber,
+            dueDate: item.dueDate,
+            principal: item.principal.toNumber(),
+            interest: item.interest.toNumber(),
+            fee: item.fee.toNumber(),
+            totalDue: item.totalDue.toNumber(),
+            remaining: item.totalDue.toNumber(),
+            remainingPrincipal: item.principal.toNumber(),
+            remainingInterest: item.interest.toNumber(),
+            remainingFee: item.fee.toNumber(),
             status: "PENDING",
           },
         });
@@ -151,15 +194,27 @@ export async function POST(
           action: "approve",
           entityType: "restructure",
           entityId: record.id,
-          oldValue: { status: "PENDING", planId: oldPlan.id },
+          oldValue: {
+            status: "PENDING",
+            planId: oldPlan.id,
+            planVersion: oldPlan.version,
+            outstandingPrincipal: balances.principal.toString(),
+            outstandingInterest: balances.interest.toString(),
+            outstandingFee: balances.fee.toString(),
+            outstandingPenalty: balances.penalty.toString(),
+          },
           newValue: {
             status: targetStatus,
             planId: newPlan.id,
-            principal: principal.toString(),
-            interest: interest.toString(),
-            dueDate: dueDate.toISOString(),
+            planVersion: newPlan.version,
+            principal: projectedPlan.totalPrincipal.toString(),
+            interest: projectedPlan.totalInterest.toString(),
+            fee: projectedPlan.totalFee.toString(),
+            waivedInterest: balances.interest.toString(),
+            waivedPenalty: balances.penalty.toString(),
+            dueDate: item.dueDate.toISOString(),
           },
-          changeSummary: "借款重组审批通过并生成新还款计划",
+          changeSummary: "借款重组审批通过，按新利率生成还款计划并留存余额处理规则",
         });
 
         return { record, oldPlanId: oldPlan.id, newPlanId: newPlan.id };

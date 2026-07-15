@@ -5,6 +5,7 @@ import {
   calculateLiveOutstandingFromSnapshot,
   extractPaidDates,
 } from "@/lib/repayment-runtime";
+import { deriveRepaymentOpenComponents } from "@/lib/repayment-allocation";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,9 @@ type ScheduleItemLite = {
   fee: unknown;
   totalDue: unknown;
   remaining: unknown;
+  remainingPrincipal: unknown;
+  remainingInterest: unknown;
+  remainingFee: unknown;
   status: string;
   paidAt: Date | null;
 };
@@ -104,17 +108,25 @@ export async function GET(
       status: plan.status,
       totalPeriods: plan.totalPeriods,
     },
-    items: typedItems.map((x: ScheduleItemLite) => ({
-      id: x.id,
-      periodNumber: x.periodNumber,
-      dueDate: x.dueDate,
-      principal: Number(x.principal),
-      interest: Number(x.interest),
-      fee: Number(x.fee),
-      totalDue: Number(x.totalDue),
-      remaining: liveRemainingByItem.get(x.id) ?? Number(x.remaining),
-      status: x.status,
-      paidAt: x.paidAt,
-    })),
+    items: typedItems.map((x: ScheduleItemLite) => {
+      const remaining = liveRemainingByItem.get(x.id) ?? Number(x.remaining);
+      const components = deriveRepaymentOpenComponents(x, remaining);
+      return {
+        id: x.id,
+        periodNumber: x.periodNumber,
+        dueDate: x.dueDate,
+        principal: components.principal,
+        interest: components.interest,
+        fee: components.fee,
+        penalty: components.penalty,
+        totalDue: Number(x.totalDue),
+        remaining,
+        remainingPrincipal: components.principal,
+        remainingInterest: components.interest,
+        remainingFee: components.fee,
+        status: x.status,
+        paidAt: x.paidAt,
+      };
+    }),
   });
 }

@@ -216,6 +216,9 @@ export async function approveExtension(params: {
           const remaining = isOutstanding
             ? new Decimal(item.remaining.toString()).plus(addedFee)
             : new Decimal(0);
+          const remainingFee = isOutstanding
+            ? new Decimal(item.remainingFee.toString()).plus(addedFee)
+            : new Decimal(item.remainingFee.toString());
 
           await tx.repaymentScheduleItem.create({
             data: {
@@ -227,6 +230,9 @@ export async function approveExtension(params: {
               fee: fee.toNumber(),
               totalDue: totalDue.toNumber(),
               remaining: remaining.toNumber(),
+              remainingPrincipal: item.remainingPrincipal,
+              remainingInterest: item.remainingInterest,
+              remainingFee: remainingFee.toNumber(),
               status: isOutstanding ? "PENDING" : item.status,
               paidAt: item.paidAt,
             },

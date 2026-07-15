@@ -18,6 +18,7 @@ import {
   extractPaidDates,
   hasExplicitInterestFreeze,
 } from "@/lib/repayment-runtime";
+import { deriveRepaymentOpenComponents } from "@/lib/repayment-allocation";
 import { formatMoney as money } from "@/lib/system-config";
 import { transitionLoanApplication } from "@/services/loan-transition.service";
 import { isValidSignatureDataUrl } from "@/lib/contract-signature";
@@ -345,11 +346,27 @@ export async function settleRepaymentReceipt(params: {
     });
 
     const allocationTotals = new Map<string, number>();
+    const allocationComponents = new Map<
+      string,
+      { principal: number; interest: number; fee: number; penalty: number }
+    >();
     repayment.allocations.forEach((allocation) => {
       allocationTotals.set(
         allocation.itemId,
         (allocationTotals.get(allocation.itemId) || 0) + Number(allocation.amount)
       );
+      const current = allocationComponents.get(allocation.itemId) ?? {
+        principal: 0,
+        interest: 0,
+        fee: 0,
+        penalty: 0,
+      };
+      const amount = Number(allocation.amount);
+      if (allocation.type === "PRINCIPAL") current.principal += amount;
+      if (allocation.type === "INTEREST") current.interest += amount;
+      if (allocation.type === "FEE") current.fee += amount;
+      if (allocation.type === "PENALTY") current.penalty += amount;
+      allocationComponents.set(allocation.itemId, current);
     });
 
     const confirmedRepayments = await tx.repayment.findMany({
@@ -399,7 +416,35 @@ export async function settleRepaymentReceipt(params: {
       const applied = allocationTotals.get(item.id) || 0;
       const currentRemaining =
         dynamicRemainingByItem.get(item.id) ?? Number(item.remaining || item.totalDue || 0);
+      const appliedComponents = allocationComponents.get(item.id) ?? {
+        principal: 0,
+        interest: 0,
+        fee: 0,
+        penalty: 0,
+      };
+      const storedComponentTotal =
+        Number(item.remainingPrincipal) +
+        Number(item.remainingInterest) +
+        Number(item.remainingFee);
+      if (currentRemaining > EPSILON && storedComponentTotal <= EPSILON) {
+        throw new Error("SCHEDULE_COMPONENT_BALANCES_MISSING");
+      }
+      const currentComponents = deriveRepaymentOpenComponents(item, currentRemaining);
+      let nextPrincipal = Math.max(0, currentComponents.principal - appliedComponents.principal);
+      let nextInterest = Math.max(0, currentComponents.interest - appliedComponents.interest);
+      let nextFee = Math.max(0, currentComponents.fee - appliedComponents.fee);
+      let nextPenalty = Math.max(0, currentComponents.penalty - appliedComponents.penalty);
       const nextRemaining = Math.max(0, currentRemaining - applied);
+      if (nextRemaining <= EPSILON) {
+        nextPrincipal = 0;
+        nextInterest = 0;
+        nextFee = 0;
+        nextPenalty = 0;
+      } else if (
+        Math.abs(nextPrincipal + nextInterest + nextFee + nextPenalty - nextRemaining) > 0.01
+      ) {
+        throw new Error("SCHEDULE_COMPONENT_ALLOCATION_MISMATCH");
+      }
       const nextStatus =
         nextRemaining <= EPSILON
           ? "PAID"
@@ -412,6 +457,9 @@ export async function settleRepaymentReceipt(params: {
           where: { id: item.id },
           data: {
             remaining: nextRemaining,
+            remainingPrincipal: nextPrincipal,
+            remainingInterest: nextInterest,
+            remainingFee: nextFee,
             status: nextStatus,
             paidAt: nextRemaining <= EPSILON ? now : item.paidAt,
           },

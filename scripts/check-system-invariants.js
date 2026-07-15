@@ -57,6 +57,39 @@ check(
     ensureInfraSource.includes("WHERE \"status\" = 'ACTIVE'"),
   "PostgreSQL must enforce at most one active repayment plan per application"
 );
+check(
+  packageJson.scripts?.["db:push"]?.includes("prisma-with-env.mjs"),
+  "database maintenance commands must load .env.local through prisma-with-env.mjs"
+);
+
+const prismaSchema = read("prisma/schema.prisma");
+const restructureCreateSource = read("src/app/api/restructures/route.ts");
+const restructureApproveSource = read("src/app/api/restructures/[id]/approve/route.ts");
+for (const field of ["remainingPrincipal", "remainingInterest", "remainingFee"]) {
+  check(
+    prismaSchema.includes(field),
+    `repayment schedule schema must persist ${field}`
+  );
+}
+for (const field of ["oldPlanVersion", "remainingPenalty", "projectedInterest"]) {
+  check(
+    prismaSchema.includes(field),
+    `restructure schema must persist ${field}`
+  );
+}
+check(
+  restructureCreateSource.includes("loadRestructurePlanSnapshot") &&
+    restructureCreateSource.includes("withIdempotencyResponse") &&
+    !restructureCreateSource.includes("remainingPrincipal: z.number") &&
+    !restructureCreateSource.includes("remainingInterest: z.number"),
+  "restructure creation must use idempotent database-authoritative balances"
+);
+check(
+  restructureApproveSource.includes("restructureBalancesMatch") &&
+    restructureApproveSource.includes("generateRestructurePlan") &&
+    restructureApproveSource.includes("record.oldPlanVersion !== oldPlan.version"),
+  "restructure approval must revalidate balances, plan version and pricing"
+);
 
 const mutatingRegressionScripts = [
   "scripts/full-regression.js",
@@ -183,4 +216,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`System invariants passed: EUR only, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
+console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);

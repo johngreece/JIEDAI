@@ -252,6 +252,10 @@ export async function POST(
         : channel === "UPFRONT_DEDUCTION"
           ? upfrontFeeAmount
           : deferredFeeAmount;
+      const scheduledPrincipal = contractRepaymentComponents?.principal ?? principal;
+      const scheduledInterest = contractRepaymentComponents?.interest ?? 0;
+      const remainingFee =
+        !usesStructuredContract && channel === "UPFRONT_DEDUCTION" ? 0 : repaymentFeeAmount;
 
       const plan = await tx.repaymentPlan.create({
         data: {
@@ -271,8 +275,8 @@ export async function POST(
           planId: plan.id,
           periodNumber: 1,
           dueDate,
-          principal: contractRepaymentComponents?.principal ?? principal,
-          interest: contractRepaymentComponents?.interest ?? 0,
+          principal: scheduledPrincipal,
+          interest: scheduledInterest,
           fee: repaymentFeeAmount,
           totalDue: usesStructuredContract
             ? dueRepaymentAmount
@@ -284,6 +288,9 @@ export async function POST(
             : channel === "UPFRONT_DEDUCTION"
               ? principal
               : dueRepaymentAmount,
+          remainingPrincipal: scheduledPrincipal,
+          remainingInterest: scheduledInterest,
+          remainingFee,
           status: "PENDING",
         },
       });

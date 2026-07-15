@@ -87,6 +87,7 @@ export function calculateLiveOutstandingFromSnapshot(params: {
 
   try {
     const snapshot = JSON.parse(rulesSnapshotJson) as {
+      pricingModel?: string;
       channel?: ChannelType;
       upfrontFeeRate?: number;
       tiers?: RepaymentTier[];
@@ -97,6 +98,7 @@ export function calculateLiveOutstandingFromSnapshot(params: {
       netDisbursementAmount?: number;
     };
 
+    if (snapshot.pricingModel === "FIXED_SCHEDULE") return null;
     if (!snapshot.dueDate) return null;
 
     const realtime = calculateRealtimeRepayment({

@@ -90,4 +90,16 @@ describe("repayment interest freeze helpers", () => {
       paymentTime: new Date("2026-05-08T21:01:00.000Z"),
     })).toBe(12_750);
   });
+
+  it("does not apply dynamic tiers to a fixed restructure schedule", () => {
+    expect(calculateLiveOutstandingFromSnapshot({
+      rulesSnapshotJson: JSON.stringify({
+        pricingModel: "FIXED_SCHEDULE",
+        dueDate: "2026-12-31T00:00:00.000Z",
+      }),
+      principal: 1000,
+      disbursedAt: new Date("2026-01-01T00:00:00.000Z"),
+      paymentTime: new Date("2026-06-01T00:00:00.000Z"),
+    })).toBeNull();
+  });
 });

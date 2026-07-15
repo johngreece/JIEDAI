@@ -22,6 +22,7 @@ type ScheduleItem = {
   principal: number;
   interest: number;
   fee: number;
+  penalty?: number;
   totalDue: number;
   remaining: number;
   status: string;
@@ -60,7 +61,7 @@ function buildSuggestedAllocations(amount: number, item?: ScheduleItem | null): 
   addRow("FEE", item.fee);
   addRow("INTEREST", item.interest);
   addRow("PRINCIPAL", item.principal);
-  addRow("PENALTY", remaining);
+  addRow("PENALTY", item.penalty ?? remaining);
 
   return rows.length > 0 ? rows : [{ ...EMPTY_ALLOCATION_ROW, itemId: item.id, amount: amount.toFixed(2) }];
 }
@@ -557,7 +558,7 @@ export function RepaymentsPageClient({
                     <option value="">请选择期次</option>
                     {allocatableSchedule.map((item) => (
                       <option key={item.id} value={item.id}>
-                        第 {item.periodNumber} 期 | 剩余 {money(item.remaining)} | 本金 {money(item.principal)} | 利息 {money(item.interest)} | 费用 {money(item.fee)}
+                        第 {item.periodNumber} 期 | 剩余 {money(item.remaining)} | 本金 {money(item.principal)} | 利息 {money(item.interest)} | 费用 {money(item.fee)} | 罚息 {money(item.penalty ?? 0)}
                       </option>
                     ))}
                   </select>

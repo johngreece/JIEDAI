@@ -28,11 +28,23 @@ describe("repayment plan revision guards", () => {
     const approveRoute = source("src/app/api/restructures/[id]/approve/route.ts");
 
     expect(createRoute).toContain("TransactionIsolationLevel.Serializable");
-    expect(createRoute).toContain("oldPlanId: activePlans[0].id");
+    expect(createRoute).toContain("withIdempotencyResponse");
+    expect(createRoute).toContain("loadRestructurePlanSnapshot");
+    expect(createRoute).toContain("oldPlanVersion: plan.version");
+    expect(createRoute).toContain("projectedInterest: projectedPlan.totalInterest");
     expect(createRoute).toContain("writeAuditLogInTransaction(tx");
+    expect(createRoute).not.toContain("remainingPrincipal: z.number");
+    expect(createRoute).not.toContain("remainingInterest: z.number");
     expect(approveRoute).toContain("tx.restructure.updateMany");
+    expect(approveRoute).toContain("record.oldPlanVersion !== oldPlan.version");
+    expect(approveRoute).toContain("restructureBalancesMatch");
+    expect(approveRoute).toContain("generateRestructurePlan");
+    expect(approveRoute).toContain("projectedPlan.totalInterest.eq");
     expect(approveRoute).toContain("tx.repaymentPlan.updateMany");
     expect(approveRoute).toContain('status: "ACTIVE", version: oldPlan.version');
+    expect(approveRoute).toContain("remainingPrincipal: item.principal");
+    expect(approveRoute).toContain("remainingInterest: item.interest");
+    expect(approveRoute).toContain("remainingFee: item.fee");
     expect(approveRoute).toContain("TransactionIsolationLevel.Serializable");
     expect(approveRoute).toContain("writeAuditLogInTransaction(tx");
     expect(approveRoute).not.toContain("tx.repaymentPlan.update({");

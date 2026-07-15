@@ -12,12 +12,14 @@ import {
   hasExplicitInterestFreeze,
 } from "@/lib/repayment-runtime";
 import {
+  deriveRepaymentOpenComponents,
   formatRepaymentAllocationComponentError,
   parseRepaymentAllocationComponentError,
   serializeRepaymentAllocationComponentError,
   validateRepaymentAllocationComponentCaps,
   type RepaymentAllocationInput,
   type RepaymentAllocationScheduleItem,
+  type RepaymentOpenComponents,
 } from "@/lib/repayment-allocation";
 
 export const dynamic = "force-dynamic";
@@ -157,6 +159,7 @@ export async function POST(
 
   const singleOpenItem = typedScheduleItems.length === 1 ? typedScheduleItems[0] : null;
   let dynamicAvailableByItem = new Map<string, number>();
+  const dynamicComponentsByItem = new Map<string, RepaymentOpenComponents>();
 
   if (planContext && planApplication && singleOpenItem) {
     const overdueRecord = await prisma.overdueRecord.findFirst({
@@ -177,9 +180,11 @@ export async function POST(
     });
 
     if (liveOutstanding != null) {
-      dynamicAvailableByItem.set(
+      const liveRemaining = Math.max(0, liveOutstanding - confirmedAmount);
+      dynamicAvailableByItem.set(singleOpenItem.id, liveRemaining);
+      dynamicComponentsByItem.set(
         singleOpenItem.id,
-        Math.max(0, liveOutstanding - confirmedAmount),
+        deriveRepaymentOpenComponents(singleOpenItem, liveRemaining),
       );
     }
   }
@@ -230,6 +235,7 @@ export async function POST(
     dynamicAvailableByItem,
     confirmedRows: confirmedAllocations,
     pendingRows: reservedAllocations,
+    dynamicComponentsByItem,
   });
   if (componentCapError) {
     return NextResponse.json(
@@ -350,6 +356,7 @@ export async function POST(
           dynamicAvailableByItem,
           confirmedRows: latestConfirmedAllocations,
           pendingRows: latestReservedAllocations,
+          dynamicComponentsByItem,
         });
         if (latestComponentCapError) {
           throw new Error(serializeRepaymentAllocationComponentError(latestComponentCapError));

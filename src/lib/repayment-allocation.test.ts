@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  deriveRepaymentOpenComponents,
   formatRepaymentAllocationComponentError,
   parseRepaymentAllocationComponentError,
   serializeRepaymentAllocationComponentError,
@@ -22,6 +23,47 @@ function itemMap(row = item) {
 }
 
 describe("repayment allocation component caps", () => {
+  it("reduces a tiered fee before treating the remainder as penalty", () => {
+    const components = deriveRepaymentOpenComponents(
+      {
+        remainingPrincipal: 1000,
+        remainingInterest: 0,
+        remainingFee: 50,
+      },
+      1020,
+    );
+
+    expect(components).toEqual({
+      principal: 1000,
+      interest: 0,
+      fee: 20,
+      penalty: 0,
+    });
+  });
+
+  it("enforces the current tier fee instead of the maximum scheduled fee", () => {
+    const dynamicItem = {
+      ...item,
+      principal: 1000,
+      fee: 50,
+      remaining: 1050,
+      remainingPrincipal: 1000,
+      remainingInterest: 0,
+      remainingFee: 50,
+    };
+    const components = deriveRepaymentOpenComponents(dynamicItem, 1020);
+    const error = validateRepaymentAllocationComponentCaps({
+      allocations: [{ itemId: dynamicItem.id, type: "FEE", amount: 21 }],
+      itemMap: itemMap(dynamicItem),
+      dynamicAvailableByItem: new Map([[dynamicItem.id, 1020]]),
+      dynamicComponentsByItem: new Map([[dynamicItem.id, components]]),
+      confirmedRows: [],
+      pendingRows: [],
+    });
+
+    expect(error).toMatchObject({ type: "FEE", available: 20 });
+  });
+
   it("allows repayment components within principal, fee, and realtime penalty caps", () => {
     const error = validateRepaymentAllocationComponentCaps({
       allocations: [
