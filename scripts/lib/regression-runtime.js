@@ -3,6 +3,7 @@
 const crypto = require("node:crypto");
 
 const REGRESSION_MUTATION_CONFIRMATION = "I_UNDERSTAND_THIS_WRITES_TEST_DATA";
+const REGRESSION_RUNTIME_CONFIRMATION = "ISOLATED_REGRESSION_RUNTIME";
 
 function parseDatabaseIdentity(value, variableName) {
   let url;
@@ -64,11 +65,61 @@ function requireIsolatedRegressionDatabase(env = process.env) {
   return regressionUrl;
 }
 
+function requireIsolatedRegressionRuntimeDatabase(env = process.env) {
+  if (env.VERCEL_ENV?.trim().toLowerCase() === "production") {
+    throw new Error("Regression fixture routes are disabled in Vercel Production");
+  }
+
+  if (env.ALLOW_REGRESSION_FIXTURES !== REGRESSION_MUTATION_CONFIRMATION) {
+    throw new Error("Regression fixture mutation confirmation is missing");
+  }
+
+  if (env.REGRESSION_RUNTIME !== REGRESSION_RUNTIME_CONFIRMATION) {
+    throw new Error("Regression fixture routes require an isolated regression runtime");
+  }
+
+  const regressionUrl = env.REGRESSION_DATABASE_URL?.trim();
+  if (!regressionUrl) {
+    throw new Error("REGRESSION_DATABASE_URL is required for regression fixture routes");
+  }
+
+  const runtimeUrl = env.DATABASE_URL?.trim();
+  if (!runtimeUrl) {
+    throw new Error("DATABASE_URL is required for regression fixture routes");
+  }
+
+  const regressionIdentity = parseDatabaseIdentity(regressionUrl, "REGRESSION_DATABASE_URL");
+  const runtimeIdentity = parseDatabaseIdentity(runtimeUrl, "DATABASE_URL");
+  if (runtimeIdentity !== regressionIdentity) {
+    throw new Error("DATABASE_URL must point to REGRESSION_DATABASE_URL for fixture routes");
+  }
+
+  const directUrl = env.DIRECT_URL?.trim();
+  if (directUrl) {
+    const directIdentity = parseDatabaseIdentity(directUrl, "DIRECT_URL");
+    if (directIdentity !== regressionIdentity) {
+      throw new Error("DIRECT_URL must point to REGRESSION_DATABASE_URL for fixture routes");
+    }
+  }
+
+  return regressionUrl;
+}
+
+function isIsolatedRegressionRuntimeDatabase(env = process.env) {
+  try {
+    requireIsolatedRegressionRuntimeDatabase(env);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function buildRegressionServerEnvironment(regressionUrl, env = process.env) {
   return {
     ...env,
     DATABASE_URL: regressionUrl,
     DIRECT_URL: regressionUrl,
+    REGRESSION_RUNTIME: REGRESSION_RUNTIME_CONFIRMATION,
   };
 }
 
@@ -145,10 +196,13 @@ async function deactivateRegressionUsers(prisma, userIds) {
 
 module.exports = {
   REGRESSION_MUTATION_CONFIRMATION,
+  REGRESSION_RUNTIME_CONFIRMATION,
   buildRegressionServerEnvironment,
   createRegressionUsers,
   createRuntimePassword,
   deactivateRegressionUsers,
+  isIsolatedRegressionRuntimeDatabase,
   parseDatabaseIdentity,
   requireIsolatedRegressionDatabase,
+  requireIsolatedRegressionRuntimeDatabase,
 };

@@ -2,11 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 
 const {
   REGRESSION_MUTATION_CONFIRMATION,
+  REGRESSION_RUNTIME_CONFIRMATION,
+  buildRegressionServerEnvironment,
   createRegressionUsers,
   createRuntimePassword,
   deactivateRegressionUsers,
   parseDatabaseIdentity,
   requireIsolatedRegressionDatabase,
+  requireIsolatedRegressionRuntimeDatabase,
 } = require("../../scripts/lib/regression-runtime.js");
 
 describe("regression fixture isolation", () => {
@@ -52,6 +55,57 @@ describe("regression fixture isolation", () => {
         DATABASE_URL: "postgresql://localhost:5432/loan_production",
       }),
     ).toBe("postgresql://localhost:5432/loan_regression");
+  });
+
+  it("marks spawned servers as isolated regression runtimes", () => {
+    const regressionUrl = "postgresql://localhost:5432/loan_regression";
+    expect(
+      buildRegressionServerEnvironment(regressionUrl, {
+        ALLOW_REGRESSION_FIXTURES: REGRESSION_MUTATION_CONFIRMATION,
+      }),
+    ).toMatchObject({
+      DATABASE_URL: regressionUrl,
+      DIRECT_URL: regressionUrl,
+      REGRESSION_RUNTIME: REGRESSION_RUNTIME_CONFIRMATION,
+    });
+  });
+
+  it("rejects fixture routes when the running server is not connected to the regression database", () => {
+    expect(() =>
+      requireIsolatedRegressionRuntimeDatabase({
+        ALLOW_REGRESSION_FIXTURES: REGRESSION_MUTATION_CONFIRMATION,
+        REGRESSION_RUNTIME: REGRESSION_RUNTIME_CONFIRMATION,
+        REGRESSION_DATABASE_URL: "postgresql://localhost:5432/loan_regression",
+        DATABASE_URL: "postgresql://localhost:5432/loan_production",
+      }),
+    ).toThrow("DATABASE_URL must point to REGRESSION_DATABASE_URL");
+  });
+
+  it("always rejects fixture routes in Vercel Production", () => {
+    const regressionUrl = "postgresql://localhost:5432/loan_regression";
+    expect(() =>
+      requireIsolatedRegressionRuntimeDatabase({
+        VERCEL_ENV: "production",
+        ALLOW_REGRESSION_FIXTURES: REGRESSION_MUTATION_CONFIRMATION,
+        REGRESSION_RUNTIME: REGRESSION_RUNTIME_CONFIRMATION,
+        REGRESSION_DATABASE_URL: regressionUrl,
+        DATABASE_URL: regressionUrl,
+        DIRECT_URL: regressionUrl,
+      }),
+    ).toThrow("disabled in Vercel Production");
+  });
+
+  it("allows fixture routes only inside a matching isolated runtime", () => {
+    const regressionUrl = "postgresql://localhost:5432/loan_regression";
+    expect(
+      requireIsolatedRegressionRuntimeDatabase({
+        ALLOW_REGRESSION_FIXTURES: REGRESSION_MUTATION_CONFIRMATION,
+        REGRESSION_RUNTIME: REGRESSION_RUNTIME_CONFIRMATION,
+        REGRESSION_DATABASE_URL: regressionUrl,
+        DATABASE_URL: regressionUrl,
+        DIRECT_URL: regressionUrl,
+      }),
+    ).toBe(regressionUrl);
   });
 
   it("generates strong non-deterministic runtime passwords", () => {

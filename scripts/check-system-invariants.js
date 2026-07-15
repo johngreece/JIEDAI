@@ -92,6 +92,15 @@ const interestSettlementRouteSource = read("src/app/api/funder-interest-settleme
 const legacySettlementServiceSource = read("src/services/settlement.service.ts");
 const legacySettlementRouteSource = read("src/app/api/settlement/route.ts");
 const settlementPageSource = read("src/components/admin/pages/SettlementPageClient.tsx");
+const launchReadinessMutationRouteSource = read(
+  "src/app/api/admin/launch-readiness/notification-scenarios/route.ts"
+);
+const launchReadinessReadRouteSource = read(
+  "src/app/api/admin/launch-readiness/route.ts"
+);
+const launchReadinessPageSource = read(
+  "src/components/admin/pages/LaunchReadinessPageClient.tsx"
+);
 for (const field of ["remainingPrincipal", "remainingInterest", "remainingFee"]) {
   check(
     prismaSchema.includes(field),
@@ -251,6 +260,24 @@ for (const file of mutatingRegressionScripts) {
     `${file} must fail closed unless it uses an isolated regression database`
   );
 }
+check(
+    launchReadinessMutationRouteSource.includes("if (!isIsolatedRegressionRuntime())") &&
+    launchReadinessMutationRouteSource.indexOf("if (!isIsolatedRegressionRuntime())") <
+      launchReadinessMutationRouteSource.indexOf(
+        "const session = await requirePermission"
+      ),
+  "launch-readiness notification fixtures must fail closed before authentication or database access"
+);
+check(
+  launchReadinessReadRouteSource.includes(
+    "scenarioFixturesEnabled: isIsolatedRegressionRuntime()"
+  ) &&
+    launchReadinessPageSource.includes(
+      "disabled={running || !data?.scenarioFixturesEnabled}"
+    ) &&
+    !launchReadinessPageSource.includes("db:seed-demo"),
+  "production launch readiness must remain read-only and must not offer demo fixture injection"
+);
 
 const scriptFiles = walk("scripts").filter((file) => /\.(ts|js|mjs)$/.test(file));
 for (const file of scriptFiles) {
