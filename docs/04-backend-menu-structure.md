@@ -383,7 +383,7 @@
 | 6 | 活跃借款客户数 | loan_applications(repaying) DISTINCT customer | 数字卡片 |
 | 7 | 逾期率 | 逾期客户数 / 活跃借款客户数 × 100% | 百分比卡片 |
 | 8 | 资金方余额 | fund_accounts SUM(balance) | 数字卡片 |
-| 9 | 各资金方收益 | fund_profit_shares GROUP BY funder | 表格/柱状图 |
+| 9 | 各资金方收益 | funder_interest_settlements + fund_account_journal GROUP BY funder | 表格/柱状图 |
 | 10 | 待确认还款 | repayments(pending_confirm) COUNT | 待办卡片(橙色) |
 | 11 | 待签合同 | contracts(pending_sign) COUNT | 待办卡片 |
 | 12 | 待放款单 | disbursements(pending) COUNT | 待办卡片 |

@@ -27,8 +27,8 @@ erDiagram
     funders ||--o{ fund_accounts : has
     fund_accounts ||--o{ capital_inflows : receives
     fund_accounts ||--o{ disbursements : provides
-    fund_accounts ||--o{ ledger_entries : tracked_in
-    funders ||--o{ fund_profit_shares : earns
+    fund_accounts ||--o{ fund_account_journal : tracked_in
+    funders ||--o{ funder_interest_settlements : earns
 
     %% ===== 产品与规则 =====
     loan_products ||--o{ pricing_rules : has
@@ -244,19 +244,25 @@ erDiagram
 | status | VARCHAR(20) | DEFAULT 'confirmed' | pending / confirmed / cancelled |
 | created_at | TIMESTAMP | | |
 
-#### fund_profit_shares — 资金方分润记录
+#### fund_profit_shares — 旧资金方分润聚合（只读兼容）
+
+> 该表不再承载业务写入或结算状态。生产预检为 0 条；权威结算记录见 `funder_interest_settlements`。
+
+#### funder_interest_settlements — 资金方收益结算单
 | 字段 | 类型 | 约束 | 说明 |
 |------|------|------|------|
 | id | UUID | PK | 主键 |
-| fund_account_id | UUID | FK → fund_accounts | 资金账户 |
-| disbursement_id | UUID | FK → disbursements | 关联放款 |
-| repayment_id | UUID | FK → repayments NULLABLE | 关联还款 |
-| profit_type | VARCHAR(32) | | interest / fee / overdue_fee |
-| gross_amount | DECIMAL(18,4) | | 总收益金额 |
-| share_ratio | DECIMAL(6,4) | | 分润比例 |
-| share_amount | DECIMAL(18,4) | | 资金方分得金额 |
-| settle_date | DATE | | 结算日期 |
-| status | VARCHAR(20) | | pending / settled |
+| settlement_no | VARCHAR | UNIQUE NOT NULL | 结算单号 |
+| funder_id | UUID | FK → funders | 资金方 |
+| fund_account_id | UUID | FK → fund_accounts | 入账资金账户 |
+| disbursement_id | UUID | FK → disbursements NULLABLE | 关联放款 |
+| cycle_start / cycle_end | TIMESTAMP | NOT NULL | 计费周期 |
+| principal | DECIMAL(18,4) | NOT NULL | 计费本金 |
+| rate | DECIMAL(10,6) | NOT NULL | 固定利率或分润比例 |
+| interest_amount | DECIMAL(18,4) | NOT NULL | 应结算收益 |
+| status | VARCHAR | NOT NULL | DUE / POSTED_BY_PLATFORM / CONFIRMED_BY_FUNDER / FUNDER_DISPUTED / CANCELLED |
+| posted_at / posted_by_id | TIMESTAMP / UUID | | 平台发布留痕 |
+| confirmed_at | TIMESTAMP | | 资金方确认时间；确认时原子入内部账户 |
 | created_at | TIMESTAMP | | |
 
 ---
@@ -727,19 +733,6 @@ registered → matched → pending_confirm → confirmed (核销入账)
 客户是否确认:   repayment → confirmations
 ```
 
-### 3.5 表数量汇总
+### 3.5 当前 schema 口径
 
-| 域 | 表 | 数量 |
-|----|----|----|
-| 用户权限 | users, roles, permissions, user_roles, role_permissions | 5 |
-| 客户 | customers, customer_kyc | 2 |
-| 资金 | funders, fund_accounts, capital_inflows, fund_profit_shares | 4 |
-| 产品规则 | loan_products, pricing_rules | 2 |
-| 借款审批 | loan_applications, loan_approvals | 2 |
-| 合同签署 | contract_templates, contracts, signatures | 3 |
-| 放款 | disbursements | 1 |
-| 还款 | repayment_plans, repayment_schedule_items, repayments, repayment_allocations, repayment_confirmations | 5 |
-| 逾期重组 | overdue_records, extensions, restructures | 3 |
-| 台账审计 | ledger_entries, audit_logs | 2 |
-| 基础 | attachments, notifications, system_settings | 3 |
-| **合计** | | **32 表** |
+当前表和关系的唯一来源是 `prisma/schema.prisma`（43 个 Prisma model）。本文件保留领域说明，不再手工维护容易失真的表数量汇总；资金域以 `fund_account_journal` 和 `funder_interest_settlements` 为正式流水与结算来源，`fund_profit_shares` 仅为只读 legacy 兼容表。

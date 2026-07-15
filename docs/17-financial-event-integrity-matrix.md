@@ -9,6 +9,7 @@
 3. 业务状态、资金账户余额、客户/资金方流水和留痕必须使用同一个 Prisma 事务客户端；后台人员写 `AuditLog`，客户/资金方门户动作写签名、确认时间、IP、设备或业务证据字段。
 4. 状态确认必须使用预期状态条件抢占；更新数量不是 1 时返回 `409`，禁止覆盖并发请求。
 5. 每条流水使用稳定的 `referenceType + referenceId`，数据库唯一约束是最终幂等防线。
+6. `FunderInterestSettlement` 是资金方收益结算唯一业务来源；`FundProfitShare` 仅保留旧 schema 兼容，不允许新增、更新或作为“已结算”状态来源。
 
 ## 2. 事件矩阵
 
@@ -40,6 +41,7 @@
 - `writeFundAccountLedgerEntryAndUpdateAccount()`：资金方流水和余额原子入口。
 - `appendRepaymentConfirmationEvidence()`：客户签署和后台确认决定的追加式证据入口，哈希绑定金额、签名、主体和状态迁移。
 - `financial-record-immutability-guard.test.ts`：阻止流水改删、绕过服务创建流水和资金业务记录硬删除。
+- `funder-interest-settlement-integrity-guard.test.ts`：阻止旧 `FundProfitShare` 写入口复活，并确保财务结算页只读取真实收益结算单状态。
 - 真实 Supabase 可用后，补充 10 路并发、事务故障注入和对账零差异测试。
 
 ## 5. 自动对账闭环

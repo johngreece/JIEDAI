@@ -60,4 +60,20 @@ describe("funder interest settlement integrity guard", () => {
     expect(adminRoute).toContain('message.includes("状态已变化") ? 409 : 400');
     expect(funderRoute).toContain('message.includes("状态已变化") ? 409 : 400');
   });
+
+  it("keeps the legacy aggregate settlement surface read-only", () => {
+    const legacyRoute = source("src/app/api/settlement/route.ts");
+    const legacyService = source("src/services/settlement.service.ts");
+    const settlementPage = source("src/components/admin/pages/SettlementPageClient.tsx");
+
+    expect(legacyRoute).not.toContain("export async function POST");
+    expect(legacyRoute).not.toContain("persist-funder-shares");
+    expect(legacyRoute).not.toContain("settle-funder-share");
+    expect(legacyService).not.toMatch(/fundProfitShare\.(create|update|delete|upsert)\s*\(/);
+    expect(legacyService).toContain("interestSettlements:");
+    expect(settlementPage).toContain("item.settlementSummary");
+    expect(settlementPage).not.toContain("item.existingSettlement");
+    expect(settlementPage).toContain("toDateInputValue");
+    expect(settlementPage).not.toContain("toISOString().slice(0, 10)");
+  });
 });

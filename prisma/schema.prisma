@@ -283,6 +283,8 @@ model FundAccountJournal {
   @@map("fund_account_journal")
 }
 
+/// Legacy analytical aggregate retained for schema compatibility.
+/// Settlement writes and authoritative status belong to FunderInterestSettlement.
 model FundProfitShare {
   id            String    @id @default(uuid())
   funderId      String    @map("funder_id")

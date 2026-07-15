@@ -85,6 +85,9 @@ const inflowCreateSource = read("src/app/api/fund-accounts/[id]/inflows/route.ts
 const inflowReviewSource = read("src/app/api/fund-accounts/[id]/inflows/[inflowId]/route.ts");
 const interestSettlementServiceSource = read("src/services/funder-interest-settlement.service.ts");
 const interestSettlementRouteSource = read("src/app/api/funder-interest-settlements/route.ts");
+const legacySettlementServiceSource = read("src/services/settlement.service.ts");
+const legacySettlementRouteSource = read("src/app/api/settlement/route.ts");
+const settlementPageSource = read("src/components/admin/pages/SettlementPageClient.tsx");
 for (const field of ["remainingPrincipal", "remainingInterest", "remainingFee"]) {
   check(
     prismaSchema.includes(field),
@@ -195,6 +198,19 @@ check(
     ensureInfraSource.includes("finance:settlement:view") &&
     ensureInfraSource.includes("finance:settlement:manage"),
   "finance role seed and infrastructure sync must include dedicated settlement permissions"
+);
+check(
+  !legacySettlementRouteSource.includes("export async function POST") &&
+    !legacySettlementRouteSource.includes("persist-funder-shares") &&
+    !legacySettlementRouteSource.includes("settle-funder-share") &&
+    !/fundProfitShare\.(create|update|delete|upsert)\s*\(/.test(legacySettlementServiceSource),
+  "legacy FundProfitShare reporting must remain read-only; settlement writes belong to FunderInterestSettlement"
+);
+check(
+  legacySettlementServiceSource.includes("interestSettlements:") &&
+    settlementPageSource.includes("item.settlementSummary") &&
+    !settlementPageSource.includes("item.existingSettlement"),
+  "finance settlement reporting must display status from FunderInterestSettlement"
 );
 
 const mutatingRegressionScripts = [

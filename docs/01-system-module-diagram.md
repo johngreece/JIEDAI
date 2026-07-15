@@ -165,7 +165,7 @@ flowchart LR
 | 资金使用去向 | 每笔资金对应哪些放款 | disbursements.fund_account_id |
 | 资金收益统计 | 利息 + 费用收入汇总 | 计算字段(台账聚合) |
 | 资金方对账单 | 入金/出金/收益/余额 | ledger_entries |
-| 资金方分润结算 | 按约定比例分润 | fund_profit_shares(新增) |
+| 资金方收益结算 | 按合作模式生成、发布、资金方确认并入内部账户 | funder_interest_settlements + fund_account_journal |
 
 ### C. 借款产品与规则模块
 | 子功能 | 说明 | 核心表 |

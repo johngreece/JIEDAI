@@ -206,9 +206,10 @@ flowchart TB
 
     F --> Repay(["客户还款回收"])
     Repay --> G["还款核销后<br/>按分配方案：<br/>本金 → 回归资金池<br/>利息 → 收益<br/>费用 → 收益"]
-    G --> ProfitCalc["资金方收益计算<br/>profit_type: interest/fee<br/>gross_amount: 利息+费用总额<br/>share_ratio: 分润比例<br/>share_amount: 资金方分得"]
-    ProfitCalc --> ProfitRecord["写入 fund_profit_shares<br/>更新 fund_accounts<br/>total_profit += 分得金额"]
-    ProfitRecord --> ProfitLedger["写入 ledger_entries<br/>entry_type: profit_share"]
+    G --> ProfitCalc["资金方收益计算<br/>按固定月/周规则或实际收益分润<br/>生成 DUE 结算单"]
+    ProfitCalc --> ProfitRecord["平台核对并发布<br/>POSTED_BY_PLATFORM<br/>此时不移动资金"]
+    ProfitRecord --> FunderConfirm["资金方确认<br/>CONFIRMED_BY_FUNDER"]
+    FunderConfirm --> ProfitLedger["同一事务写 fund_account_journal<br/>INTEREST_SETTLEMENT / CREDIT<br/>更新 balance 与 total_profit"]
 
     ProfitLedger --> Statement(["📊 资金方对账单"])
     Statement --> Report["对账单内容：<br/>入金合计<br/>出金(放款)合计<br/>回款合计<br/>收益合计<br/>当前余额<br/>明细列表"]
