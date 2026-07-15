@@ -73,6 +73,7 @@ export default async function ClientRepaymentsPage() {
           select: {
             status: true,
             disbursedAt: true,
+            netAmount: true,
           },
         },
       },
@@ -96,6 +97,7 @@ export default async function ClientRepaymentsPage() {
     where: { applicationId: application.id, status: "ACTIVE" },
     select: {
       id: true,
+      totalPrincipal: true,
       rulesSnapshotJson: true,
       scheduleItems: {
         where: {
@@ -155,6 +157,9 @@ export default async function ClientRepaymentsPage() {
     let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
     let channel: ChannelType = "FULL_AMOUNT";
     let dueDate: Date | null = null;
+    let normalInterestCapitalized = false;
+    let fixedFeeAmount = 0;
+    let netDisbursementAmount: number | undefined;
 
     if (plan.rulesSnapshotJson) {
       try {
@@ -164,12 +169,22 @@ export default async function ClientRepaymentsPage() {
           upfrontFeeRate?: number;
           channel?: ChannelType;
           dueDate?: string;
+          normalInterestCapitalized?: boolean;
+          fixedFeeAmount?: number;
+          netDisbursementAmount?: number;
         };
         if (snapshot.tiers) tiers = snapshot.tiers;
         if (snapshot.overdueConfig) overdueConfig = snapshot.overdueConfig;
         if (snapshot.upfrontFeeRate != null) upfrontFeeRate = snapshot.upfrontFeeRate;
         if (snapshot.channel) channel = snapshot.channel;
         if (snapshot.dueDate) dueDate = new Date(snapshot.dueDate);
+        if (snapshot.normalInterestCapitalized != null) {
+          normalInterestCapitalized = snapshot.normalInterestCapitalized;
+        }
+        if (snapshot.fixedFeeAmount != null) fixedFeeAmount = snapshot.fixedFeeAmount;
+        if (snapshot.netDisbursementAmount != null) {
+          netDisbursementAmount = snapshot.netDisbursementAmount;
+        }
       } catch {
         // ignore invalid snapshot
       }
@@ -207,7 +222,7 @@ export default async function ClientRepaymentsPage() {
     }
 
     outstandingAmount = calculateRealtimeRepayment({
-      principal: Number(application.amount),
+      principal: Number(plan.totalPrincipal),
       channel,
       upfrontFeeRate,
       tiers,
@@ -215,6 +230,10 @@ export default async function ClientRepaymentsPage() {
       startTime: new Date(application.disbursement.disbursedAt),
       dueDate,
       currentTime: new Date(),
+      normalInterestCapitalized,
+      fixedFeeAmount,
+      netDisbursementAmount:
+        netDisbursementAmount ?? Number(application.disbursement.netAmount),
     }).totalRepayment;
   }
   if (activeInterestFreeze) {

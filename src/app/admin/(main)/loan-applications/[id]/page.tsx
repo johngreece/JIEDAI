@@ -105,6 +105,7 @@ export default function LoanApplicationDetailPage() {
     basePrincipal: "",
     capitalizedInterestAmount: "0",
     contractPrincipal: "",
+    legalServiceFee: "0",
     contractDisplayInterestRate: "2%",
     weeklyInterestAmount: "",
     monthlyInterestAmount: "",
@@ -131,11 +132,13 @@ export default function LoanApplicationDetailPage() {
       const defaultBase = Number(saved?.basePrincipal ?? json.amount ?? 0);
       const defaultCapitalized = Number(saved?.capitalizedInterestAmount ?? 0);
       const defaultPrincipal = Number(saved?.contractPrincipal ?? defaultBase + defaultCapitalized);
+      const defaultLegalServiceFee = Number(saved?.legalServiceFee ?? 0);
 
       setContractForm({
         basePrincipal: String(defaultBase || ""),
         capitalizedInterestAmount: String(defaultCapitalized || 0),
         contractPrincipal: String(defaultPrincipal || ""),
+        legalServiceFee: String(defaultLegalServiceFee || 0),
         contractDisplayInterestRate: String(
           saved?.contractDisplayInterestRate ?? json.pricingQuote?.contractDisplayInterestRate ?? "2%"
         ),
@@ -161,6 +164,7 @@ export default function LoanApplicationDetailPage() {
   const parsedBasePrincipal = Number(contractForm.basePrincipal || 0);
   const parsedCapitalizedInterestAmount = Number(contractForm.capitalizedInterestAmount || 0);
   const parsedContractPrincipal = Number(contractForm.contractPrincipal || 0);
+  const parsedLegalServiceFee = Number(contractForm.legalServiceFee || 0);
   const expectedContractPrincipal = parsedBasePrincipal + parsedCapitalizedInterestAmount;
   const contractPrincipalMismatch =
     contractForm.contractPrincipal.trim() !== "" &&
@@ -172,6 +176,9 @@ export default function LoanApplicationDetailPage() {
     parsedCapitalizedInterestAmount < 0 ||
     !Number.isFinite(parsedContractPrincipal) ||
     parsedContractPrincipal <= 0 ||
+    !Number.isFinite(parsedLegalServiceFee) ||
+    parsedLegalServiceFee < 0 ||
+    parsedLegalServiceFee >= parsedBasePrincipal ||
     contractForm.contractDisplayInterestRate.trim().length === 0;
   const profileComplete = data?.customer.profileCompletion.profileComplete ?? false;
 
@@ -233,6 +240,7 @@ export default function LoanApplicationDetailPage() {
       basePrincipal: Number(contractForm.basePrincipal),
       capitalizedInterestAmount: Number(contractForm.capitalizedInterestAmount || 0),
       contractPrincipal: Number(contractForm.contractPrincipal),
+      legalServiceFee: Number(contractForm.legalServiceFee || 0),
       contractDisplayInterestRate: contractForm.contractDisplayInterestRate,
       weeklyInterestAmount: contractForm.weeklyInterestAmount || undefined,
       monthlyInterestAmount: contractForm.monthlyInterestAmount || undefined,
@@ -605,6 +613,17 @@ export default function LoanApplicationDetailPage() {
               />
             </label>
             <label className="space-y-1 text-sm">
+              <span className="text-slate-500">法律服务费</span>
+              <input
+                value={contractForm.legalServiceFee}
+                onChange={(event) =>
+                  setContractForm((current) => ({ ...current, legalServiceFee: event.target.value }))
+                }
+                className="input-base"
+                disabled={!!data.mainContract}
+              />
+            </label>
+            <label className="space-y-1 text-sm">
               <span className="text-slate-500">每周正常利息展示</span>
               <input
                 value={contractForm.weeklyInterestAmount}
@@ -633,6 +652,7 @@ export default function LoanApplicationDetailPage() {
           <div className="admin-note-block admin-note-block--soft text-sm text-slate-600">
             当前口径预览：基础本金 {contractForm.basePrincipal || "0"} + 并入本金利息{" "}
             {contractForm.capitalizedInterestAmount || "0"} = 合同本金 {contractForm.contractPrincipal || "0"}。
+            法律服务费 {contractForm.legalServiceFee || "0"} EUR。
             合同中另列展示利率 {contractForm.contractDisplayInterestRate || "2%"}，该利率不参与系统正常利息重复计算。
           </div>
 
@@ -645,7 +665,7 @@ export default function LoanApplicationDetailPage() {
 
           {contractFieldsInvalid ? (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-              请先填写有效的合同参数：基础本金和合同本金必须大于 0，并入本金的正常利息不能小于 0，合同展示利率不能为空。
+              请先填写有效的合同参数：基础本金和合同本金必须大于 0，并入本金的正常利息不能小于 0，法律服务费不能小于 0 或达到基础本金，合同展示利率不能为空。
             </div>
           ) : null}
 
@@ -715,6 +735,7 @@ export default function LoanApplicationDetailPage() {
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                   <div>基础本金：{String(data.mainContract.contractGenerationOptions.basePrincipal ?? "-")}</div>
                   <div>并入本金利息：{String(data.mainContract.contractGenerationOptions.capitalizedInterestAmount ?? "-")}</div>
+                  <div>法律服务费：{String(data.mainContract.contractGenerationOptions.legalServiceFee ?? "0")} EUR</div>
                   <div>合同本金：{String(data.mainContract.contractGenerationOptions.contractPrincipal ?? "-")}</div>
                   <div>展示利率：{String(data.mainContract.contractGenerationOptions.contractDisplayInterestRate ?? "-")}</div>
                 </div>

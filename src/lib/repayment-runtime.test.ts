@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   amountsMatchWithinTolerance,
+  calculateLiveOutstandingFromSnapshot,
   getFrozenPayableAmount,
   getInterestFrozenAt,
   hasExplicitInterestFreeze,
@@ -57,5 +58,36 @@ describe("repayment interest freeze helpers", () => {
     expect(amountsMatchWithinTolerance(1000.004, 1000)).toBe(true);
     expect(amountsMatchWithinTolerance(999.98, 1000)).toBe(false);
     expect(amountsMatchWithinTolerance(1000.02, 1000)).toBe(false);
+  });
+
+  it("uses contract principal and a deferred legal fee without adding normal interest twice", () => {
+    const disbursedAt = new Date("2026-05-01T21:00:00.000Z");
+    const dueDate = new Date("2026-05-08T21:00:00.000Z");
+    const rulesSnapshotJson = JSON.stringify({
+      channel: "FULL_AMOUNT",
+      upfrontFeeRate: 0,
+      tiers: [{ maxDays: 7, maxHours: 168, ratePercent: 0, label: "合同固定本金" }],
+      overdueConfig: {
+        graceHours: 0,
+        phases: [{ startDay: 1, maxDay: null, dailyRate: 2, label: "逾期", compound: true }],
+      },
+      dueDate: dueDate.toISOString(),
+      normalInterestCapitalized: true,
+      fixedFeeAmount: 500,
+      netDisbursementAmount: 10_000,
+    });
+
+    expect(calculateLiveOutstandingFromSnapshot({
+      rulesSnapshotJson,
+      principal: 12_000,
+      disbursedAt,
+      paymentTime: new Date("2026-05-07T21:00:00.000Z"),
+    })).toBe(12_500);
+    expect(calculateLiveOutstandingFromSnapshot({
+      rulesSnapshotJson,
+      principal: 12_000,
+      disbursedAt,
+      paymentTime: new Date("2026-05-08T21:01:00.000Z"),
+    })).toBe(12_750);
   });
 });

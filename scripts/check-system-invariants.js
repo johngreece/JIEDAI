@@ -37,8 +37,12 @@ for (const file of sourceFiles) {
   if (matches.length > 0) {
     errors.push(`${file} declares forbidden currency codes: ${[...new Set(matches.map((m) => m[0]))].join(", ")}`);
   }
-  if (file !== path.join("src", "lib", "system-config.ts") && /\bcurrency\s*:/.test(source)) {
-    errors.push(`${file} configures a currency outside src/lib/system-config.ts`);
+  if (
+    file !== path.join("src", "lib", "system-config.ts") &&
+    !/\.test\.[jt]sx?$/.test(file) &&
+    /\bcurrency\s*:\s*["'`]/.test(source)
+  ) {
+    errors.push(`${file} hard-codes a currency outside src/lib/system-config.ts`);
   }
 }
 

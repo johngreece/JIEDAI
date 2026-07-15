@@ -15,7 +15,7 @@
 | 资金事件 | 业务状态迁移 | 客户台账 | 资金方流水/余额 | 审计 | 冲正方式 |
 |---|---|---|---|---|---|
 | 资金方入金确认 | `PENDING -> CONFIRMED` | 无 | `CAPITAL_INFLOW / CREDIT`，增加余额和累计入金 | 后台 `AuditLog` 同事务 | 原入金转 `CANCELLED`，追加 `capital_inflow_reversal / DEBIT` |
-| 放款确认支付 | `PENDING -> PAID` | `DISBURSEMENT / CREDIT` | `DISBURSEMENT / DEBIT`，减少余额并增加累计流出 | 后台 `AuditLog` 同事务 | 支付前仅允许取消；支付后不得直接回退 |
+| 放款确认支付 | `PENDING -> PAID` | `DISBURSEMENT / CREDIT`，债务本金取已签合同本金 | `DISBURSEMENT / DEBIT`，实际流出取合同净放款额 | 后台 `AuditLog` 同事务，并记录合同金额来源 | 支付前仅允许取消；支付后不得直接回退 |
 | 客户确认收款 | `PAID -> CONFIRMED` | 无新增 | 无新增 | 同一原子更新保存确认时间、IP、设备和证据 | 不回退，仅补充运营备注 |
 | 客户签署还款报备 | `PENDING_CONFIRM -> CUSTOMER_CONFIRMED` | 暂不入账 | 暂不入账 | 校验签署金额，保存当前快照并追加带哈希的签署证据事件 | 后台未收到走拒绝事件；历史签署事件不覆盖 |
 | 管理端确认还款到账 | `CUSTOMER_CONFIRMED -> CONFIRMED` | `REPAYMENT / DEBIT` | `REPAYMENT / CREDIT`，增加余额和收益累计 | 后台 `AuditLog` 同事务 | 未到账走拒绝分支；已确认不得取消 |

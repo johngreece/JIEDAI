@@ -380,7 +380,7 @@ export async function settleRepaymentReceipt(params: {
       : null;
     const realtimeOutstanding = calculateLiveOutstandingFromSnapshot({
       rulesSnapshotJson: repayment.plan.rulesSnapshotJson,
-      principal: Number(application.amount),
+      principal: Number(repayment.plan.totalPrincipal),
       disbursedAt: application.disbursement?.disbursedAt,
       paymentTime: repayment.receivedAt ?? now,
       paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),

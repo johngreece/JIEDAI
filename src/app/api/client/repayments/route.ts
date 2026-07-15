@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
           select: {
             status: true,
             disbursedAt: true,
+            netAmount: true,
           },
         },
         product: {
@@ -114,6 +115,7 @@ export async function POST(req: NextRequest) {
     },
     select: {
       id: true,
+      totalPrincipal: true,
       rulesSnapshotJson: true,
       scheduleItems: {
         where: {
@@ -139,6 +141,9 @@ export async function POST(req: NextRequest) {
     let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
     let channel: ChannelType = "FULL_AMOUNT";
     let dueDate: Date | null = null;
+    let normalInterestCapitalized = false;
+    let fixedFeeAmount = 0;
+    let netDisbursementAmount: number | undefined;
 
     if (plan.rulesSnapshotJson) {
       try {
@@ -148,12 +153,22 @@ export async function POST(req: NextRequest) {
           upfrontFeeRate?: number;
           channel?: ChannelType;
           dueDate?: string;
+          normalInterestCapitalized?: boolean;
+          fixedFeeAmount?: number;
+          netDisbursementAmount?: number;
         };
         if (snapshot.tiers) tiers = snapshot.tiers;
         if (snapshot.overdueConfig) overdueConfig = snapshot.overdueConfig;
         if (snapshot.upfrontFeeRate != null) upfrontFeeRate = snapshot.upfrontFeeRate;
         if (snapshot.channel) channel = snapshot.channel;
         if (snapshot.dueDate) dueDate = new Date(snapshot.dueDate);
+        if (snapshot.normalInterestCapitalized != null) {
+          normalInterestCapitalized = snapshot.normalInterestCapitalized;
+        }
+        if (snapshot.fixedFeeAmount != null) fixedFeeAmount = snapshot.fixedFeeAmount;
+        if (snapshot.netDisbursementAmount != null) {
+          netDisbursementAmount = snapshot.netDisbursementAmount;
+        }
       } catch {
         // ignore invalid snapshot
       }
@@ -191,7 +206,7 @@ export async function POST(req: NextRequest) {
     }
 
     const realtime = calculateRealtimeRepayment({
-      principal: Number(activeApplication.amount),
+      principal: Number(plan.totalPrincipal),
       channel,
       upfrontFeeRate,
       tiers,
@@ -199,6 +214,10 @@ export async function POST(req: NextRequest) {
       startTime: new Date(activeApplication.disbursement.disbursedAt),
       dueDate,
       currentTime: freezeAt,
+      normalInterestCapitalized,
+      fixedFeeAmount,
+      netDisbursementAmount:
+        netDisbursementAmount ?? Number(activeApplication.disbursement.netAmount),
     });
     outstandingAmount = realtime.totalRepayment;
   }

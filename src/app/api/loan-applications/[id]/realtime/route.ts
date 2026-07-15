@@ -94,7 +94,7 @@ export async function GET(
   // 尝试从还款计划快照中获取配置
   const plan = await prisma.repaymentPlan.findFirst({
     where: { applicationId: application.id, status: "ACTIVE" },
-    select: { id: true, rulesSnapshotJson: true },
+    select: { id: true, totalPrincipal: true, rulesSnapshotJson: true },
   });
   const repaymentFreeze = plan
     ? await prisma.repayment.findFirst({
@@ -128,6 +128,9 @@ export async function GET(
   let upfrontFeeRate = DEFAULT_UPFRONT_FEE_RATE;
   let channel: ChannelType = "UPFRONT_DEDUCTION";
   let dueDate: Date | null = null;
+  let normalInterestCapitalized = false;
+  let fixedFeeAmount = 0;
+  let netDisbursementAmount: number | undefined;
 
   if (plan?.rulesSnapshotJson) {
     try {
@@ -137,6 +140,13 @@ export async function GET(
       if (snap.upfrontFeeRate != null) upfrontFeeRate = snap.upfrontFeeRate;
       if (snap.channel) channel = snap.channel;
       if (snap.dueDate) dueDate = new Date(snap.dueDate);
+      if (snap.normalInterestCapitalized != null) {
+        normalInterestCapitalized = Boolean(snap.normalInterestCapitalized);
+      }
+      if (snap.fixedFeeAmount != null) fixedFeeAmount = Number(snap.fixedFeeAmount);
+      if (snap.netDisbursementAmount != null) {
+        netDisbursementAmount = Number(snap.netDisbursementAmount);
+      }
     } catch {
       // 快照解析失败
     }
@@ -176,7 +186,7 @@ export async function GET(
     dueDate = new Date(new Date(disbursedAt).getTime() + maxHours * 60 * 60 * 1000);
   }
 
-  const principal = Number(application.amount);
+  const principal = plan ? Number(plan.totalPrincipal) : Number(application.amount);
   const now = new Date();
   let paidDates: string[] = [];
   if (overdueRecord?.overdueFeeDetail) {
@@ -198,6 +208,9 @@ export async function GET(
     dueDate,
     currentTime: now,
     paidDates,
+    normalInterestCapitalized,
+    fixedFeeAmount,
+    netDisbursementAmount: netDisbursementAmount ?? Number(application.disbursement.netAmount),
   });
   const frozenPayableAmount = getFrozenPayableAmount(repaymentFreeze);
   const frozenAt = getInterestFrozenAt(repaymentFreeze);

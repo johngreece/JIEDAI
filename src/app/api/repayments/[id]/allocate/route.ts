@@ -128,6 +128,7 @@ export async function POST(
     where: { id: repayment.planId },
     select: {
       applicationId: true,
+      totalPrincipal: true,
       rulesSnapshotJson: true,
       version: true,
     },
@@ -136,7 +137,6 @@ export async function POST(
     ? await prisma.loanApplication.findUnique({
         where: { id: planContext.applicationId },
         select: {
-          amount: true,
           disbursement: {
             select: {
               disbursedAt: true,
@@ -170,7 +170,7 @@ export async function POST(
 
     const liveOutstanding = calculateLiveOutstandingFromSnapshot({
       rulesSnapshotJson: planContext.rulesSnapshotJson,
-      principal: Number(planApplication.amount),
+      principal: Number(planContext.totalPrincipal),
       disbursedAt: planApplication.disbursement?.disbursedAt,
       paymentTime: repayment.receivedAt ?? new Date(),
       paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),

@@ -10,6 +10,7 @@ import {
   getClientProfileCompletion,
 } from "@/lib/client-profile";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
+import { resolveLoanContractTerms } from "@/lib/loan-contract-terms";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -181,10 +182,41 @@ export async function POST(req: Request) {
             status: "SIGNED",
             deletedAt: null,
           },
-          select: { id: true },
+          select: {
+            id: true,
+            variableData: true,
+            currency: true,
+            basePrincipal: true,
+            capitalizedInterestAmount: true,
+            contractPrincipal: true,
+            legalServiceFee: true,
+            feePaymentMode: true,
+          },
         });
         if (!signedMainContract) {
           throw new HttpError(400, "该申请未完成主合同签署，不能创建放款单");
+        }
+
+        const contractTerms = resolveLoanContractTerms(signedMainContract, app.amount);
+        let effectiveAmountDec = amountDec;
+        let effectiveFeeDec = feeDec;
+        let effectiveNetDec = netDec;
+        if (contractTerms.source !== "application_fallback") {
+          const signedAmount = new Decimal(contractTerms.basePrincipal).toDecimalPlaces(4);
+          const signedFee = new Decimal(contractTerms.upfrontFeeAmount).toDecimalPlaces(4);
+          if (!amountDec.toDecimalPlaces(4).equals(signedAmount)) {
+            throw new HttpError(409, "放款毛额必须等于已签合同基础本金", {
+              expectedAmount: signedAmount.toNumber(),
+            });
+          }
+          if (!feeDec.toDecimalPlaces(4).equals(signedFee)) {
+            throw new HttpError(409, "放款前置费用必须等于已签合同法律服务费口径", {
+              expectedFeeAmount: signedFee.toNumber(),
+            });
+          }
+          effectiveAmountDec = signedAmount;
+          effectiveFeeDec = signedFee;
+          effectiveNetDec = new Decimal(contractTerms.netDisbursementAmount).toDecimalPlaces(4);
         }
 
         const existing = await tx.disbursement.findFirst({
@@ -201,7 +233,7 @@ export async function POST(req: Request) {
         // 2) 放款金额不得超过审批额度
         if (app.totalApprovedAmount != null) {
           const approvedDec = new Decimal(app.totalApprovedAmount.toString());
-          if (amountDec.gt(approvedDec)) {
+          if (effectiveAmountDec.gt(approvedDec)) {
             throw new HttpError(400, "放款金额超过审批额度");
           }
         }
@@ -239,11 +271,11 @@ export async function POST(req: Request) {
         const balanceDec = new Decimal(fundAccount.balance.toString());
         const reservedDec = new Decimal(pendingAgg._sum.netAmount?.toString() ?? "0");
         const availableDec = balanceDec.minus(reservedDec);
-        if (availableDec.lt(netDec)) {
+        if (availableDec.lt(effectiveNetDec)) {
           throw new HttpError(400, "资金账户可用余额不足", {
             balance: balanceDec.toString(),
             reserved: reservedDec.toString(),
-            requested: netDec.toString(),
+            requested: effectiveNetDec.toString(),
           });
         }
 
@@ -263,9 +295,9 @@ export async function POST(req: Request) {
             data: {
               disbursementNo: genDisbursementNo(),
               fundAccountId: fundAccountId,
-              amount: new Prisma.Decimal(amountDec.toString()),
-              feeAmount: new Prisma.Decimal(feeDec.toString()),
-              netAmount: new Prisma.Decimal(netDec.toString()),
+              amount: new Prisma.Decimal(effectiveAmountDec.toString()),
+              feeAmount: new Prisma.Decimal(effectiveFeeDec.toString()),
+              netAmount: new Prisma.Decimal(effectiveNetDec.toString()),
               operatorId: session.sub,
               status: "PENDING",
               disbursedAt: null,
@@ -281,9 +313,9 @@ export async function POST(req: Request) {
                 disbursementNo: genDisbursementNo(),
                 applicationId: input.applicationId,
                 fundAccountId,
-                amount: new Prisma.Decimal(amountDec.toString()),
-                feeAmount: new Prisma.Decimal(feeDec.toString()),
-                netAmount: new Prisma.Decimal(netDec.toString()),
+                amount: new Prisma.Decimal(effectiveAmountDec.toString()),
+                feeAmount: new Prisma.Decimal(effectiveFeeDec.toString()),
+                netAmount: new Prisma.Decimal(effectiveNetDec.toString()),
                 operatorId: session.sub,
                 status: "PENDING",
                 remark: input.remark ?? null,
@@ -300,6 +332,7 @@ export async function POST(req: Request) {
             status: createdDisbursement.status,
             amount: Number(createdDisbursement.amount),
             netAmount: Number(createdDisbursement.netAmount),
+            contractTermsSource: contractTerms.source,
           },
           changeSummary: cancelled ? "重新创建已取消的放款单" : "创建放款单",
         });

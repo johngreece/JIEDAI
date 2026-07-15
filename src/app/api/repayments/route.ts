@@ -143,6 +143,7 @@ export async function POST(req: Request) {
           status: true,
           version: true,
           applicationId: true,
+          totalPrincipal: true,
           rulesSnapshotJson: true,
           scheduleItems: {
             select: {
@@ -212,7 +213,7 @@ export async function POST(req: Request) {
         const liveOutstanding = application
           ? calculateLiveOutstandingFromSnapshot({
               rulesSnapshotJson: plan.rulesSnapshotJson,
-              principal: Number(application.amount),
+              principal: Number(plan.totalPrincipal),
               disbursedAt: application.disbursement?.disbursedAt,
               paymentTime: new Date(),
               paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),

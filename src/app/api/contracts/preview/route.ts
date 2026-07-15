@@ -10,6 +10,7 @@ const bodySchema = z.object({
   basePrincipal: z.number().positive().optional(),
   capitalizedInterestAmount: z.number().min(0).optional(),
   contractPrincipal: z.number().positive().optional(),
+  legalServiceFee: z.number().min(0).optional(),
   contractDisplayInterestRate: z.string().min(1).optional(),
   weeklyInterestAmount: z.string().optional(),
   monthlyInterestAmount: z.string().optional(),

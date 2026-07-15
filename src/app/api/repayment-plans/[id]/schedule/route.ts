@@ -37,6 +37,7 @@ export async function GET(
       status: true,
       totalPeriods: true,
       applicationId: true,
+      totalPrincipal: true,
       rulesSnapshotJson: true,
     },
   });
@@ -44,7 +45,6 @@ export async function GET(
   const application = await prisma.loanApplication.findUnique({
     where: { id: plan.applicationId },
     select: {
-      amount: true,
       disbursement: {
         select: {
           disbursedAt: true,
@@ -82,7 +82,7 @@ export async function GET(
     const liveOutstanding = application
       ? calculateLiveOutstandingFromSnapshot({
           rulesSnapshotJson: plan.rulesSnapshotJson,
-          principal: Number(application.amount),
+          principal: Number(plan.totalPrincipal),
           disbursedAt: application.disbursement?.disbursedAt,
           paymentTime: new Date(),
           paidDates: extractPaidDates(overdueRecord?.overdueFeeDetail),

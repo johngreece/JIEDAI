@@ -17,6 +17,10 @@ import {
   parseTiersFromPricingRules,
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
+import {
+  getLoanContractRepaymentComponents,
+  resolveLoanContractTerms,
+} from "@/lib/loan-contract-terms";
 import { requirePermission } from "@/lib/rbac";
 import {
   LoanTransitionConflictError,
@@ -92,6 +96,20 @@ export async function POST(
                 },
               },
             },
+            contracts: {
+              where: { contractType: "MAIN", status: "SIGNED", deletedAt: null },
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: {
+                variableData: true,
+                currency: true,
+                basePrincipal: true,
+                capitalizedInterestAmount: true,
+                contractPrincipal: true,
+                legalServiceFee: true,
+                feePaymentMode: true,
+              },
+            },
           },
         },
       },
@@ -122,25 +140,62 @@ export async function POST(
     }
     pricingConfig = applyCustomerPricingOverride(pricingConfig, pendingDisbursement.application.customer);
 
-    const { tiers, overdueConfig, upfrontFeeRate, channel } = pricingConfig;
-    const principal = Number(pendingDisbursement.amount);
-    const netAmount = calcNetDisbursement(principal, upfrontFeeRate, channel);
+    const { tiers, overdueConfig } = pricingConfig;
+    const signedContract = pendingDisbursement.application.contracts[0] ?? null;
+    if (!signedContract) {
+      throw new Error("SIGNED_CONTRACT_MISSING");
+    }
+    const contractTerms = resolveLoanContractTerms(
+      signedContract,
+      pendingDisbursement.application.amount,
+      pricingConfig.channel,
+    );
+    const usesStructuredContract = contractTerms.source !== "application_fallback";
+    const disbursementPrincipal = Number(pendingDisbursement.amount);
+    if (
+      usesStructuredContract &&
+      !new Decimal(disbursementPrincipal).toDecimalPlaces(4).equals(
+        new Decimal(contractTerms.basePrincipal).toDecimalPlaces(4),
+      )
+    ) {
+      throw new Error("DISBURSEMENT_CONTRACT_AMOUNT_MISMATCH");
+    }
+
+    const principal = usesStructuredContract
+      ? contractTerms.contractPrincipal
+      : disbursementPrincipal;
+    const channel = usesStructuredContract
+      ? contractTerms.feePaymentMode
+      : pricingConfig.channel;
+    const upfrontFeeRate = usesStructuredContract ? 0 : pricingConfig.upfrontFeeRate;
+    const netAmount = usesStructuredContract
+      ? contractTerms.netDisbursementAmount
+      : calcNetDisbursement(principal, upfrontFeeRate, channel);
     // 使用 Decimal 计算费用，避免 JS 浮点 + toFixed 截断导致与 schema Decimal(18,4) 不一致
-    const upfrontFeeAmount = new Decimal(principal)
-      .minus(netAmount)
-      .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
-      .toNumber();
+    const upfrontFeeAmount = usesStructuredContract
+      ? contractTerms.upfrontFeeAmount
+      : new Decimal(principal)
+          .minus(netAmount)
+          .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+          .toNumber();
     const sortedTiers = [...tiers].sort(
       (a, b) => (a.maxHours ?? a.maxDays * 24) - (b.maxHours ?? b.maxDays * 24)
     );
     const dueTier = sortedTiers[sortedTiers.length - 1] ?? null;
     const dueHours = dueTier ? (dueTier.maxHours ?? dueTier.maxDays * 24) : 7 * 24;
     const dueDate = new Date(now.getTime() + dueHours * 60 * 60 * 1000);
-    const dueRepaymentAmount = calcRepaymentAmount(principal, dueTier?.ratePercent ?? 0, channel);
-    const deferredFeeAmount = new Decimal(dueRepaymentAmount)
-      .minus(principal)
-      .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
-      .toNumber();
+    const dueRepaymentAmount = usesStructuredContract
+      ? contractTerms.totalPayable
+      : calcRepaymentAmount(principal, dueTier?.ratePercent ?? 0, channel);
+    const deferredFeeAmount = usesStructuredContract
+      ? contractTerms.repayableFeeAmount
+      : new Decimal(dueRepaymentAmount)
+          .minus(principal)
+          .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+          .toNumber();
+    const contractRepaymentComponents = usesStructuredContract
+      ? getLoanContractRepaymentComponents(contractTerms)
+      : null;
 
     const claimed = await tx.disbursement.updateMany({
       where: { id, status: "PENDING" },
@@ -178,12 +233,25 @@ export async function POST(
       const rulesSnapshot = {
         channel,
         upfrontFeeRate,
-        tiers: sortedTiers,
+        tiers: usesStructuredContract
+          ? sortedTiers.map((tier) => ({ ...tier, ratePercent: 0 }))
+          : sortedTiers,
+        sourcePricingTiers: usesStructuredContract ? sortedTiers : undefined,
         overdueConfig,
         customerPricing: pricingConfig.customerPricing,
         startTime: now.toISOString(),
         dueDate: dueDate.toISOString(),
+        normalInterestCapitalized: usesStructuredContract,
+        fixedFeeAmount: usesStructuredContract ? deferredFeeAmount : 0,
+        netDisbursementAmount: Number(netAmount),
+        contractTerms: usesStructuredContract ? contractTerms : undefined,
       };
+
+      const repaymentFeeAmount = usesStructuredContract
+        ? deferredFeeAmount
+        : channel === "UPFRONT_DEDUCTION"
+          ? upfrontFeeAmount
+          : deferredFeeAmount;
 
       const plan = await tx.repaymentPlan.create({
         data: {
@@ -191,7 +259,7 @@ export async function POST(
           applicationId: disbursement.applicationId,
           totalPrincipal: principal,
           totalInterest: 0,
-          totalFee: channel === "UPFRONT_DEDUCTION" ? upfrontFeeAmount : deferredFeeAmount,
+          totalFee: repaymentFeeAmount,
           totalPeriods: 1,
           rulesSnapshotJson: JSON.stringify(rulesSnapshot),
           status: "ACTIVE",
@@ -203,11 +271,19 @@ export async function POST(
           planId: plan.id,
           periodNumber: 1,
           dueDate,
-          principal,
-          interest: 0,
-          fee: channel === "UPFRONT_DEDUCTION" ? upfrontFeeAmount : deferredFeeAmount,
-          totalDue: channel === "UPFRONT_DEDUCTION" ? principal : dueRepaymentAmount,
-          remaining: channel === "UPFRONT_DEDUCTION" ? principal : dueRepaymentAmount,
+          principal: contractRepaymentComponents?.principal ?? principal,
+          interest: contractRepaymentComponents?.interest ?? 0,
+          fee: repaymentFeeAmount,
+          totalDue: usesStructuredContract
+            ? dueRepaymentAmount
+            : channel === "UPFRONT_DEDUCTION"
+              ? principal
+              : dueRepaymentAmount,
+          remaining: usesStructuredContract
+            ? dueRepaymentAmount
+            : channel === "UPFRONT_DEDUCTION"
+              ? principal
+              : dueRepaymentAmount,
           status: "PENDING",
         },
       });
@@ -215,7 +291,7 @@ export async function POST(
 
     await recordDisbursementLedger(tx, {
       disbursementId: disbursement.id,
-      amount: disbursement.amount,
+      amount: usesStructuredContract ? principal : disbursement.amount,
       feeAmount: disbursement.feeAmount,
       customerId: pendingDisbursement.application.customerId,
       operatorId: session.sub,
@@ -248,6 +324,8 @@ export async function POST(
       newValue: {
         status: disbursement.status,
         disbursedAt: disbursement.disbursedAt?.toISOString() ?? null,
+        principal,
+        contractTermsSource: contractTerms.source,
       },
       changeSummary: "确认已打款并同步生成还款规则快照",
     });
@@ -259,12 +337,16 @@ export async function POST(
     if (
       message === "DISBURSEMENT_STATUS_CHANGED" ||
       message === "LOAN_APPLICATION_STATUS_CHANGED" ||
+      message === "DISBURSEMENT_CONTRACT_AMOUNT_MISMATCH" ||
       error instanceof LoanTransitionConflictError
     ) {
       return NextResponse.json({ error: "当前放款单状态已变化，请刷新后重试" }, { status: 409 });
     }
     if (message.startsWith("客户资料未完善")) {
       return NextResponse.json({ error: message }, { status: 409 });
+    }
+    if (message === "SIGNED_CONTRACT_MISSING") {
+      return NextResponse.json({ error: "已签主合同缺失，不能确认打款" }, { status: 409 });
     }
     console.error("[disbursement-confirm-paid]", error);
     return NextResponse.json({ error: "确认打款失败" }, { status: 500 });

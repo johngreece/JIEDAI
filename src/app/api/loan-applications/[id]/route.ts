@@ -4,6 +4,7 @@ import { writeAuditLog } from "@/lib/audit";
 import { applyCustomerPricingOverride, buildCustomerPricingQuote } from "@/lib/customer-pricing";
 import { describeClientProfileMissing, getClientProfileCompletion } from "@/lib/client-profile";
 import { parseTiersFromPricingRules } from "@/lib/interest-engine";
+import { resolveLoanContractTerms } from "@/lib/loan-contract-terms";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { RiskIntelligenceService } from "@/services/risk-intelligence.service";
@@ -84,6 +85,12 @@ export async function GET(
           createdAt: true,
           signedAt: true,
           variableData: true,
+          currency: true,
+          basePrincipal: true,
+          capitalizedInterestAmount: true,
+          contractPrincipal: true,
+          legalServiceFee: true,
+          feePaymentMode: true,
         },
       },
     },
@@ -103,6 +110,13 @@ export async function GET(
     } catch {
       contractGenerationOptions = null;
     }
+  }
+  if (mainContract) {
+    const terms = resolveLoanContractTerms(mainContract, data.amount);
+    contractGenerationOptions = {
+      ...(contractGenerationOptions ?? {}),
+      ...terms,
+    };
   }
 
   const effectivePricing = applyCustomerPricingOverride(
@@ -271,7 +285,6 @@ export async function DELETE(
       { status: 409 },
     );
   }
-
   const hasRepaymentPlan = await prisma.repaymentPlan.findFirst({
     where: { applicationId: id },
     select: { id: true },

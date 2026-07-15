@@ -8,6 +8,13 @@ type LoanItem = {
   id: string;
   applicationNo: string;
   amount: number;
+  contractTerms: {
+    currency: string;
+    basePrincipal: number;
+    legalServiceFee: number;
+    upfrontFeeAmount: number;
+    netDisbursementAmount: number;
+  } | null;
   customer: { name: string };
   product: { name: string };
 };
@@ -71,7 +78,7 @@ export function DisbursementsPageClient() {
 
   async function loadOptions() {
     const [appRes, accRes] = await Promise.all([
-      fetch("/api/loan-applications?status=APPROVED"),
+      fetch("/api/loan-applications?status=CONTRACTED"),
       fetch("/api/fund-accounts"),
     ]);
 
@@ -96,6 +103,7 @@ export function DisbursementsPageClient() {
     pending: list.filter((item) => item.status === "PENDING").length,
     paid: list.filter((item) => item.status === "PAID").length,
   }), [list]);
+  const selectedApplication = approvedApps.find((item) => item.id === form.applicationId) ?? null;
 
   async function createDisbursement(e: React.FormEvent) {
     e.preventDefault();
@@ -209,7 +217,8 @@ export function DisbursementsPageClient() {
                 setForm((current) => ({
                   ...current,
                   applicationId: e.target.value,
-                  amount: app ? String(app.amount) : current.amount,
+                  amount: app ? String(app.contractTerms?.basePrincipal ?? app.amount) : current.amount,
+                  feeAmount: app ? String(app.contractTerms?.upfrontFeeAmount ?? 0) : current.feeAmount,
                 }));
               }}
               className="input-base"
@@ -241,7 +250,7 @@ export function DisbursementsPageClient() {
           </label>
 
           <label className="space-y-1 text-sm">
-            <span className="text-slate-500">Gross Amount</span>
+            <span className="text-slate-500">合同基础本金（EUR）</span>
             <input
               required
               type="number"
@@ -249,11 +258,12 @@ export function DisbursementsPageClient() {
               value={form.amount}
               onChange={(e) => setForm((current) => ({ ...current, amount: e.target.value }))}
               className="input-base"
+              readOnly={Boolean(selectedApplication?.contractTerms)}
             />
           </label>
 
           <label className="space-y-1 text-sm">
-            <span className="text-slate-500">Fee Amount</span>
+            <span className="text-slate-500">本次放款前置扣费（EUR）</span>
             <input
               required
               type="number"
@@ -261,6 +271,7 @@ export function DisbursementsPageClient() {
               value={form.feeAmount}
               onChange={(e) => setForm((current) => ({ ...current, feeAmount: e.target.value }))}
               className="input-base"
+              readOnly={Boolean(selectedApplication?.contractTerms)}
             />
           </label>
 
