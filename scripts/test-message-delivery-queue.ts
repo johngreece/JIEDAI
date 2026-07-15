@@ -1,8 +1,18 @@
 import http from "http";
 import { loadEnvConfig } from "@next/env";
-import { prisma } from "@/lib/prisma";
+import { PrismaClient } from "@prisma/client";
+
+const { requireIsolatedRegressionDatabase } = require("./lib/regression-runtime.js");
 
 loadEnvConfig(process.cwd());
+
+const regressionDatabaseUrl = requireIsolatedRegressionDatabase(process.env);
+process.env.DATABASE_URL = regressionDatabaseUrl;
+process.env.DIRECT_URL = regressionDatabaseUrl;
+
+const prisma = new PrismaClient({
+  datasources: { db: { url: regressionDatabaseUrl } },
+});
 
 process.env.NOTIFY_EMAIL_PROVIDER = "WEBHOOK";
 process.env.NOTIFY_SMS_PROVIDER = "WEBHOOK";

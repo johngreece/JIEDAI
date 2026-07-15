@@ -1,9 +1,22 @@
 import http from "http";
 import bcrypt from "bcryptjs";
 import { loadEnvConfig } from "@next/env";
-import { prisma } from "@/lib/prisma";
+import { PrismaClient } from "@prisma/client";
+
+const {
+  createRuntimePassword,
+  requireIsolatedRegressionDatabase,
+} = require("./lib/regression-runtime.js");
 
 loadEnvConfig(process.cwd());
+
+const regressionDatabaseUrl = requireIsolatedRegressionDatabase(process.env);
+process.env.DATABASE_URL = regressionDatabaseUrl;
+process.env.DIRECT_URL = regressionDatabaseUrl;
+
+const prisma = new PrismaClient({
+  datasources: { db: { url: regressionDatabaseUrl } },
+});
 
 const PORT = 4040;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
@@ -41,7 +54,7 @@ async function ensureTouchpointCustomer() {
     data: {
       name: "Touchpoint Customer",
       phone: `696${String(Date.now()).slice(-7)}`,
-      passwordHash: await bcrypt.hash("customer123", 10),
+      passwordHash: await bcrypt.hash(createRuntimePassword(), 10),
       idNumber: `TP${Date.now()}`,
       email: "touchpoint-customer@example.com",
       address: "Touchpoint Fixture",
@@ -71,7 +84,7 @@ async function ensureTouchpointFunder() {
       name: `Touchpoint Funder ${Date.now()}`,
       type: "COMPANY",
       loginPhone: phone,
-      passwordHash: await bcrypt.hash("funder123", 10),
+      passwordHash: await bcrypt.hash(createRuntimePassword(), 10),
       contactPerson: "Touchpoint Fixture",
       contactPhone: phone,
       contactEmail: "touchpoint-funder@example.com",

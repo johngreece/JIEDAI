@@ -169,6 +169,7 @@ M1 先消除当前免费层部署阻断，并给后续改动建立门禁；M2 �
 ### 2.5 Database
 
 ### DB-001 · 恢复 Supabase 生产数据库
+> 2026-07-15 代码状态：生产 schema 和健康探测已恢复；种子已改为无默认密码的一次性超级管理员引导，生产旧默认凭据已轮换且仅保留一个有效超级管理员。Storage service-role、RLS 执行复核和三端真实角色账号仍是外部配置项。
 - **Role**: database  (contributors: backend, QA)
 - **Objective**: 建立可用的新 Supabase 免费项目并恢复完整生产 schema。
 - **Problem being solved**: 当前旧项目域名不可解析，真实全链路被阻断。
@@ -254,6 +255,7 @@ M1 先消除当前免费层部署阻断，并给后续改动建立门禁；M2 �
 - **Blocks**: FIN-001, QA-003
 
 ### QA-003 · 三端真实库全链路验收
+> 2026-07-15 代码状态：所有会写测试数据的全链路、发布冒烟和消息队列脚本均强制使用独立回归数据库，并改为运行时随机临时账号；生产库会被隔离门拒绝。真实全链路执行仍等待独立测试数据库。
 - **Role**: QA  (contributors: frontend, backend, finance/ops)
 - **Objective**: 在生产候选 Supabase 上验证客户、管理、资金方完整闭环。
 - **Problem being solved**: blueprint move 8。

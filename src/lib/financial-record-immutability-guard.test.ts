@@ -31,7 +31,7 @@ function walkFiles(dir: string): string[] {
     const fullPath = path.join(dir, name);
     const stat = statSync(fullPath);
     if (stat.isDirectory()) return walkFiles(fullPath);
-    return /\.(ts|tsx)$/.test(name) ? [fullPath] : [];
+    return /\.(ts|tsx|js|jsx)$/.test(name) ? [fullPath] : [];
   });
 }
 
@@ -87,7 +87,7 @@ function findViolations(root: string, filePath: string): string[] {
 describe("financial record immutability guard", () => {
   it("keeps financial records append-only and guarded by expected-state claims", () => {
     const root = process.cwd();
-    const files = ["src", "scripts"].flatMap((directory) =>
+    const files = ["src", "scripts", "prisma"].flatMap((directory) =>
       walkFiles(path.join(root, directory)),
     );
     expect(files.flatMap((file) => findViolations(root, file))).toEqual([]);

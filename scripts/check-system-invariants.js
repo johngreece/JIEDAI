@@ -29,6 +29,52 @@ check(
   "src/lib/system-config.ts must keep SYSTEM_CURRENCY fixed to EUR"
 );
 
+const packageJson = JSON.parse(read("package.json"));
+const seedSource = read("prisma/seed.js");
+const bootstrapSource = read("prisma/seed-bootstrap.js");
+check(
+  !packageJson.scripts?.["db:seed-demo"] && !packageJson.scripts?.["db:clear-business-data"],
+  "production package scripts must not expose demo data creation or destructive business-data clearing"
+);
+check(
+  !fs.existsSync(path.join(root, "scripts/seed-demo-data.js")) &&
+    !fs.existsSync(path.join(root, "scripts/clear-business-mock-data.js")),
+  "demo financial seed and destructive business-data clearing scripts must stay removed"
+);
+check(
+  seedSource.includes("ensureBootstrapAdmin") &&
+    bootstrapSource.includes("BOOTSTRAP_ADMIN_PASSWORD"),
+  "database seed must use the fail-closed bootstrap admin flow"
+);
+check(
+  !/bcrypt\.hash\(\s*["'`]/.test(seedSource) &&
+    !/passwordHash\s*:\s*["'`]/.test(seedSource),
+  "database seed must not contain a hard-coded administrator password or hash"
+);
+
+const mutatingRegressionScripts = [
+  "scripts/full-regression.js",
+  "scripts/launch-readiness-smoke.js",
+  "scripts/test-external-touchpoints.ts",
+  "scripts/test-message-delivery-queue.ts",
+];
+for (const file of mutatingRegressionScripts) {
+  const source = read(file);
+  check(
+    source.includes("requireIsolatedRegressionDatabase"),
+    `${file} must fail closed unless it uses an isolated regression database`
+  );
+}
+
+const scriptFiles = walk("scripts").filter((file) => /\.(ts|js|mjs)$/.test(file));
+for (const file of scriptFiles) {
+  const source = read(file);
+  check(
+    !/bcrypt\.hash\(\s*["'`][^"'`]+["'`]/.test(source),
+    `${file} must not hash a hard-coded fixture password`
+  );
+}
+
 const sourceFiles = walk("src").filter((file) => /\.(ts|tsx|js|jsx)$/.test(file));
 const forbiddenCurrencies = /\b(USD|CNY|RMB|GBP|JPY|CHF)\b/g;
 for (const file of sourceFiles) {
@@ -113,4 +159,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`System invariants passed: EUR only, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
+console.log(`System invariants passed: EUR only, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);

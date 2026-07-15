@@ -22,8 +22,6 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
-    "db:seed-demo": "node scripts/seed-demo-data.js",
-    "db:clear-business-data": "node scripts/clear-business-mock-data.js",
     "db:enable-rls": "node scripts/enable-public-rls.js",
     "db:ensure-infra": "npx tsx scripts/ensure-infra-tables.ts",
     "storage:ensure": "npx tsx scripts/ensure-storage-bucket.ts",
