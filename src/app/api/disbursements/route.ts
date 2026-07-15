@@ -4,7 +4,7 @@ import Decimal from "decimal.js";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLogInTransaction } from "@/lib/audit";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import {
   formatClientProfileCompletionError,
   getClientProfileCompletion,
@@ -114,10 +114,8 @@ export async function POST(req: Request) {
   const session = await requirePermission(["disbursement:create"]);
   if (session instanceof Response) return session;
 
-  // 幂等性检查
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "disbursement-create"]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -315,7 +313,6 @@ export async function POST(req: Request) {
       disbursementNo: created.disbursementNo,
       status: created.status,
     };
-    await saveIdempotencyResult(idemKey, result);
     return NextResponse.json(result);
   } catch (err) {
     if (err instanceof HttpError) {
@@ -324,6 +321,7 @@ export async function POST(req: Request) {
     console.error("[disbursement-create]", err);
     return NextResponse.json({ error: "创建放款单失败" }, { status: 500 });
   }
+  });
 }
 
 class HttpError extends Error {

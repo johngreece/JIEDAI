@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { FunderInterestService } from "@/services/funder-interest.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requirePermission } from "@/lib/rbac";
 import { formatMoney as money } from "@/lib/system-config";
 
@@ -50,8 +50,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "funder-withdrawal-review", withdrawalId, action]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   try {
     let result;
@@ -77,8 +76,6 @@ export async function PATCH(req: NextRequest) {
       ).catch((error) => console.error("[FunderWithdrawal] reject notification", error));
     }
     const responseBody = { ok: true, result };
-    await saveIdempotencyResult(idemKey, responseBody);
-
     return NextResponse.json(responseBody);
   } catch (e) {
     return NextResponse.json(
@@ -86,4 +83,5 @@ export async function PATCH(req: NextRequest) {
       { status: 400 }
     );
   }
+  });
 }

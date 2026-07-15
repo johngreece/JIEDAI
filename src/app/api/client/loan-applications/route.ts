@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { TERMINAL_LOAN_STATUSES } from "@/lib/business-status";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
@@ -28,8 +28,7 @@ export async function POST(req: NextRequest) {
   if (session instanceof Response) return session;
 
   const idemKey = getScopedIdempotencyKey(req, ["client", session.sub, "loan-application"]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -209,6 +208,6 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
-  await saveIdempotencyResult(idemKey, created);
   return NextResponse.json(created);
+  });
 }

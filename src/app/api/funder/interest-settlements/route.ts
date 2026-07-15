@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveFunderSession } from "@/lib/portal-session";
 import { FunderInterestSettlementService } from "@/services/funder-interest-settlement.service";
 
@@ -68,8 +68,7 @@ export async function POST(req: NextRequest) {
     parsed.data.settlementId,
     parsed.data.action,
   ]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   try {
     const result =
@@ -81,7 +80,6 @@ export async function POST(req: NextRequest) {
             parsed.data.reason || "资金方反馈未收到该笔利息",
           );
 
-    await saveIdempotencyResult(idemKey, result);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
@@ -89,4 +87,5 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  });
 }

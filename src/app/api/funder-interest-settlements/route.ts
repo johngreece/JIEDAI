@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requirePermission } from "@/lib/rbac";
 import { FunderInterestSettlementService } from "@/services/funder-interest-settlement.service";
 
@@ -74,8 +74,7 @@ export async function POST(req: NextRequest) {
     parsed.data.action,
     settlementId ?? "all",
   ]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   try {
     const result =
@@ -87,7 +86,6 @@ export async function POST(req: NextRequest) {
             paymentRemark,
           );
 
-    await saveIdempotencyResult(idemKey, result);
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
@@ -95,4 +93,5 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  });
 }

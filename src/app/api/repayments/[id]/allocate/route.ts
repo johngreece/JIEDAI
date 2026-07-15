@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { writeAuditLogInTransaction } from "@/lib/audit";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import {
@@ -42,8 +42,7 @@ export async function POST(
 
   const { id } = await params;
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "repayment-allocate", id]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const body = await req.json().catch(() => ({}));
   const parsed = allocateSchema.safeParse(body);
@@ -429,7 +428,6 @@ export async function POST(
     feePart: Number(updated.feePart),
     penaltyPart: Number(updated.penaltyPart),
   };
-  await saveIdempotencyResult(idemKey, responseBody);
-
   return NextResponse.json(responseBody);
+  });
 }

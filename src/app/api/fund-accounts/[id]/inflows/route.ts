@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isSuperAdmin } from "@/lib/auth";
 import { writeAuditLogInTransaction } from "@/lib/audit";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
@@ -78,8 +78,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const { id } = await params;
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "capital-inflow-direct", id]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const account = await prisma.fundAccount.findUnique({
     where: { id },
@@ -156,7 +155,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       totalInflow: Number(result.accountUpdate.totalInflow),
     },
   };
-  await saveIdempotencyResult(idemKey, responseBody);
-
   return NextResponse.json(responseBody, { status: 201 });
+  });
 }

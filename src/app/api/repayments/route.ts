@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLogInTransaction } from "@/lib/audit";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
@@ -122,8 +122,7 @@ export async function POST(req: Request) {
   if (session instanceof Response) return session;
 
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "repayment-register"]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const body = await req.json().catch(() => ({}));
   const parsed = createSchema.safeParse(body);
@@ -283,7 +282,6 @@ export async function POST(req: Request) {
     repaymentNo: created.repaymentNo,
     status: created.status,
   };
-  await saveIdempotencyResult(idemKey, result);
-
   return NextResponse.json(result);
+  });
 }

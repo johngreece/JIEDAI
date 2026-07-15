@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { formatMoney as money } from "@/lib/system-config";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveFunderSession } from "@/lib/portal-session";
 import { fileToDataUrl, createProofAttachment } from "@/lib/proof-attachment";
 import { prisma } from "@/lib/prisma";
@@ -152,8 +152,7 @@ export async function POST(req: NextRequest) {
   if (session instanceof Response) return session;
 
   const idemKey = getScopedIdempotencyKey(req, ["funder", session.sub, "capital-inflow"]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   let parsed: Awaited<ReturnType<typeof parseInflowRequest>>;
   try {
@@ -248,7 +247,6 @@ export async function POST(req: NextRequest) {
     status: result.inflow.status,
     proof: result.proof,
   };
-  await saveIdempotencyResult(idemKey, responseBody);
-
   return NextResponse.json(responseBody, { status: 201 });
+  });
 }

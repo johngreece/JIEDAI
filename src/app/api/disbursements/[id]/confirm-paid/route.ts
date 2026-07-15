@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import Decimal from "decimal.js";
 import { prisma } from "@/lib/prisma";
 import { writeAuditLogInTransaction } from "@/lib/audit";
-import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
+import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import {
   formatClientProfileCompletionError,
   getClientProfileCompletion,
@@ -38,8 +38,7 @@ export async function POST(
 
   const { id } = await params;
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "disbursement-confirm-paid", id]);
-  const cached = await checkIdempotencyKey(idemKey);
-  if (cached) return NextResponse.json(cached);
+  return withIdempotencyResponse(idemKey, async () => {
 
   const current = await prisma.disbursement.findUnique({
     where: { id },
@@ -272,7 +271,6 @@ export async function POST(
   }
 
   const responseBody = { id: result.id, status: result.status };
-  await saveIdempotencyResult(idemKey, responseBody);
-
   return NextResponse.json(responseBody);
+  });
 }

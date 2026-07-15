@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from "fs";
+import path from "path";
 import { describe, expect, it } from "vitest";
 
 import { getScopedIdempotencyKey } from "@/lib/idempotency";
@@ -29,5 +31,30 @@ describe("idempotency key scoping", () => {
 
     expect(getScopedIdempotencyKey(blank, ["client", "c1", "loan-application"])).toBeNull();
     expect(getScopedIdempotencyKey(oversized, ["client", "c1", "loan-application"])).toBeNull();
+  });
+
+  it("requires every scoped API route to use the atomic response wrapper", () => {
+    const apiRoot = path.join(process.cwd(), "src/app/api");
+    const routeFiles: string[] = [];
+    const visit = (directory: string) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const absolute = path.join(directory, entry.name);
+        if (entry.isDirectory()) visit(absolute);
+        if (entry.isFile() && entry.name === "route.ts") routeFiles.push(absolute);
+      }
+    };
+    visit(apiRoot);
+
+    const scopedRoutes = routeFiles.filter((file) =>
+      readFileSync(file, "utf8").includes("getScopedIdempotencyKey("),
+    );
+    expect(scopedRoutes.length).toBeGreaterThan(0);
+
+    for (const file of scopedRoutes) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).toContain("withIdempotencyResponse(");
+      expect(source, file).not.toContain("checkIdempotencyKey(");
+      expect(source, file).not.toContain("saveIdempotencyResult(");
+    }
   });
 });
