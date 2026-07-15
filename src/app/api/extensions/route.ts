@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { writeAuditLog } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
-import { applyExtension, getExtensionList } from "@/services/extension.service";
+import {
+  applyExtension,
+  ExtensionConflictError,
+  getExtensionList,
+} from "@/services/extension.service";
 
 export const dynamic = "force-dynamic";
 
@@ -42,17 +45,11 @@ export async function POST(req: Request) {
       operatorId: session.sub,
     });
 
-    await writeAuditLog({
-      userId: session.sub,
-      action: "create",
-      entityType: "extension",
-      entityId: ext.id,
-      newValue: { extensionDays: ext.extensionDays, extensionFee: Number(ext.extensionFee) },
-      changeSummary: `申请展期 ${ext.extensionDays} 天`,
-    }).catch((e) => console.error("[AuditLog] extension-create", e));
-
     return NextResponse.json({ id: ext.id, status: ext.status });
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "操作失败" },
+      { status: err instanceof ExtensionConflictError ? 409 : 400 },
+    );
   }
 }

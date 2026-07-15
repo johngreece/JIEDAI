@@ -32,6 +32,7 @@ check(
 const packageJson = JSON.parse(read("package.json"));
 const seedSource = read("prisma/seed.js");
 const bootstrapSource = read("prisma/seed-bootstrap.js");
+const ensureInfraSource = read("scripts/ensure-infra-tables.ts");
 check(
   !packageJson.scripts?.["db:seed-demo"] && !packageJson.scripts?.["db:clear-business-data"],
   "production package scripts must not expose demo data creation or destructive business-data clearing"
@@ -50,6 +51,11 @@ check(
   !/bcrypt\.hash\(\s*["'`]/.test(seedSource) &&
     !/passwordHash\s*:\s*["'`]/.test(seedSource),
   "database seed must not contain a hard-coded administrator password or hash"
+);
+check(
+  ensureInfraSource.includes("repayment_plans_one_active_per_application") &&
+    ensureInfraSource.includes("WHERE \"status\" = 'ACTIVE'"),
+  "PostgreSQL must enforce at most one active repayment plan per application"
 );
 
 const mutatingRegressionScripts = [

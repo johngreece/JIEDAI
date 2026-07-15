@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { RestructureDecisionAction } from "@/lib/restructure-lifecycle";
 
 type Restructure = {
   id: string;
@@ -49,7 +50,7 @@ export default function RestructuresPage() {
     void load();
   }, [load]);
 
-  async function approve(id: string, action: "APPROVE" | "REJECT") {
+  async function approve(id: string, action: RestructureDecisionAction) {
     setActing(id);
     try {
       const res = await fetch(`/api/restructures/${id}/approve`, {

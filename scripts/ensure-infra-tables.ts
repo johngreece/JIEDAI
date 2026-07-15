@@ -34,7 +34,39 @@ async function main() {
     ON "idempotency_keys"("expires_at")
   `);
 
-  console.log(JSON.stringify({ ok: true, tables: ["rate_limit_buckets", "idempotency_keys"] }, null, 2));
+  const duplicateActivePlans = await prisma.$queryRaw<
+    Array<{ applicationId: string; activeCount: bigint }>
+  >`
+    SELECT
+      "application_id" AS "applicationId",
+      COUNT(*)::bigint AS "activeCount"
+    FROM "repayment_plans"
+    WHERE "status" = 'ACTIVE'
+    GROUP BY "application_id"
+    HAVING COUNT(*) > 1
+    LIMIT 10
+  `;
+
+  if (duplicateActivePlans.length > 0) {
+    const conflicts = duplicateActivePlans.map(({ applicationId, activeCount }) => ({
+      applicationId,
+      activeCount: Number(activeCount),
+    }));
+
+    throw new Error(`Cannot enforce one active repayment plan per application: ${JSON.stringify(conflicts)}`);
+  }
+
+  await prisma.$executeRawUnsafe(`
+    CREATE UNIQUE INDEX IF NOT EXISTS "repayment_plans_one_active_per_application"
+    ON "repayment_plans"("application_id")
+    WHERE "status" = 'ACTIVE'
+  `);
+
+  console.log(JSON.stringify({
+    ok: true,
+    tables: ["rate_limit_buckets", "idempotency_keys"],
+    indexes: ["repayment_plans_one_active_per_application"],
+  }, null, 2));
 }
 
 main()

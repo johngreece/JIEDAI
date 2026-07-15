@@ -31,6 +31,7 @@ export type AuditEntityType =
   | "overdue_record"
   | "overdue_scan"
   | "extension"
+  | "restructure"
   | "customer"
   | "capital_inflow"
   | "funder_withdrawal"
