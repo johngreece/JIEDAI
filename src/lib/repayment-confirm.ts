@@ -20,6 +20,11 @@ import {
 } from "@/lib/repayment-runtime";
 import { formatMoney as money } from "@/lib/system-config";
 import { transitionLoanApplication } from "@/services/loan-transition.service";
+import { isValidSignatureDataUrl } from "@/lib/contract-signature";
+import {
+  appendRepaymentConfirmationEvidence,
+  REPAYMENT_CONFIRMATION_EVIDENCE_ACTION,
+} from "@/services/repayment-confirmation-evidence.service";
 
 export type RepaymentStatus =
   | "PENDING"
@@ -50,6 +55,7 @@ export async function confirmRepayment(params: {
   repaymentId: string;
   customerId: string;
   action: "CONFIRMED" | "DECLARED_PAID" | "REJECTED";
+  confirmedAmount?: string;
   signatureData?: string;
   rejectReason?: string;
   ipAddress: string;
@@ -78,33 +84,26 @@ export async function confirmRepayment(params: {
     throw new Error(`Cannot move repayment from ${repayment.status} to ${targetStatus}`);
   }
 
+  const submittedAmount = params.confirmedAmount
+    ? new Prisma.Decimal(params.confirmedAmount)
+    : null;
+  if (
+    targetStatus === "CUSTOMER_CONFIRMED" &&
+    (!submittedAmount || !submittedAmount.equals(repayment.amount))
+  ) {
+    throw new Error("Confirmed amount does not match the repayment amount");
+  }
+  if (
+    targetStatus === "CUSTOMER_CONFIRMED" &&
+    !isValidSignatureDataUrl(params.signatureData)
+  ) {
+    throw new Error("A valid handwritten signature is required");
+  }
+
   const now = new Date();
   const shouldPreserveInterestFreeze = hasExplicitInterestFreeze(repayment);
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    await tx.repaymentConfirmation.upsert({
-      where: { repaymentId: params.repaymentId },
-      create: {
-        repaymentId: params.repaymentId,
-        customerId: params.customerId,
-        signatureData: params.signatureData,
-        ipAddress: params.ipAddress,
-        deviceInfo: params.deviceInfo,
-        status: targetStatus,
-        rejectReason: params.rejectReason,
-        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
-      },
-      update: {
-        customerId: params.customerId,
-        signatureData: params.signatureData,
-        ipAddress: params.ipAddress,
-        deviceInfo: params.deviceInfo,
-        status: targetStatus,
-        rejectReason: params.rejectReason,
-        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
-      },
-    });
-
     const claimed = await tx.repayment.updateMany({
       where: {
         id: params.repaymentId,
@@ -130,6 +129,55 @@ export async function confirmRepayment(params: {
     if (claimed.count !== 1) {
       throw new Error("Repayment status changed, please refresh and retry");
     }
+
+    await tx.repaymentConfirmation.upsert({
+      where: { repaymentId: params.repaymentId },
+      create: {
+        repaymentId: params.repaymentId,
+        customerId: params.customerId,
+        confirmedAmount: submittedAmount ?? undefined,
+        signatureData: params.signatureData,
+        ipAddress: params.ipAddress,
+        deviceInfo: params.deviceInfo,
+        status: targetStatus,
+        rejectReason: params.rejectReason,
+        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
+      },
+      update: {
+        customerId: params.customerId,
+        confirmedAmount: submittedAmount ?? undefined,
+        signatureData: params.signatureData ?? undefined,
+        ipAddress: params.ipAddress,
+        deviceInfo: params.deviceInfo ?? undefined,
+        status: targetStatus,
+        rejectReason: params.rejectReason,
+        confirmedAt: targetStatus === "CUSTOMER_CONFIRMED" ? now : null,
+      },
+    });
+
+    await appendRepaymentConfirmationEvidence(tx, {
+      repaymentId: params.repaymentId,
+      customerId: params.customerId,
+      actorType: "CLIENT",
+      actorId: params.customerId,
+      action:
+        targetStatus === "CUSTOMER_CONFIRMED"
+          ? REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.CLIENT_DECLARED_PAID
+          : REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.CLIENT_REJECTED,
+      fromStatus: repayment.status,
+      toStatus: targetStatus,
+      confirmedAmount: submittedAmount,
+      signatureData: params.signatureData,
+      ipAddress: params.ipAddress,
+      deviceInfo: params.deviceInfo,
+      reason: params.rejectReason,
+      occurredAt: now,
+      details: {
+        repaymentNo: repayment.repaymentNo,
+        expectedAmount: repayment.amount.toFixed(4),
+        submittedAction: params.action,
+      },
+    });
   });
 
 }
@@ -200,6 +248,20 @@ export async function settleRepaymentReceipt(params: {
         },
       });
 
+      await appendRepaymentConfirmationEvidence(tx, {
+        repaymentId: params.repaymentId,
+        customerId: application.customerId,
+        actorType: "ADMIN",
+        actorId: params.operatorId,
+        action: REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.ADMIN_CONFIRMED_NOT_RECEIVED,
+        fromStatus: repayment.status,
+        toStatus: "REJECTED",
+        confirmedAmount: repayment.confirmation?.confirmedAmount ?? repayment.amount,
+        reason: params.rejectReason || "管理端确认未收到款项",
+        occurredAt: now,
+        details: { repaymentNo: repayment.repaymentNo },
+      });
+
       const rejected = await tx.repayment.findUniqueOrThrow({
         where: { id: params.repaymentId },
       });
@@ -250,6 +312,25 @@ export async function settleRepaymentReceipt(params: {
       data: {
         status: "CONFIRMED",
         rejectReason: null,
+      },
+    });
+
+    await appendRepaymentConfirmationEvidence(tx, {
+      repaymentId: params.repaymentId,
+      customerId: application.customerId,
+      actorType: "ADMIN",
+      actorId: params.operatorId,
+      action: REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.ADMIN_CONFIRMED_RECEIVED,
+      fromStatus: repayment.status,
+      toStatus: "CONFIRMED",
+      confirmedAmount: repayment.confirmation?.confirmedAmount ?? repayment.amount,
+      occurredAt: now,
+      details: {
+        repaymentNo: repayment.repaymentNo,
+        principalPart: Number(repayment.principalPart),
+        interestPart: Number(repayment.interestPart),
+        feePart: Number(repayment.feePart),
+        penaltyPart: Number(repayment.penaltyPart),
       },
     });
 
@@ -337,7 +418,7 @@ export async function settleRepaymentReceipt(params: {
         });
 
         if (nextRemaining <= EPSILON) {
-          await resolveOverdue(item.id);
+          await resolveOverdue(item.id, tx);
         }
       }
 

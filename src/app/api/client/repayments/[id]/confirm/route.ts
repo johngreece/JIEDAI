@@ -5,12 +5,31 @@ import { confirmRepayment } from "@/lib/repayment-confirm";
 
 export const dynamic = "force-dynamic";
 
-const bodySchema = z.object({
-  action: z.enum(["CONFIRMED", "DECLARED_PAID", "REJECTED"]).default("DECLARED_PAID"),
-  signatureData: z.string().optional(),
-  rejectReason: z.string().optional(),
-  deviceInfo: z.string().optional(),
-});
+const confirmedAmountSchema = z
+  .union([z.string(), z.number()])
+  .transform((value) => String(value).trim())
+  .refine((value) => /^(?:0|[1-9]\d*)(?:\.\d{1,4})?$/.test(value), {
+    message: "Amount must be a positive number with up to four decimal places",
+  })
+  .refine((value) => Number(value) > 0, { message: "Amount must be greater than zero" });
+
+const bodySchema = z
+  .object({
+    action: z.enum(["CONFIRMED", "DECLARED_PAID", "REJECTED"]).default("DECLARED_PAID"),
+    confirmedAmount: confirmedAmountSchema.optional(),
+    signatureData: z.string().optional(),
+    rejectReason: z.string().optional(),
+    deviceInfo: z.string().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.action !== "REJECTED" && !value.confirmedAmount) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirmedAmount"],
+        message: "Confirmed amount is required",
+      });
+    }
+  });
 
 export async function POST(
   req: NextRequest,
@@ -40,6 +59,7 @@ export async function POST(
       repaymentId: id,
       customerId: session.sub,
       action: parsed.data.action,
+      confirmedAmount: parsed.data.confirmedAmount,
       signatureData: parsed.data.signatureData,
       rejectReason: parsed.data.rejectReason,
       ipAddress: ip,

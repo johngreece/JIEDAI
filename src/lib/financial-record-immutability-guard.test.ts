@@ -3,7 +3,11 @@ import path from "path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-const APPEND_ONLY_MODELS = new Set(["ledgerEntry", "fundAccountJournal"]);
+const APPEND_ONLY_MODELS = new Set([
+  "ledgerEntry",
+  "fundAccountJournal",
+  "repaymentConfirmationEvent",
+]);
 const FINANCIAL_RECORD_MODELS = new Set([
   "capitalInflow",
   "disbursement",
@@ -14,6 +18,8 @@ const FINANCIAL_RECORD_MODELS = new Set([
 const CREATE_OWNERS: Record<string, string> = {
   ledgerEntry: "src/services/ledger.service.ts",
   fundAccountJournal: "src/services/fund-account-ledger.service.ts",
+  repaymentConfirmationEvent:
+    "src/services/repayment-confirmation-evidence.service.ts",
 };
 const EXPECTED_STATUS_CLAIM_ROUTES: Record<string, string> = {
   "src/app/api/repayments/[id]/route.ts": "repayment",

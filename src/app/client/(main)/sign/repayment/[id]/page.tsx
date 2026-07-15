@@ -54,6 +54,7 @@ export default function ClientRepaymentSignPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "DECLARED_PAID",
+        confirmedAmount,
         signatureData: canvasData,
         deviceInfo: navigator.userAgent,
       }),
@@ -174,6 +175,10 @@ export default function ClientRepaymentSignPage() {
         <label className="block text-sm font-medium text-slate-700">
           本次付款金额
           <input
+            type="number"
+            min="0.0001"
+            step="0.0001"
+            inputMode="decimal"
             value={confirmedAmount}
             onChange={(event) => setConfirmedAmount(event.target.value)}
             className="input-base mt-2"

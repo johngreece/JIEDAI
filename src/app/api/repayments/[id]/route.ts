@@ -4,6 +4,10 @@ import { ensureActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { writeAuditLogInTransaction } from "@/lib/audit";
+import {
+  appendRepaymentConfirmationEvidence,
+  REPAYMENT_CONFIRMATION_EVIDENCE_ACTION,
+} from "@/services/repayment-confirmation-evidence.service";
 
 export const dynamic = "force-dynamic";
 
@@ -84,11 +88,20 @@ export async function DELETE(
     include: {
       allocations: { select: { id: true } },
       confirmation: { select: { id: true } },
+      plan: { select: { applicationId: true } },
     },
   });
 
   if (!repayment) {
     return NextResponse.json({ error: "Repayment not found" }, { status: 404 });
+  }
+
+  const application = await prisma.loanApplication.findUnique({
+    where: { id: repayment.plan.applicationId },
+    select: { customerId: true },
+  });
+  if (!application) {
+    return NextResponse.json({ error: "Loan application not found" }, { status: 404 });
   }
 
   if (repayment.status === "CONFIRMED") {
@@ -120,6 +133,20 @@ export async function DELETE(
             rejectReason: "Repayment record cancelled by operator before receipt confirmation",
             confirmedAt: null,
           },
+        });
+
+        await appendRepaymentConfirmationEvidence(tx, {
+          repaymentId: id,
+          customerId: application.customerId,
+          actorType: "ADMIN",
+          actorId: session.sub,
+          action: REPAYMENT_CONFIRMATION_EVIDENCE_ACTION.ADMIN_CANCELLED,
+          fromStatus: repayment.status,
+          toStatus: "CANCELLED",
+          confirmedAmount: repayment.amount,
+          reason: "Repayment record cancelled by operator before receipt confirmation",
+          occurredAt: new Date(),
+          details: { repaymentNo: repayment.repaymentNo },
         });
       }
 

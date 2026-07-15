@@ -126,13 +126,14 @@ model Customer {
   updatedAt                  DateTime  @updatedAt @map("updated_at")
   deletedAt                  DateTime? @map("deleted_at")
 
-  kyc               CustomerKyc[]
-  loanApplications  LoanApplication[]
-  contracts         Contract[]
-  repaymentConfirms RepaymentConfirmation[]
-  overdueRecords    OverdueRecord[]
-  ledgerEntries     LedgerEntry[]           @relation("CustomerLedger")
-  notifications     Notification[]          @relation("CustomerNotification")
+  kyc                    CustomerKyc[]
+  loanApplications       LoanApplication[]
+  contracts              Contract[]
+  repaymentConfirms      RepaymentConfirmation[]
+  repaymentConfirmEvents RepaymentConfirmationEvent[]
+  overdueRecords         OverdueRecord[]
+  ledgerEntries          LedgerEntry[]                @relation("CustomerLedger")
+  notifications          Notification[]               @relation("CustomerNotification")
 
   @@index([phone])
   @@index([name])
@@ -691,10 +692,11 @@ model Repayment {
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  plan         RepaymentPlan          @relation(fields: [planId], references: [id])
-  operator     User                   @relation("RepaymentOperator", fields: [operatorId], references: [id])
-  allocations  RepaymentAllocation[]
-  confirmation RepaymentConfirmation?
+  plan               RepaymentPlan                @relation(fields: [planId], references: [id])
+  operator           User                         @relation("RepaymentOperator", fields: [operatorId], references: [id])
+  allocations        RepaymentAllocation[]
+  confirmation       RepaymentConfirmation?
+  confirmationEvents RepaymentConfirmationEvent[]
 
   @@index([planId])
   @@index([status])
@@ -718,17 +720,18 @@ model RepaymentAllocation {
 }
 
 model RepaymentConfirmation {
-  id            String    @id @default(uuid())
-  repaymentId   String    @unique @map("repayment_id")
-  customerId    String    @map("customer_id")
-  signatureData String?   @map("signature_data")
-  ipAddress     String    @map("ip_address")
-  deviceInfo    String?   @map("device_info")
-  status        String    @default("PENDING")
-  rejectReason  String?   @map("reject_reason")
-  confirmedAt   DateTime? @map("confirmed_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(uuid())
+  repaymentId     String    @unique @map("repayment_id")
+  customerId      String    @map("customer_id")
+  confirmedAmount Decimal?  @map("confirmed_amount") @db.Decimal(18, 4)
+  signatureData   String?   @map("signature_data")
+  ipAddress       String    @map("ip_address")
+  deviceInfo      String?   @map("device_info")
+  status          String    @default("PENDING")
+  rejectReason    String?   @map("reject_reason")
+  confirmedAt     DateTime? @map("confirmed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   repayment Repayment @relation(fields: [repaymentId], references: [id])
   customer  Customer  @relation(fields: [customerId], references: [id])
@@ -736,6 +739,34 @@ model RepaymentConfirmation {
   @@index([customerId])
   @@index([status])
   @@map("repayment_confirmations")
+}
+
+model RepaymentConfirmationEvent {
+  id              String   @id @default(uuid())
+  repaymentId     String   @map("repayment_id")
+  customerId      String   @map("customer_id")
+  actorType       String   @map("actor_type")
+  actorId         String   @map("actor_id")
+  action          String
+  fromStatus      String   @map("from_status")
+  toStatus        String   @map("to_status")
+  confirmedAmount Decimal? @map("confirmed_amount") @db.Decimal(18, 4)
+  signatureData   String?  @map("signature_data")
+  ipAddress       String?  @map("ip_address")
+  deviceInfo      String?  @map("device_info")
+  reason          String?
+  evidenceJson    String   @map("evidence_json")
+  evidenceHash    String   @map("evidence_hash")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  repayment Repayment @relation(fields: [repaymentId], references: [id])
+  customer  Customer  @relation(fields: [customerId], references: [id])
+
+  @@index([repaymentId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([actorType, actorId])
+  @@index([action])
+  @@map("repayment_confirmation_events")
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════╗

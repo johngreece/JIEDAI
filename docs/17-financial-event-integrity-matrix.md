@@ -17,6 +17,7 @@
 | 资金方入金确认 | `PENDING -> CONFIRMED` | 无 | `CAPITAL_INFLOW / CREDIT`，增加余额和累计入金 | 后台 `AuditLog` 同事务 | 原入金转 `CANCELLED`，追加 `capital_inflow_reversal / DEBIT` |
 | 放款确认支付 | `PENDING -> PAID` | `DISBURSEMENT / CREDIT` | `DISBURSEMENT / DEBIT`，减少余额并增加累计流出 | 后台 `AuditLog` 同事务 | 支付前仅允许取消；支付后不得直接回退 |
 | 客户确认收款 | `PAID -> CONFIRMED` | 无新增 | 无新增 | 同一原子更新保存确认时间、IP、设备和证据 | 不回退，仅补充运营备注 |
+| 客户签署还款报备 | `PENDING_CONFIRM -> CUSTOMER_CONFIRMED` | 暂不入账 | 暂不入账 | 校验签署金额，保存当前快照并追加带哈希的签署证据事件 | 后台未收到走拒绝事件；历史签署事件不覆盖 |
 | 管理端确认还款到账 | `CUSTOMER_CONFIRMED -> CONFIRMED` | `REPAYMENT / DEBIT` | `REPAYMENT / CREDIT`，增加余额和收益累计 | 后台 `AuditLog` 同事务 | 未到账走拒绝分支；已确认不得取消 |
 | 资金方提现审批 | `PENDING -> APPROVED` | 无 | `WITHDRAWAL / DEBIT`，减少余额并增加累计流出 | 后台 `AuditLog` 同事务 | 审批前可拒绝，审批后不得覆盖 |
 | 资金方收益确认 | `PAID_BY_PLATFORM -> CONFIRMED_BY_FUNDER` | 无 | `INTEREST_SETTLEMENT / CREDIT`，增加余额和累计收益 | `confirmedAt` 与资金流水同事务 | 未收到走 `FUNDER_REJECTED`，不得改写已确认流水 |
@@ -37,5 +38,6 @@
 - `writeAuditLogInTransaction()`：后台人员触发的资金事务内审计公共入口；门户主体 ID 不写入 `AuditLog.userId`。
 - `writeLedgerEntry()`：客户台账追加入口。
 - `writeFundAccountLedgerEntryAndUpdateAccount()`：资金方流水和余额原子入口。
+- `appendRepaymentConfirmationEvidence()`：客户签署和后台确认决定的追加式证据入口，哈希绑定金额、签名、主体和状态迁移。
 - `financial-record-immutability-guard.test.ts`：阻止流水改删、绕过服务创建流水和资金业务记录硬删除。
 - 真实 Supabase 可用后，补充 10 路并发、事务故障注入和对账零差异测试。
