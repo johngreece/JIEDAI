@@ -4,16 +4,29 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 
+import { AdminAccessDenied } from "@/components/admin/AdminAccessDenied";
+import { AdminAccessProvider } from "@/components/admin/AdminAccessProvider";
 import Sidebar from "@/components/admin/Sidebar";
+import { canAccessAdminPath } from "@/lib/admin-access-policy";
 
 type AdminMainLayoutProps = {
   children: ReactNode;
+  permissions: string[];
+  isSuperAdmin: boolean;
 };
 
-export default function AdminWorkspaceShell({ children }: AdminMainLayoutProps) {
+export default function AdminWorkspaceShell({
+  children,
+  permissions,
+  isSuperAdmin,
+}: AdminMainLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+  const canAccessCurrentPage = canAccessAdminPath(pathname, {
+    permissions,
+    isSuperAdmin,
+  });
 
   const pageMeta = useMemo(() => {
     const titleMap: Record<string, string> = {
@@ -72,65 +85,71 @@ export default function AdminWorkspaceShell({ children }: AdminMainLayoutProps) 
   }, []);
 
   return (
-    <div className="admin-workspace-shell">
-      <Sidebar
-        collapsed={collapsed}
-        mobileOpen={mobileOpen}
-        onClose={() => setMobileOpen(false)}
-        onToggleCollapse={() => setCollapsed((current) => !current)}
-      />
+    <AdminAccessProvider permissions={permissions} isSuperAdmin={isSuperAdmin}>
+      <div className="admin-workspace-shell">
+        <Sidebar
+          collapsed={collapsed}
+          mobileOpen={mobileOpen}
+          permissions={permissions}
+          isSuperAdmin={isSuperAdmin}
+          onClose={() => setMobileOpen(false)}
+          onToggleCollapse={() => setCollapsed((current) => !current)}
+        />
 
-      <div className="admin-workspace-main">
-        <div className="admin-workspace-topbar">
-          <div className="admin-topbar-shell">
-            <div className="admin-topbar-copy">
-              <div className="admin-breadcrumbs">
-                {pageMeta.crumbs.map((crumb, index) => (
-                  <span key={`${crumb}-${index}`} className="admin-breadcrumbs__item">
-                    {index > 0 ? <span className="admin-breadcrumbs__sep">/</span> : null}
-                    <span>{crumb}</span>
-                  </span>
-                ))}
+        <div className="admin-workspace-main">
+          <div className="admin-workspace-topbar">
+            <div className="admin-topbar-shell">
+              <div className="admin-topbar-copy">
+                <div className="admin-breadcrumbs">
+                  {pageMeta.crumbs.map((crumb, index) => (
+                    <span key={`${crumb}-${index}`} className="admin-breadcrumbs__item">
+                      {index > 0 ? <span className="admin-breadcrumbs__sep">/</span> : null}
+                      <span>{crumb}</span>
+                    </span>
+                  ))}
+                </div>
+                <div className="admin-topbar-heading">
+                  <h1 className="admin-topbar-heading__title">{pageMeta.current}</h1>
+                  <p className="admin-topbar-heading__meta">
+                    {pageMeta.section} · 今日 {pageMeta.today}
+                  </p>
+                </div>
               </div>
-              <div className="admin-topbar-heading">
-                <h1 className="admin-topbar-heading__title">{pageMeta.current}</h1>
-                <p className="admin-topbar-heading__meta">
-                  {pageMeta.section} · 今日 {pageMeta.today}
-                </p>
-              </div>
-            </div>
 
-            <div className="admin-topbar-actions">
-              <div className="admin-topbar-chip">
-                <span className="admin-topbar-chip__dot" />
-                系统在线
+              <div className="admin-topbar-actions">
+                <div className="admin-topbar-chip">
+                  <span className="admin-topbar-chip__dot" />
+                  系统在线
+                </div>
+                <button
+                  type="button"
+                  aria-label="打开管理菜单"
+                  onClick={() => setMobileOpen(true)}
+                  className="admin-btn admin-btn-secondary admin-btn-sm admin-mobile-only"
+                >
+                  菜单
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((current) => !current)}
+                  className="admin-btn admin-btn-secondary admin-btn-sm admin-desktop-only"
+                >
+                  {collapsed ? "展开导航" : "收起导航"}
+                </button>
               </div>
-              <button
-                type="button"
-                aria-label="打开管理菜单"
-                onClick={() => setMobileOpen(true)}
-                className="admin-btn admin-btn-secondary admin-btn-sm admin-mobile-only"
-              >
-                菜单
-              </button>
-              <button
-                type="button"
-                onClick={() => setCollapsed((current) => !current)}
-                className="admin-btn admin-btn-secondary admin-btn-sm admin-desktop-only"
-              >
-                {collapsed ? "展开导航" : "收起导航"}
-              </button>
             </div>
           </div>
+
+          <main className="admin-content-stage">
+            <div className="admin-content-backdrop" />
+            <div className="admin-content-inner">
+              <div className="relative z-[1]">
+                {canAccessCurrentPage ? children : <AdminAccessDenied />}
+              </div>
+            </div>
+          </main>
         </div>
-
-        <main className="admin-content-stage">
-          <div className="admin-content-backdrop" />
-          <div className="admin-content-inner">
-            <div className="relative z-[1]">{children}</div>
-          </div>
-        </main>
       </div>
-    </div>
+    </AdminAccessProvider>
   );
 }

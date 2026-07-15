@@ -288,6 +288,60 @@ for (const file of scriptFiles) {
   );
 }
 
+const adminLayoutSource = read("src/app/admin/(main)/layout.tsx");
+const adminWorkspaceSource = read("src/components/admin/AdminWorkspaceShell.tsx");
+const adminSidebarSource = read("src/components/admin/Sidebar.tsx");
+const adminAccessPolicySource = read("src/lib/admin-access-policy.ts");
+const dashboardHeaderSource = read("src/components/dashboard/DashboardHeader.tsx");
+const dashboardSummarySource = read("src/components/dashboard/DashboardSummary.tsx");
+check(
+  adminLayoutSource.includes("getAdminPermissionCodes(session)") &&
+    adminLayoutSource.includes("permissions={permissions}"),
+  "admin layout must resolve current database-backed permissions before rendering the workspace"
+);
+check(
+  adminWorkspaceSource.includes("canAccessAdminPath(pathname") &&
+    adminWorkspaceSource.includes("<AdminAccessDenied />"),
+  "admin workspace must fail closed when a direct route is outside the current permission set"
+);
+check(
+  adminSidebarSource.includes("canAccessAdminPath(item.href") &&
+    adminSidebarSource.includes("visibleNavGroups"),
+  "admin navigation must hide routes outside the current permission set"
+);
+check(
+  dashboardHeaderSource.includes("visibleQuickActions") &&
+    dashboardHeaderSource.includes("canAccessAdminPath(action.href") &&
+    dashboardHeaderSource.includes('{ label: "录入入金", href: "/admin/capital-inflows" }') &&
+    dashboardSummarySource.includes("canAccessAdminPath(item.href, access)") &&
+    dashboardSummarySource.includes('<ActionChip href="/admin/capital-inflows">录入入金</ActionChip>') &&
+    dashboardSummarySource.includes("if (!canAccessAdminPath(href, access))"),
+  "dashboard shortcuts and action lists must hide routes outside the current permission set"
+);
+check(
+  adminAccessPolicySource.includes('path: "/admin/funders", superAdminOnly: true') &&
+    adminAccessPolicySource.includes("if (!policy || policy.superAdminOnly)"),
+  "admin route policy must fail closed and keep funder administration super-admin only"
+);
+
+const guardedAdminPrefetchPages = [
+  ["src/app/admin/(main)/dashboard/page.tsx", 'requirePermission(["dashboard:view"])'],
+  ["src/app/admin/(main)/customers/page.tsx", 'requirePermission(["customer:view"])'],
+  ["src/app/admin/(main)/loan-applications/page.tsx", 'requirePermission(["loan:view"])'],
+  ["src/app/admin/(main)/repayments/page.tsx", 'requirePermission(["repayment:view"])'],
+];
+for (const [file, guard] of guardedAdminPrefetchPages) {
+  check(
+    read(file).includes(guard) && read(file).includes("<AdminAccessDenied />"),
+    `${file} must authorize before server-side business-data prefetch`
+  );
+}
+check(
+  read("src/app/admin/(main)/funders/page.tsx").includes("requireAdmin()") &&
+    read("src/app/admin/(main)/funders/page.tsx").includes("isSuperAdmin(session)"),
+  "funder server-side prefetch must require an active super administrator"
+);
+
 const sourceFiles = walk("src").filter((file) => /\.(ts|tsx|js|jsx)$/.test(file));
 const forbiddenCurrencies = /\b(USD|CNY|RMB|GBP|JPY|CHF)\b/g;
 for (const file of sourceFiles) {

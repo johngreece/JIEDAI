@@ -3,13 +3,16 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { useAdminAccess } from "@/components/admin/AdminAccessProvider";
+import { canAccessAdminPath } from "@/lib/admin-access-policy";
+
 const QUICK_ACTIONS = [
   { label: "新增客户", href: "/admin/register" },
   { label: "借款申请", href: "/admin/loan-applications" },
   { label: "放款管理", href: "/admin/disbursements" },
   { label: "还款核销", href: "/admin/repayments" },
   { label: "财务中心", href: "/admin/finance" },
-  { label: "录入入金", href: "/admin/funders" },
+  { label: "录入入金", href: "/admin/capital-inflows" },
 ];
 
 function getGreeting(hour: number) {
@@ -39,6 +42,10 @@ function formatTime(date: Date) {
 
 export function DashboardHeader({ username }: { username: string }) {
   const [now, setNow] = useState<Date | null>(null);
+  const access = useAdminAccess();
+  const visibleQuickActions = QUICK_ACTIONS.filter((action) =>
+    canAccessAdminPath(action.href, access)
+  );
 
   useEffect(() => {
     setNow(new Date());
@@ -72,7 +79,7 @@ export function DashboardHeader({ username }: { username: string }) {
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-          {QUICK_ACTIONS.map((action) => (
+          {visibleQuickActions.map((action) => (
             <Link key={action.href} href={action.href} prefetch={false} className="dashboard-action-chip hover:no-underline">
               {action.label}
             </Link>

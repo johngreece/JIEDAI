@@ -1,8 +1,9 @@
 import dynamic from "next/dynamic";
 
+import { AdminAccessDenied } from "@/components/admin/AdminAccessDenied";
 import { AdminPageSkeleton } from "@/components/admin/AdminPageSkeleton";
-import { getAdminSession } from "@/lib/auth";
 import { getCustomersList } from "@/lib/admin-prefetch";
+import { requirePermission } from "@/lib/rbac";
 
 const CustomersPageClient = dynamic(
   () => import("@/components/admin/pages/CustomersPageClient").then((module) => module.CustomersPageClient),
@@ -12,20 +13,10 @@ const CustomersPageClient = dynamic(
 );
 
 export default async function CustomersPage() {
-  const session = await getAdminSession();
+  const session = await requirePermission(["customer:view"]);
 
-  if (!session) {
-    return (
-      <div className="flex min-h-[24rem] items-center justify-center">
-        <div className="panel-soft max-w-md rounded-[1.6rem] p-6 text-center">
-          <h2 className="text-xl font-semibold text-slate-900">需要先登录后台</h2>
-          <p className="mt-2 text-sm text-slate-500">登录后即可查看客户列表与客户详情。</p>
-          <a href="/admin/login" className="admin-btn admin-btn-primary mt-5 inline-flex">
-            前往登录
-          </a>
-        </div>
-      </div>
-    );
+  if (session instanceof Response) {
+    return <AdminAccessDenied />;
   }
 
   const result = await getCustomersList({ page: 1, pageSize: 20 });
