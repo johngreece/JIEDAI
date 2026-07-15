@@ -240,6 +240,10 @@ check(
   /path:\s*\$\{\{ env\.ENCRYPTED_BACKUP \}\}/.test(backupWorkflow),
   "backup workflow may upload only the encrypted archive"
 );
+check(
+  !backupWorkflow.includes("${{ runner.temp }}"),
+  "backup workflow must initialize runner-temporary paths at step runtime"
+);
 
 const vercelConfig = JSON.parse(read("vercel.json"));
 const crons = Array.isArray(vercelConfig.crons) ? vercelConfig.crons : [];

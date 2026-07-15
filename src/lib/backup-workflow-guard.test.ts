@@ -14,6 +14,8 @@ describe("weekly encrypted backup guard", () => {
     expect(workflow).toContain("--schema=public");
     expect(workflow).toContain("export-supabase-storage.mjs");
     expect(workflow).toContain("database-metrics.txt");
+    expect(workflow).toContain("BACKUP_ROOT=$RUNNER_TEMP/internal-backup");
+    expect(workflow).not.toContain("${{ runner.temp }}");
   });
 
   it("restore-tests the encrypted archive before publishing it", () => {

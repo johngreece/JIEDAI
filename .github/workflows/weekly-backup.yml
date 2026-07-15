@@ -24,9 +24,6 @@ jobs:
       BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
       FREE_TIER_DATABASE_LIMIT_BYTES: ${{ vars.FREE_TIER_DATABASE_LIMIT_BYTES }}
       FREE_TIER_STORAGE_LIMIT_BYTES: ${{ vars.FREE_TIER_STORAGE_LIMIT_BYTES }}
-      BACKUP_ROOT: ${{ runner.temp }}/internal-backup
-      VERIFY_ROOT: ${{ runner.temp }}/internal-backup-verify
-      ENCRYPTED_BACKUP: ${{ runner.temp }}/internal-backup-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz.enc
 
     steps:
       - name: Checkout
@@ -36,6 +33,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Prepare backup paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "BACKUP_ROOT=$RUNNER_TEMP/internal-backup"
+            echo "VERIFY_ROOT=$RUNNER_TEMP/internal-backup-verify"
+            echo "ENCRYPTED_BACKUP=$RUNNER_TEMP/internal-backup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.tar.gz.enc"
+          } >> "$GITHUB_ENV"
 
       - name: Validate backup configuration
         shell: bash
