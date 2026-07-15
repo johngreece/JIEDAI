@@ -18,6 +18,7 @@ import {
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 import { getFrozenPayableAmount, hasExplicitInterestFreeze } from "@/lib/repayment-runtime";
 import { formatMoney as money } from "@/lib/system-config";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 
 function formatDateTime(value: Date | string) {
   return new Date(value).toLocaleString("zh-CN", {
@@ -125,6 +126,9 @@ export default async function ClientRepaymentsPage() {
           amount: true,
           status: true,
           paymentMethod: true,
+          transactionId: true,
+          payerBank: true,
+          payerAccount: true,
           receivedAt: true,
           interestFrozenAt: true,
           frozenPayableAmount: true,
@@ -141,6 +145,30 @@ export default async function ClientRepaymentsPage() {
         },
       })
     : [];
+  const proofAttachments = repayments.length
+    ? await prisma.attachment.findMany({
+        where: {
+          entityType: "repayment",
+          entityId: { in: repayments.map((item) => item.id) },
+          category: "REPAYMENT_PAYMENT_PROOF",
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          entityId: true,
+          fileName: true,
+          fileUrl: true,
+          fileSize: true,
+          mimeType: true,
+          category: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const proofMap = new Map(
+    proofAttachments.map((proof) => [proof.entityId, serializeProofAttachment(proof)]),
+  );
 
   const waitingForCustomer = repayments.filter((item) => item.status === "PENDING_CONFIRM");
   const waitingForReceipt = repayments.filter((item) => item.status === "CUSTOMER_CONFIRMED");
@@ -373,6 +401,7 @@ export default async function ClientRepaymentsPage() {
                 <th className="px-4 py-3 text-left">还款单号</th>
                 <th className="px-4 py-3 text-left">金额</th>
                 <th className="px-4 py-3 text-left">支付方式</th>
+                <th className="px-4 py-3 text-left">付款证据</th>
                 <th className="px-4 py-3 text-left">分配结构</th>
                 <th className="px-4 py-3 text-left">状态</th>
                 <th className="px-4 py-3 text-left">时间</th>
@@ -382,7 +411,7 @@ export default async function ClientRepaymentsPage() {
             <tbody>
               {repayments.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-6 text-slate-500" colSpan={7}>
+                  <td className="px-4 py-6 text-slate-500" colSpan={8}>
                     当前还没有还款记录。
                   </td>
                 </tr>
@@ -399,6 +428,22 @@ export default async function ClientRepaymentsPage() {
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-slate-500">{item.paymentMethod}</td>
+                    <td className="min-w-56 px-4 py-3 text-xs text-slate-500">
+                      <div className="break-all">{item.transactionId}</div>
+                      <div className="mt-1 break-all">{item.payerBank} | {item.payerAccount}</div>
+                      {proofMap.get(item.id) ? (
+                        <a
+                          href={proofMap.get(item.id)?.accessUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-block font-medium text-blue-600 hover:underline"
+                        >
+                          查看付款凭证
+                        </a>
+                      ) : (
+                        <div className="mt-1 font-medium text-rose-600">凭证缺失</div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-xs text-slate-500">
                       <div>本金 {money(Number(item.principalPart))}</div>
                       <div>利息 {money(Number(item.interestPart))}</div>

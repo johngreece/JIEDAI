@@ -12,6 +12,11 @@ export default function ClientRepaymentSignPage() {
     repaymentNo: string;
     amount: number;
     status: string;
+    paymentMethod: string;
+    transactionId: string;
+    payerBank: string;
+    payerAccount: string;
+    proof?: { accessUrl: string; fileName: string } | null;
     rejectReason?: string | null;
     matchComment?: string | null;
   } | null>(null);
@@ -172,6 +177,37 @@ export default function ClientRepaymentSignPage() {
           你点击“确认还款”后，系统会默认先临时停止当日计息，等待管理端确认到账。
           如果后台标记未收款，暂停期间会补算，这笔本金会继续按之前规则计息。
         </p>
+        <dl className="mb-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-slate-500">交易/收据编号</dt>
+            <dd className="mt-1 break-all font-medium text-slate-900">{repayment.transactionId}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">付款银行/渠道</dt>
+            <dd className="mt-1 break-all font-medium text-slate-900">{repayment.payerBank}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">付款账号/来源</dt>
+            <dd className="mt-1 break-all font-medium text-slate-900">{repayment.payerAccount}</dd>
+          </div>
+          <div>
+            <dt className="text-slate-500">付款凭证</dt>
+            <dd className="mt-1">
+              {repayment.proof ? (
+                <a
+                  href={repayment.proof.accessUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-blue-600 hover:underline"
+                >
+                  {repayment.proof.fileName}
+                </a>
+              ) : (
+                <span className="font-medium text-red-600">凭证缺失，请联系管理员</span>
+              )}
+            </dd>
+          </div>
+        </dl>
         <label className="block text-sm font-medium text-slate-700">
           本次付款金额
           <input
@@ -196,7 +232,7 @@ export default function ClientRepaymentSignPage() {
       <button
         type="button"
         onClick={handleSign}
-        disabled={signing}
+        disabled={signing || !repayment.proof}
         className="w-full rounded-lg bg-blue-600 py-3 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
       >
         {signing ? "提交中..." : "确认已付款"}

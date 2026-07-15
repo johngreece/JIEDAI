@@ -19,11 +19,25 @@ import {
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 import { isFullPayoffAmount } from "@/lib/repayment-runtime";
 import { formatMoney as money } from "@/lib/system-config";
+import {
+  isRepaymentTransactionConstraintError,
+  parseRepaymentPaymentRequest,
+  validateRepaymentPaymentEvidence,
+} from "@/lib/repayment-payment-evidence";
+import {
+  createProofAttachment,
+  serializeProofAttachment,
+  storeProofFile,
+} from "@/lib/proof-attachment";
+import {
+  deletePrivateFile,
+  privateStorageErrorResponse,
+} from "@/lib/private-file-storage";
 
 export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
-  amount: z.number().positive(),
+  amount: z.coerce.number().positive(),
   paymentMethod: z.enum(["BANK_TRANSFER", "CASH", "ONLINE"]).default("BANK_TRANSFER"),
   remark: z.string().trim().max(500).optional(),
 });
@@ -39,13 +53,29 @@ export async function POST(req: NextRequest) {
   const idemKey = getScopedIdempotencyKey(req, ["client", session.sub, "repayment-request"]);
   return withIdempotencyResponse(idemKey, async () => {
 
-  const body = await req.json().catch(() => ({}));
-  const parsed = createSchema.safeParse(body);
+  const requestData = await parseRepaymentPaymentRequest(req).catch(() => null);
+  if (!requestData) {
+    return NextResponse.json({ error: "Invalid repayment request" }, { status: 400 });
+  }
+
+  const parsed = createSchema.safeParse(requestData.values);
   if (!parsed.success) {
     return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const evidence = validateRepaymentPaymentEvidence(
+    requestData.values,
+    requestData.proofFile,
+  );
+  if (!evidence.success) {
+    return NextResponse.json(
+      { error: evidence.error, details: evidence.details },
+      { status: 400 },
+    );
+  }
+
   const input = parsed.data;
+  const { input: paymentEvidence, proofFile } = evidence.data;
   const freezeAt = new Date();
 
   const [customer, activeApplication, operator] = await Promise.all([
@@ -115,6 +145,7 @@ export async function POST(req: NextRequest) {
     },
     select: {
       id: true,
+      version: true,
       totalPrincipal: true,
       rulesSnapshotJson: true,
       scheduleItems: {
@@ -251,39 +282,114 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const repayment = await prisma.repayment.create({
-    data: {
-      repaymentNo: genRepaymentNo(),
-      planId: plan.id,
-      amount: input.amount,
-      principalPart: 0,
-      interestPart: 0,
-      feePart: 0,
-      penaltyPart: 0,
-      paymentMethod: input.paymentMethod,
-      status: "MANUAL_REVIEW",
-      receivedAt: freezeAt,
-      interestFrozenAt: freezeAt,
-      frozenPayableAmount: outstandingAmount,
-      operatorId: operator.id,
-      remark: input.remark || "客户自助提交还款申请",
-      matchComment: "客户已发起还款申请，系统已按提交时刻临时暂停新增利息，等待管理端分配并确认",
-    },
-    select: {
-      id: true,
-      repaymentNo: true,
-      status: true,
-      interestFrozenAt: true,
-      frozenPayableAmount: true,
-    },
-  });
+  let fileUrl = paymentEvidence.proofUrl ?? "";
+  let fileName = paymentEvidence.proofFileName || "repayment-payment-proof";
+  let fileSize = 0;
+  let mimeType = paymentEvidence.proofMimeType || "text/uri-list";
+
+  if (proofFile) {
+    try {
+      fileUrl = await storeProofFile(proofFile, `clients/${session.sub}/repayments`);
+      fileName = proofFile.name || fileName;
+      fileSize = proofFile.size;
+      mimeType = proofFile.type || "application/octet-stream";
+    } catch (error) {
+      return privateStorageErrorResponse(error, "Payment evidence upload failed");
+    }
+  }
+
+  let created;
+  try {
+    created = await prisma.$transaction(async (tx) => {
+      const claimedPlan = await tx.repaymentPlan.updateMany({
+        where: { id: plan.id, version: plan.version },
+        data: { version: { increment: 1 } },
+      });
+      if (claimedPlan.count !== 1) throw new Error("PLAN_CHANGED");
+
+      const concurrentRepayment = await tx.repayment.findFirst({
+        where: {
+          planId: plan.id,
+          status: {
+            in: ["PENDING", "MATCHED", "MANUAL_REVIEW", "PENDING_CONFIRM", "CUSTOMER_CONFIRMED"],
+          },
+        },
+        select: { id: true },
+      });
+      if (concurrentRepayment) throw new Error("HAS_PENDING");
+
+      const repayment = await tx.repayment.create({
+        data: {
+          repaymentNo: genRepaymentNo(),
+          planId: plan.id,
+          amount: input.amount,
+          principalPart: 0,
+          interestPart: 0,
+          feePart: 0,
+          penaltyPart: 0,
+          paymentMethod: input.paymentMethod,
+          transactionId: paymentEvidence.transactionId,
+          payerBank: paymentEvidence.payerBank,
+          payerAccount: paymentEvidence.payerAccount,
+          status: "MANUAL_REVIEW",
+          receivedAt: freezeAt,
+          interestFrozenAt: freezeAt,
+          frozenPayableAmount: outstandingAmount,
+          operatorId: operator.id,
+          remark: input.remark || "客户自助提交还款申请",
+          matchComment: "客户已发起还款申请，系统已按提交时刻临时暂停新增利息，等待管理端分配并确认",
+        },
+        select: {
+          id: true,
+          repaymentNo: true,
+          status: true,
+          transactionId: true,
+          payerBank: true,
+          payerAccount: true,
+          interestFrozenAt: true,
+          frozenPayableAmount: true,
+        },
+      });
+
+      const proof = await createProofAttachment(tx, {
+        entityType: "repayment",
+        entityId: repayment.id,
+        fileName,
+        fileUrl,
+        fileSize,
+        mimeType,
+        uploadedBy: session.sub,
+        category: "REPAYMENT_PAYMENT_PROOF",
+      });
+
+      return { repayment, proof };
+    });
+  } catch (error) {
+    if (proofFile) await deletePrivateFile(fileUrl).catch(() => undefined);
+    const message = error instanceof Error ? error.message : "";
+    if (message === "PLAN_CHANGED" || message === "HAS_PENDING") {
+      return NextResponse.json(
+        { error: "Repayment state changed; refresh before submitting again" },
+        { status: 409 },
+      );
+    }
+    if (isRepaymentTransactionConstraintError(error)) {
+      return NextResponse.json(
+        { error: "This transaction or receipt ID has already been used" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
+
+  const repayment = created.repayment;
 
   await Promise.all([
     InAppNotificationService.notifyAdmins({
       type: "CLIENT_REPAYMENT_REQUEST_SUBMITTED",
       templateCode: `CLIENT_REPAYMENT_REQUEST_SUBMITTED_${repayment.id}`,
       title: "有新的客户还款申请待处理",
-      content: `${customer.name}（${customer.phone}）提交了还款申请 ${repayment.repaymentNo}，金额 ${money(
+      content: `${customer.name}（${customer.phone}）提交了还款申请 ${repayment.repaymentNo}，交易/收据号 ${repayment.transactionId}，金额 ${money(
         input.amount
       )}。系统已按客户提交时刻 ${freezeAt.toLocaleString("zh-CN")} 临时暂停新增利息；若核实未收款，请点未收款，系统会恢复并补算暂停期间。`,
     }),
@@ -298,6 +404,10 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
-  return NextResponse.json(repayment);
+  return NextResponse.json({
+    ...repayment,
+    frozenPayableAmount: Number(repayment.frozenPayableAmount),
+    proof: serializeProofAttachment(created.proof),
+  });
   });
 }

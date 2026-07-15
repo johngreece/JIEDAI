@@ -499,11 +499,14 @@ draft → pending_risk → risk_rejected(可重提)
 |------|------|------|------|
 | id | UUID | PK | 主键 |
 | repayment_no | VARCHAR(32) | UNIQUE NOT NULL | 还款单号 |
-| application_id | UUID | FK → loan_applications | 借款申请 |
+| plan_id | UUID | FK → repayment_plans | 还款计划 |
 | amount | DECIMAL(18,4) | NOT NULL | 还款金额 |
-| pay_type | VARCHAR(20) | NOT NULL | cash / transfer / third_party / offline / other |
-| paid_at | TIMESTAMP | NOT NULL | 到账时间 |
-| proof_url | VARCHAR(512) | | 还款凭证 |
+| payment_method | VARCHAR(20) | NOT NULL | BANK_TRANSFER / CASH / ONLINE |
+| transaction_id | VARCHAR(120) | UNIQUE NOT NULL | 银行交易号或现金收据号，全局防重复 |
+| payer_bank | VARCHAR(120) | NOT NULL | 付款银行或支付渠道快照 |
+| payer_account | VARCHAR(120) | NOT NULL | 付款账号、付款人或现金来源快照 |
+| received_at | TIMESTAMP | | 申报/到账时间 |
+| attachment | Attachment | REQUIRED | `REPAYMENT_PAYMENT_PROOF` 私有凭证 |
 | operator_id | UUID | FK → users NULLABLE | 登记人 |
 | status | VARCHAR(20) | NOT NULL | 状态机 |
 | match_comment | TEXT | | 匹配备注 |

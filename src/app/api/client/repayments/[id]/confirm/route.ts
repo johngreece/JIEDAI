@@ -72,6 +72,12 @@ export async function POST(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Confirm failed";
+    if (
+      message === "REPAYMENT_BANK_EVIDENCE_MISSING" ||
+      message === "REPAYMENT_PAYMENT_PROOF_MISSING"
+    ) {
+      return NextResponse.json({ error: message }, { status: 409 });
+    }
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

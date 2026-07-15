@@ -83,6 +83,10 @@ const withdrawalRouteSource = read("src/app/api/funder-withdrawals/route.ts");
 const withdrawalServiceSource = read("src/services/funder-interest.service.ts");
 const inflowCreateSource = read("src/app/api/fund-accounts/[id]/inflows/route.ts");
 const inflowReviewSource = read("src/app/api/fund-accounts/[id]/inflows/[inflowId]/route.ts");
+const clientRepaymentSource = read("src/app/api/client/repayments/route.ts");
+const adminRepaymentSource = read("src/app/api/repayments/route.ts");
+const repaymentConfirmSource = read("src/lib/repayment-confirm.ts");
+const financeReconciliationSource = read("src/services/finance-reconciliation.service.ts");
 const interestSettlementServiceSource = read("src/services/funder-interest-settlement.service.ts");
 const interestSettlementRouteSource = read("src/app/api/funder-interest-settlements/route.ts");
 const legacySettlementServiceSource = read("src/services/settlement.service.ts");
@@ -124,6 +128,27 @@ check(
     disbursementConfirmSource.includes("payerAccount") &&
     disbursementConfirmSource.includes("payerBank"),
   "disbursement confirmation must persist bank identity, private proof, journal metadata and audit evidence"
+);
+check(
+  prismaSchema.includes("transactionId       String    @unique @map(\"transaction_id\")") &&
+    prismaSchema.includes("payerBank           String    @map(\"payer_bank\")") &&
+    prismaSchema.includes("payerAccount        String    @map(\"payer_account\")"),
+  "repayments must persist globally unique transaction identity and payer account evidence"
+);
+check(
+  clientRepaymentSource.includes("validateRepaymentPaymentEvidence") &&
+    clientRepaymentSource.includes('entityType: "repayment"') &&
+    adminRepaymentSource.includes("validateRepaymentPaymentEvidence") &&
+    adminRepaymentSource.includes('category: "REPAYMENT_PAYMENT_PROOF"'),
+  "client and admin repayment registration must require protected payment evidence"
+);
+check(
+  repaymentConfirmSource.includes("REPAYMENT_BANK_EVIDENCE_MISSING") &&
+    repaymentConfirmSource.includes("REPAYMENT_PAYMENT_PROOF_MISSING") &&
+    repaymentConfirmSource.includes("proofAttachmentId") &&
+    financeReconciliationSource.includes('code: "REPAYMENT_BANK_EVIDENCE_MISSING"') &&
+    financeReconciliationSource.includes('code: "REPAYMENT_PAYMENT_PROOF_MISSING"'),
+  "repayment confirmation and reconciliation must fail closed on missing payment evidence"
 );
 check(
   prismaSchema.includes("@@unique([accountId, transactionId])") &&
@@ -276,6 +301,8 @@ const privateUploadFiles = [
   "src/app/api/customers/[id]/documents/route.ts",
   "src/lib/proof-attachment.ts",
   "src/app/api/disbursements/[id]/confirm-paid/route.ts",
+  "src/app/api/client/repayments/route.ts",
+  "src/app/api/repayments/route.ts",
 ];
 for (const file of privateUploadFiles) {
   const source = read(file);
@@ -301,6 +328,11 @@ check(
 check(
   read("src/app/api/attachments/[id]/file/route.ts").includes("funderId: session.sub"),
   "funder proof downloads must enforce funder ownership"
+);
+check(
+  read("src/app/api/attachments/[id]/file/route.ts").includes("customerId: session.sub") &&
+    read("src/app/api/attachments/[id]/file/route.ts").includes('attachment.entityType !== "repayment"'),
+  "client repayment proof downloads must enforce customer ownership"
 );
 
 const backupWorkflow = read(".github/workflows/weekly-backup.yml");
@@ -343,4 +375,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, disbursement, withdrawal and capital inflow bank evidence required, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
+console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, disbursement, repayment, withdrawal and capital inflow bank evidence required, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);

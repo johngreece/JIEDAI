@@ -99,6 +99,7 @@ async function inspectCurrentState() {
     customerLedgerEntries,
     disbursements,
     repayments,
+    repaymentProofs,
     capitalInflows,
     inflowProofs,
     funderWithdrawals,
@@ -167,10 +168,21 @@ async function inspectCurrentState() {
         interestPart: true,
         feePart: true,
         penaltyPart: true,
+        transactionId: true,
+        payerBank: true,
+        payerAccount: true,
         plan: { select: { applicationId: true } },
         allocations: { select: { amount: true } },
       },
       orderBy: { createdAt: "asc" },
+    }),
+    prisma.attachment.findMany({
+      where: {
+        entityType: "repayment",
+        category: "REPAYMENT_PAYMENT_PROOF",
+        deletedAt: null,
+      },
+      select: { entityId: true },
     }),
     prisma.capitalInflow.findMany({
       select: {
@@ -230,6 +242,7 @@ async function inspectCurrentState() {
   );
   const withdrawalIdsWithProof = new Set(withdrawalProofs.map((proof) => proof.entityId));
   const inflowIdsWithProof = new Set(inflowProofs.map((proof) => proof.entityId));
+  const repaymentIdsWithProof = new Set(repaymentProofs.map((proof) => proof.entityId));
 
   const expectedBalance = new Map<string, Decimal>();
   const expectedInflow = new Map<string, Decimal>();
@@ -380,6 +393,42 @@ async function inspectCurrentState() {
         }),
       );
       continue;
+    }
+
+    if (!repayment.transactionId || !repayment.payerBank || !repayment.payerAccount) {
+      findings.push(
+        createFinding({
+          code: "REPAYMENT_BANK_EVIDENCE_MISSING",
+          severity: "ERROR",
+          entityType: "repayment",
+          entityId: repayment.id,
+          expectedValue: "transaction id and payer account snapshot",
+          actualValue: JSON.stringify({
+            transactionId: repayment.transactionId,
+            payerBank: repayment.payerBank,
+            payerAccount: repayment.payerAccount,
+          }),
+          description: "Confirmed repayment has incomplete bank or receipt evidence",
+          owner: "FINANCE",
+          recommendedAction: "Reconcile the receipt against the bank statement before treating the repayment as closed.",
+        }),
+      );
+    }
+
+    if (!repaymentIdsWithProof.has(repayment.id)) {
+      findings.push(
+        createFinding({
+          code: "REPAYMENT_PAYMENT_PROOF_MISSING",
+          severity: "ERROR",
+          entityType: "repayment",
+          entityId: repayment.id,
+          expectedValue: "protected repayment payment proof",
+          actualValue: "MISSING",
+          description: "Confirmed repayment has no protected payment proof",
+          owner: "FINANCE",
+          recommendedAction: "Attach the receipt before treating the repayment as reconciled.",
+        }),
+      );
     }
 
     const partTotal = money(repayment.principalPart.toString())

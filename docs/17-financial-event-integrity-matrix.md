@@ -19,7 +19,7 @@
 | 放款确认支付 | `PENDING -> PAID` | `DISBURSEMENT / CREDIT`，债务本金取已签合同本金 | `DISBURSEMENT / DEBIT`，实际流出取合同净放款额 | 后台 `AuditLog` 同事务，并记录合同金额来源 | 支付前仅允许取消；支付后不得直接回退 |
 | 客户确认收款 | `PAID -> CONFIRMED` | 无新增 | 无新增 | 同一原子更新保存确认时间、IP、设备和证据 | 不回退，仅补充运营备注 |
 | 客户签署还款报备 | `PENDING_CONFIRM -> CUSTOMER_CONFIRMED` | 暂不入账 | 暂不入账 | 校验签署金额，保存当前快照并追加带哈希的签署证据事件 | 后台未收到走拒绝事件；历史签署事件不覆盖 |
-| 管理端确认还款到账 | `CUSTOMER_CONFIRMED -> CONFIRMED` | `REPAYMENT / DEBIT` | `REPAYMENT / CREDIT`，增加余额和收益累计 | 后台 `AuditLog` 同事务 | 未到账走拒绝分支；已确认不得取消 |
+| 管理端确认还款到账 | `CUSTOMER_CONFIRMED -> CONFIRMED` | `REPAYMENT / DEBIT` | `REPAYMENT / CREDIT`，增加余额和收益累计 | 强制交易/收据号、付款渠道、付款来源、受保护凭证；凭证 ID 写入哈希事件、资金流水元数据和后台 `AuditLog` | 缺任一银行证据时返回 `409` 且不入账；未到账走拒绝分支；已确认不得取消 |
 | 资金方提现审批 | `PENDING -> APPROVED` | 无 | `WITHDRAWAL / DEBIT`，减少余额并增加累计流出 | 后台 `AuditLog` 同事务 | 审批前可拒绝，审批后不得覆盖 |
 | 资金方收益确认 | `POSTED_BY_PLATFORM -> CONFIRMED_BY_FUNDER` | 无 | 仅确认时追加 `INTEREST_SETTLEMENT / CREDIT`，增加内部账户余额和累计收益 | `postedAt`、`postedById` 留下发布人轨迹；`confirmedAt` 与资金流水同事务 | 金额或周期有误走 `FUNDER_DISPUTED`；银行出款仅走提现审批，不得从结算单直接付款 |
 
@@ -42,6 +42,7 @@
 - `appendRepaymentConfirmationEvidence()`：客户签署和后台确认决定的追加式证据入口，哈希绑定金额、签名、主体和状态迁移。
 - `financial-record-immutability-guard.test.ts`：阻止流水改删、绕过服务创建流水和资金业务记录硬删除。
 - `funder-interest-settlement-integrity-guard.test.ts`：阻止旧 `FundProfitShare` 写入口复活，并确保财务结算页只读取真实收益结算单状态。
+- `repayment-payment-evidence-guard.test.ts`：确保客户与后台登记都强制凭证，并阻止确认到账绕过交易证据闸门。
 - 真实 Supabase 可用后，补充 10 路并发、事务故障注入和对账零差异测试。
 
 ## 5. 自动对账闭环

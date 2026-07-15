@@ -105,6 +105,29 @@ export async function confirmRepayment(params: {
   const shouldPreserveInterestFreeze = hasExplicitInterestFreeze(repayment);
 
   await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const proofAttachment =
+      targetStatus === "CUSTOMER_CONFIRMED"
+        ? await tx.attachment.findFirst({
+            where: {
+              entityType: "repayment",
+              entityId: params.repaymentId,
+              category: "REPAYMENT_PAYMENT_PROOF",
+              deletedAt: null,
+            },
+            orderBy: { createdAt: "desc" },
+            select: { id: true, fileName: true, mimeType: true },
+          })
+        : null;
+    if (
+      targetStatus === "CUSTOMER_CONFIRMED" &&
+      (!repayment.transactionId || !repayment.payerBank || !repayment.payerAccount)
+    ) {
+      throw new Error("REPAYMENT_BANK_EVIDENCE_MISSING");
+    }
+    if (targetStatus === "CUSTOMER_CONFIRMED" && !proofAttachment) {
+      throw new Error("REPAYMENT_PAYMENT_PROOF_MISSING");
+    }
+
     const claimed = await tx.repayment.updateMany({
       where: {
         id: params.repaymentId,
@@ -177,6 +200,12 @@ export async function confirmRepayment(params: {
         repaymentNo: repayment.repaymentNo,
         expectedAmount: repayment.amount.toFixed(4),
         submittedAction: params.action,
+        transactionId: repayment.transactionId,
+        payerBank: repayment.payerBank,
+        payerAccount: repayment.payerAccount,
+        proofAttachmentId: proofAttachment?.id ?? null,
+        proofFileName: proofAttachment?.fileName ?? null,
+        proofMimeType: proofAttachment?.mimeType ?? null,
       },
     });
   });
@@ -292,6 +321,24 @@ export async function settleRepaymentReceipt(params: {
   }
 
   const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    if (!repayment.transactionId || !repayment.payerBank || !repayment.payerAccount) {
+      throw new Error("REPAYMENT_BANK_EVIDENCE_MISSING");
+    }
+
+    const proofAttachment = await tx.attachment.findFirst({
+      where: {
+        entityType: "repayment",
+        entityId: params.repaymentId,
+        category: "REPAYMENT_PAYMENT_PROOF",
+        deletedAt: null,
+      },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, fileName: true, mimeType: true, createdAt: true },
+    });
+    if (!proofAttachment) {
+      throw new Error("REPAYMENT_PAYMENT_PROOF_MISSING");
+    }
+
     const claimed = await tx.repayment.updateMany({
       where: { id: params.repaymentId, status: repayment.status },
       data: {
@@ -328,6 +375,12 @@ export async function settleRepaymentReceipt(params: {
       occurredAt: now,
       details: {
         repaymentNo: repayment.repaymentNo,
+        transactionId: repayment.transactionId,
+        payerBank: repayment.payerBank,
+        payerAccount: repayment.payerAccount,
+        proofAttachmentId: proofAttachment.id,
+        proofFileName: proofAttachment.fileName,
+        proofMimeType: proofAttachment.mimeType,
         principalPart: Number(repayment.principalPart),
         interestPart: Number(repayment.interestPart),
         feePart: Number(repayment.feePart),
@@ -526,6 +579,11 @@ export async function settleRepaymentReceipt(params: {
         description: "Customer repayment received",
         metadata: {
           applicationId: application.id,
+          transactionId: repayment.transactionId,
+          payerBank: repayment.payerBank,
+          payerAccount: repayment.payerAccount,
+          proofAttachmentId: proofAttachment.id,
+          proofFileName: proofAttachment.fileName,
           principalPart: Number(repayment.principalPart),
           interestPart: Number(repayment.interestPart),
           feePart: Number(repayment.feePart),
@@ -542,6 +600,11 @@ export async function settleRepaymentReceipt(params: {
       oldValue: { status: repayment.status },
       newValue: {
         status: received.status,
+        transactionId: repayment.transactionId,
+        payerBank: repayment.payerBank,
+        payerAccount: repayment.payerAccount,
+        proofAttachmentId: proofAttachment.id,
+        proofFileName: proofAttachment.fileName,
         principalPart: Number(repayment.principalPart),
         interestPart: Number(repayment.interestPart),
         feePart: Number(repayment.feePart),

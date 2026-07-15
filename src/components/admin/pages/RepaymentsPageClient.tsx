@@ -66,6 +66,28 @@ function buildSuggestedAllocations(amount: number, item?: ScheduleItem | null): 
   return rows.length > 0 ? rows : [{ ...EMPTY_ALLOCATION_ROW, itemId: item.id, amount: amount.toFixed(2) }];
 }
 
+function RepaymentEvidence({ item }: { item: RepaymentPrefetchItem }) {
+  return (
+    <div className="mt-1 space-y-1 text-xs text-slate-500">
+      <p className="break-all">
+        {item.transactionId} | {item.payerBank} | {item.payerAccount}
+      </p>
+      {item.proof ? (
+        <a
+          href={item.proof.accessUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-blue-600 hover:underline"
+        >
+          查看凭证：{item.proof.fileName}
+        </a>
+      ) : (
+        <span className="font-medium text-rose-600">缺少付款凭证</span>
+      )}
+    </div>
+  );
+}
+
 type RepaymentsPageClientProps = {
   initialPlans: RepaymentPlanPrefetchItem[];
   initialRepayments: RepaymentPrefetchItem[];
@@ -89,11 +111,16 @@ export function RepaymentsPageClient({
   const allocateKeyRef = useRef<string | null>(null);
   const allocateInFlightRef = useRef(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofInputKey, setProofInputKey] = useState(0);
 
   const [form, setForm] = useState({
     planId: "",
     amount: "",
     paymentMethod: "BANK_TRANSFER",
+    transactionId: "",
+    payerBank: "",
+    payerAccount: "",
     remark: "",
   });
 
@@ -142,18 +169,22 @@ export function RepaymentsPageClient({
       return;
     }
 
+    const body = new FormData();
+    body.set("planId", form.planId);
+    body.set("amount", form.amount);
+    body.set("paymentMethod", form.paymentMethod);
+    body.set("transactionId", form.transactionId);
+    body.set("payerBank", form.payerBank);
+    body.set("payerAccount", form.payerAccount);
+    if (form.remark) body.set("remark", form.remark);
+    if (proofFile) body.set("proof", proofFile);
+
     const response = await fetch("/api/repayments", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         "x-idempotency-key": makeClientIdempotencyKey("admin-repayment-register"),
       },
-      body: JSON.stringify({
-        planId: form.planId,
-        amount: Number(form.amount),
-        paymentMethod: form.paymentMethod,
-        remark: form.remark || undefined,
-      }),
+      body,
     });
 
     const data = await response.json().catch(() => ({}));
@@ -162,7 +193,17 @@ export function RepaymentsPageClient({
       return;
     }
 
-    setForm({ planId: "", amount: "", paymentMethod: "BANK_TRANSFER", remark: "" });
+    setForm({
+      planId: "",
+      amount: "",
+      paymentMethod: "BANK_TRANSFER",
+      transactionId: "",
+      payerBank: "",
+      payerAccount: "",
+      remark: "",
+    });
+    setProofFile(null);
+    setProofInputKey((current) => current + 1);
     setRegistrationSchedule([]);
     setRegistrationSchedulePlanId("");
     await loadAll();
@@ -291,13 +332,13 @@ export function RepaymentsPageClient({
   }
 
   async function removeRepayment(item: RepaymentPrefetchItem) {
-    if (!window.confirm(`确认删除还款记录“${item.repaymentNo}”吗？`)) return;
+    if (!window.confirm(`确认取消还款记录“${item.repaymentNo}”吗？`)) return;
     const response = await fetch(`/api/repayments/${item.id}`, {
       method: "DELETE",
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      alert(data.error ?? "删除失败");
+      alert(data.error ?? "取消失败");
       return;
     }
     if (allocForm.repaymentId === item.id) {
@@ -369,7 +410,7 @@ export function RepaymentsPageClient({
         <div className="admin-table-toolbar -mx-5 -mt-5 mb-5 border-b border-slate-100 px-5">
           <div>
             <div className="admin-table-title">1. 登记还款</div>
-            <p className="admin-table-note">录入计划、金额、支付方式和备注，形成待处理还款单。</p>
+            <p className="admin-table-note">录入计划、金额、交易标识和付款凭证，形成待处理还款单。</p>
           </div>
         </div>
         <form className="grid gap-4 md:grid-cols-2" onSubmit={createRepayment}>
@@ -446,6 +487,51 @@ export function RepaymentsPageClient({
               value={form.remark}
               onChange={(event) => setForm((current) => ({ ...current, remark: event.target.value }))}
               className="admin-field text-sm"
+            />
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="text-slate-500">交易/收据编号</span>
+            <input
+              required
+              maxLength={120}
+              value={form.transactionId}
+              onChange={(event) => setForm((current) => ({ ...current, transactionId: event.target.value }))}
+              className="admin-field text-sm"
+            />
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="text-slate-500">付款银行/渠道</span>
+            <input
+              required
+              maxLength={120}
+              value={form.payerBank}
+              onChange={(event) => setForm((current) => ({ ...current, payerBank: event.target.value }))}
+              className="admin-field text-sm"
+            />
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="text-slate-500">付款账号/来源</span>
+            <input
+              required
+              maxLength={120}
+              value={form.payerAccount}
+              onChange={(event) => setForm((current) => ({ ...current, payerAccount: event.target.value }))}
+              className="admin-field text-sm"
+            />
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="text-slate-500">付款凭证</span>
+            <input
+              key={proofInputKey}
+              required
+              type="file"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              onChange={(event) => setProofFile(event.target.files?.[0] ?? null)}
+              className="admin-field text-sm file:mr-3 file:border-0 file:bg-transparent file:text-sm file:font-medium"
             />
           </label>
 
@@ -682,13 +768,14 @@ export function RepaymentsPageClient({
                   <p className="mt-1 text-xs text-slate-500">
                     {item.application?.applicationNo ?? "-"} | {item.application?.customer.name ?? "-"}
                   </p>
+                  <RepaymentEvidence item={item} />
                   <div className="mt-2">
                     <button
                       type="button"
                       onClick={() => void removeRepayment(item)}
                       className="text-xs font-medium text-red-600 hover:underline"
                     >
-                      删除记录
+                      取消记录
                     </button>
                   </div>
                 </div>
@@ -719,6 +806,7 @@ export function RepaymentsPageClient({
                     <p className="mt-1 text-xs text-slate-500">
                       {item.application?.applicationNo ?? "-"} | {item.application?.customer.name ?? "-"}
                     </p>
+                    <RepaymentEvidence item={item} />
                     {item.allocations?.length ? (
                       <p className="mt-1 text-xs text-slate-500">
                         {item.allocations.map((allocation) => `${allocation.type}:${money(allocation.amount)}`).join(" / ")}
@@ -731,7 +819,7 @@ export function RepaymentsPageClient({
                       onClick={() => void removeRepayment(item)}
                       className="admin-btn admin-btn-ghost admin-btn-sm text-red-600"
                     >
-                      删除
+                      取消
                     </button>
                     <button
                       type="button"
@@ -761,7 +849,7 @@ export function RepaymentsPageClient({
         <div className="admin-table-toolbar">
           <div>
             <div className="admin-table-title">最近还款记录</div>
-            <p className="admin-table-note">测试单可直接在这里删除未确认到账的还款记录。</p>
+            <p className="admin-table-note">未确认到账的记录可取消，已确认记录保持不可变。</p>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -771,6 +859,7 @@ export function RepaymentsPageClient({
                 <th className="px-4 py-3">还款单号</th>
                 <th className="px-4 py-3">客户</th>
                 <th className="px-4 py-3">金额</th>
+                <th className="px-4 py-3">付款证据</th>
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">操作</th>
               </tr>
@@ -778,7 +867,7 @@ export function RepaymentsPageClient({
             <tbody className="divide-y divide-slate-100">
               {repayments.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">暂无还款记录</td>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">暂无还款记录</td>
                 </tr>
               ) : (
                 repayments.slice(0, 20).map((item) => (
@@ -788,6 +877,7 @@ export function RepaymentsPageClient({
                       {item.application?.customer.name ?? "-"}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{money(item.amount)}</td>
+                    <td className="min-w-64 px-4 py-3"><RepaymentEvidence item={item} /></td>
                     <td className="px-4 py-3 text-slate-500">{item.status}</td>
                     <td className="px-4 py-3">
                       {item.status !== "CONFIRMED" ? (
@@ -796,10 +886,10 @@ export function RepaymentsPageClient({
                           onClick={() => void removeRepayment(item)}
                           className="text-sm font-medium text-red-600 hover:underline"
                         >
-                          删除
+                          取消
                         </button>
                       ) : (
-                        <span className="text-xs text-slate-400">已到账不可删</span>
+                        <span className="text-xs text-slate-400">已到账不可取消</span>
                       )}
                     </td>
                   </tr>

@@ -1,6 +1,9 @@
 import { getSession } from "@/lib/auth";
 import { readPrivateFile, privateStorageErrorResponse } from "@/lib/private-file-storage";
-import { ensureActiveFunderSession } from "@/lib/portal-session";
+import {
+  ensureActiveClientSession,
+  ensureActiveFunderSession,
+} from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 
@@ -18,7 +21,11 @@ export async function GET(
 ) {
   const session = await getSession();
   if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  if (session.portal === "client") return Response.json({ error: "Forbidden" }, { status: 403 });
+
+  if (session.portal === "client") {
+    const active = await ensureActiveClientSession(session);
+    if (active instanceof Response) return active;
+  }
 
   if (session.portal === "funder") {
     const active = await ensureActiveFunderSession(session);
@@ -29,7 +36,7 @@ export async function GET(
   const attachment = await prisma.attachment.findFirst({
     where: {
       id,
-      entityType: { in: ["capital_inflow", "disbursement", "funder_withdrawal"] },
+      entityType: { in: ["capital_inflow", "disbursement", "funder_withdrawal", "repayment"] },
       deletedAt: null,
     },
     select: {
@@ -49,12 +56,34 @@ export async function GET(
         ? "withdrawal:view"
         : attachment.entityType === "capital_inflow"
           ? "inflow:view"
-          : "ledger:view";
+          : attachment.entityType === "repayment"
+            ? "repayment:view"
+            : "ledger:view";
     const permission = await requirePermission([requiredPermission]);
     if (permission instanceof Response) return permission;
   }
 
+  if (session.portal === "client") {
+    if (attachment.entityType !== "repayment") {
+      return Response.json({ error: "附件不存在" }, { status: 404 });
+    }
+    const ownedRepayment = await prisma.repayment.findFirst({
+      where: { id: attachment.entityId },
+      select: { id: true, plan: { select: { applicationId: true } } },
+    });
+    const ownedApplication = ownedRepayment
+      ? await prisma.loanApplication.findFirst({
+          where: { id: ownedRepayment.plan.applicationId, customerId: session.sub },
+          select: { id: true },
+        })
+      : null;
+    if (!ownedApplication) return Response.json({ error: "附件不存在" }, { status: 404 });
+  }
+
   if (session.portal === "funder") {
+    if (attachment.entityType === "repayment") {
+      return Response.json({ error: "附件不存在" }, { status: 404 });
+    }
     const ownedEntity =
       attachment.entityType === "capital_inflow"
         ? await prisma.capitalInflow.findFirst({

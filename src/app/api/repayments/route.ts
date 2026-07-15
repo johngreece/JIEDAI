@@ -17,6 +17,20 @@ import {
   isRepaymentAmountWithinRegistrationOutstanding,
   REPAYMENT_REGISTRATION_BLOCKING_STATUSES,
 } from "@/lib/repayment-registration";
+import {
+  isRepaymentTransactionConstraintError,
+  parseRepaymentPaymentRequest,
+  validateRepaymentPaymentEvidence,
+} from "@/lib/repayment-payment-evidence";
+import {
+  createProofAttachment,
+  serializeProofAttachment,
+  storeProofFile,
+} from "@/lib/proof-attachment";
+import {
+  deletePrivateFile,
+  privateStorageErrorResponse,
+} from "@/lib/private-file-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +40,9 @@ type RepaymentListItem = {
   status: string;
   amount: unknown;
   paymentMethod: string;
+  transactionId: string;
+  payerBank: string;
+  payerAccount: string;
   receivedAt: Date | null;
   principalPart: unknown;
   interestPart: unknown;
@@ -45,7 +62,7 @@ type AppLite = {
 
 const createSchema = z.object({
   planId: z.string().min(1),
-  amount: z.number().positive(),
+  amount: z.coerce.number().positive(),
   paymentMethod: z.string().min(1),
   remark: z.string().optional(),
 });
@@ -94,6 +111,31 @@ export async function GET(req: Request) {
     : [];
   const typedApps = apps as AppLite[];
   const appMap = new Map<string, AppLite>(typedApps.map((x: AppLite) => [x.id, x]));
+  const repaymentIds = typedList.map((item) => item.id);
+  const proofs = repaymentIds.length
+    ? await prisma.attachment.findMany({
+        where: {
+          entityType: "repayment",
+          entityId: { in: repaymentIds },
+          category: "REPAYMENT_PAYMENT_PROOF",
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          entityId: true,
+          fileName: true,
+          fileUrl: true,
+          fileSize: true,
+          mimeType: true,
+          category: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const proofMap = new Map(
+    proofs.map((proof) => [proof.entityId, serializeProofAttachment(proof)]),
+  );
 
   return NextResponse.json(paginatedResponse(
     typedList.map((x: RepaymentListItem) => ({
@@ -102,6 +144,10 @@ export async function GET(req: Request) {
       status: x.status,
       amount: Number(x.amount),
       paymentMethod: x.paymentMethod,
+      transactionId: x.transactionId,
+      payerBank: x.payerBank,
+      payerAccount: x.payerAccount,
+      proof: proofMap.get(x.id) ?? null,
       receivedAt: x.receivedAt,
       principalPart: Number(x.principalPart),
       interestPart: Number(x.interestPart),
@@ -124,13 +170,44 @@ export async function POST(req: Request) {
   const idemKey = getScopedIdempotencyKey(req, ["admin", session.sub, "repayment-register"]);
   return withIdempotencyResponse(idemKey, async () => {
 
-  const body = await req.json().catch(() => ({}));
-  const parsed = createSchema.safeParse(body);
+  const requestData = await parseRepaymentPaymentRequest(req).catch(() => null);
+  if (!requestData) {
+    return NextResponse.json({ error: "Invalid repayment request" }, { status: 400 });
+  }
+
+  const parsed = createSchema.safeParse(requestData.values);
   if (!parsed.success) {
     return NextResponse.json({ error: "参数错误", details: parsed.error.flatten() }, { status: 400 });
   }
 
+  const evidence = validateRepaymentPaymentEvidence(
+    requestData.values,
+    requestData.proofFile,
+  );
+  if (!evidence.success) {
+    return NextResponse.json(
+      { error: evidence.error, details: evidence.details },
+      { status: 400 },
+    );
+  }
+
   const input = parsed.data;
+  const { input: paymentEvidence, proofFile } = evidence.data;
+  let fileUrl = paymentEvidence.proofUrl ?? "";
+  let fileName = paymentEvidence.proofFileName || "repayment-payment-proof";
+  let fileSize = 0;
+  let mimeType = paymentEvidence.proofMimeType || "text/uri-list";
+
+  if (proofFile) {
+    try {
+      fileUrl = await storeProofFile(proofFile, `admins/${session.sub}/repayments`);
+      fileName = proofFile.name || fileName;
+      fileSize = proofFile.size;
+      mimeType = proofFile.type || "application/octet-stream";
+    } catch (error) {
+      return privateStorageErrorResponse(error, "Payment evidence upload failed");
+    }
+  }
 
   // 使用事务 + 乐观锁防止并发重复还款
   let created;
@@ -240,6 +317,9 @@ export async function POST(req: Request) {
           feePart: 0,
           penaltyPart: 0,
           paymentMethod: input.paymentMethod,
+          transactionId: paymentEvidence.transactionId,
+          payerBank: paymentEvidence.payerBank,
+          payerAccount: paymentEvidence.payerAccount,
           status: "PENDING",
           receivedAt: new Date(),
           operatorId: session.sub,
@@ -255,13 +335,33 @@ export async function POST(req: Request) {
           repaymentNo: createdRepayment.repaymentNo,
           amount: Number(createdRepayment.amount),
           planId: createdRepayment.planId,
+          transactionId: createdRepayment.transactionId,
+          payerBank: createdRepayment.payerBank,
+          payerAccount: createdRepayment.payerAccount,
           status: createdRepayment.status,
         },
         changeSummary: "财务登记还款",
       });
-      return createdRepayment;
+      const proof = await createProofAttachment(tx, {
+        entityType: "repayment",
+        entityId: createdRepayment.id,
+        fileName,
+        fileUrl,
+        fileSize,
+        mimeType,
+        uploadedBy: session.sub,
+        category: "REPAYMENT_PAYMENT_PROOF",
+      });
+      return { repayment: createdRepayment, proof };
     });
   } catch (e) {
+    if (proofFile) await deletePrivateFile(fileUrl).catch(() => undefined);
+    if (isRepaymentTransactionConstraintError(e)) {
+      return NextResponse.json(
+        { error: "This transaction or receipt ID has already been used" },
+        { status: 409 },
+      );
+    }
     const msg = e instanceof Error ? e.message : "";
     if (msg === "PLAN_NOT_FOUND") return NextResponse.json({ error: "还款计划不存在" }, { status: 404 });
     if (msg === "PLAN_NOT_ACTIVE") return NextResponse.json({ error: "仅 ACTIVE 计划可登记还款" }, { status: 400 });
@@ -279,9 +379,11 @@ export async function POST(req: Request) {
   }
 
   const result = {
-    id: created.id,
-    repaymentNo: created.repaymentNo,
-    status: created.status,
+    id: created.repayment.id,
+    repaymentNo: created.repayment.repaymentNo,
+    status: created.repayment.status,
+    transactionId: created.repayment.transactionId,
+    proof: serializeProofAttachment(created.proof),
   };
   return NextResponse.json(result);
   });

@@ -8,6 +8,7 @@ import {
   appendRepaymentConfirmationEvidence,
   REPAYMENT_CONFIRMATION_EVIDENCE_ACTION,
 } from "@/services/repayment-confirmation-evidence.service";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,10 @@ export async function GET(
       repaymentNo: true,
       amount: true,
       status: true,
+      paymentMethod: true,
+      transactionId: true,
+      payerBank: true,
+      payerAccount: true,
       matchComment: true,
       updatedAt: true,
       confirmation: {
@@ -64,11 +69,35 @@ export async function GET(
     return NextResponse.json({ error: "Repayment not found" }, { status: 404 });
   }
 
+  const proof = await prisma.attachment.findFirst({
+    where: {
+      entityType: "repayment",
+      entityId: repayment.id,
+      category: "REPAYMENT_PAYMENT_PROOF",
+      deletedAt: null,
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      fileName: true,
+      fileUrl: true,
+      fileSize: true,
+      mimeType: true,
+      category: true,
+      createdAt: true,
+    },
+  });
+
   return NextResponse.json({
     id: repayment.id,
     repaymentNo: repayment.repaymentNo,
     amount: Number(repayment.amount),
     status: repayment.status,
+    paymentMethod: repayment.paymentMethod,
+    transactionId: repayment.transactionId,
+    payerBank: repayment.payerBank,
+    payerAccount: repayment.payerAccount,
+    proof: proof ? serializeProofAttachment(proof) : null,
     matchComment: repayment.matchComment,
     rejectReason: repayment.confirmation?.rejectReason ?? null,
     updatedAt: repayment.updatedAt,
