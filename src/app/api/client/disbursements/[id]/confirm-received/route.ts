@@ -38,29 +38,38 @@ export async function POST(
   const ip = forwarded?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? "unknown";
   const userAgent = req.headers.get("user-agent");
   const confirmedAt = new Date();
+  const evidence = {
+    action: "CLIENT_CONFIRM_RECEIVED",
+    portal: "client",
+    customerId: session.sub,
+    applicationId: disbursement.applicationId,
+    disbursementNo: disbursement.disbursementNo,
+    amount: Number(disbursement.amount),
+    netAmount: Number(disbursement.netAmount),
+    previousStatus: disbursement.status,
+    confirmedAt: confirmedAt.toISOString(),
+    ipAddress: ip,
+    userAgent,
+  };
 
-  const updated = await prisma.disbursement.update({
-    where: { id },
+  const claimed = await prisma.disbursement.updateMany({
+    where: { id, status: "PAID", customerConfirmedAt: null },
     data: {
       status: "CONFIRMED",
       customerConfirmIp: ip,
       customerConfirmedAt: confirmedAt,
       customerConfirmUserAgent: userAgent,
-      customerConfirmEvidenceJson: JSON.stringify({
-        action: "CLIENT_CONFIRM_RECEIVED",
-        portal: "client",
-        customerId: session.sub,
-        applicationId: disbursement.applicationId,
-        disbursementNo: disbursement.disbursementNo,
-        amount: Number(disbursement.amount),
-        netAmount: Number(disbursement.netAmount),
-        previousStatus: disbursement.status,
-        confirmedAt: confirmedAt.toISOString(),
-        ipAddress: ip,
-        userAgent,
-      }),
+      customerConfirmEvidenceJson: JSON.stringify(evidence),
     },
   });
+  if (claimed.count !== 1) {
+    return NextResponse.json(
+      { error: "放款状态已变化，请刷新后重试" },
+      { status: 409 },
+    );
+  }
+
+  const updated = await prisma.disbursement.findUniqueOrThrow({ where: { id } });
 
   return NextResponse.json({
     ok: true,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { buildOverdueInterestLedgerReferenceId } from "@/lib/ledger-reference";
 import { writeLedgerEntry } from "@/services/ledger.service";
 import { Prisma } from "@prisma/client";
@@ -112,6 +112,25 @@ export async function POST(req: Request) {
           description: `逾期日利息支付 (${date})`,
         });
 
+        await writeAuditLogInTransaction(tx, {
+          userId: session.sub,
+          action: "pay_overdue_interest",
+          entityType: "overdue_record",
+          entityId: overdueRecordId,
+          oldValue: {
+            status: record.status,
+            overdueAmount: Number(record.overdueAmount),
+            penaltyAmount: Number(record.penaltyAmount),
+          },
+          newValue: {
+            date,
+            amount,
+            overdueAmount: breakdown.totalOutstanding,
+            penaltyAmount: breakdown.outstandingPenalty,
+          },
+          changeSummary: `支付逾期日利息 ${amount} 欧 (${date})`,
+        });
+
         return {
           overdueAmount: breakdown.totalOutstanding,
           penaltyAmount: breakdown.outstandingPenalty,
@@ -132,16 +151,6 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ error: "逾期日利息支付失败" }, { status: 500 });
   }
-
-  await writeAuditLog({
-    userId: session.sub,
-    action: "pay_overdue_interest",
-    entityType: "overdue_record",
-    entityId: overdueRecordId,
-    oldValue: null,
-    newValue: { date, amount },
-    changeSummary: `支付逾期日利息 ${amount} 欧 (${date})`,
-  }).catch((error) => console.error("[AuditLog] pay-overdue-interest", error));
 
   return NextResponse.json({
     id: overdueRecordId,

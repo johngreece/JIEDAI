@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import Decimal from "decimal.js";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import {
   formatClientProfileCompletionError,
@@ -259,8 +259,8 @@ export async function POST(req: Request) {
           select: { id: true },
         });
 
-        if (cancelled) {
-          return tx.disbursement.update({
+        const createdDisbursement = cancelled
+          ? await tx.disbursement.update({
             where: { id: cancelled.id },
             data: {
               disbursementNo: genDisbursementNo(),
@@ -277,39 +277,38 @@ export async function POST(req: Request) {
               customerConfirmEvidenceJson: null,
               remark: input.remark ?? null,
             },
-          });
-        }
+          })
+          : await tx.disbursement.create({
+              data: {
+                disbursementNo: genDisbursementNo(),
+                applicationId: input.applicationId,
+                fundAccountId,
+                amount: new Prisma.Decimal(amountDec.toString()),
+                feeAmount: new Prisma.Decimal(feeDec.toString()),
+                netAmount: new Prisma.Decimal(netDec.toString()),
+                operatorId: session.sub,
+                status: "PENDING",
+                remark: input.remark ?? null,
+              },
+            });
 
-        return tx.disbursement.create({
-          data: {
-            disbursementNo: genDisbursementNo(),
-            applicationId: input.applicationId,
-            fundAccountId: fundAccountId,
-            amount: new Prisma.Decimal(amountDec.toString()),
-            feeAmount: new Prisma.Decimal(feeDec.toString()),
-            netAmount: new Prisma.Decimal(netDec.toString()),
-            operatorId: session.sub,
-            status: "PENDING",
-            remark: input.remark ?? null,
+        await writeAuditLogInTransaction(tx, {
+          userId: session.sub,
+          action: "create",
+          entityType: "disbursement",
+          entityId: createdDisbursement.id,
+          newValue: {
+            disbursementNo: createdDisbursement.disbursementNo,
+            status: createdDisbursement.status,
+            amount: Number(createdDisbursement.amount),
+            netAmount: Number(createdDisbursement.netAmount),
           },
+          changeSummary: cancelled ? "重新创建已取消的放款单" : "创建放款单",
         });
+        return createdDisbursement;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     );
-
-    await writeAuditLog({
-      userId: session.sub,
-      action: "create",
-      entityType: "disbursement",
-      entityId: created.id,
-      newValue: {
-        disbursementNo: created.disbursementNo,
-        status: created.status,
-        amount: Number(created.amount),
-        netAmount: Number(created.netAmount),
-      },
-      changeSummary: "创建放款单",
-    }).catch((e) => console.error("[AuditLog] disbursement-create", e));
 
     const result = {
       id: created.id,

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { getNextCalendarMonthBoundary } from "@/lib/calendar-period";
 import { orderWithdrawalFundAccountIds } from "@/lib/fund-account-withdrawal";
 import { getFunderDisplayRate, resolveFunderRuleMode } from "@/lib/funder-cooperation";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { writeDebitFundAccountLedgerEntryFromCandidates } from "@/services/fund-account-ledger.service";
 
 type WithdrawalType = "PRINCIPAL" | "INTEREST" | "PRINCIPAL_AND_INTEREST";
@@ -642,6 +643,24 @@ export class FunderInterestService {
         data: { accountId: ledgerResult.fundAccountId },
       });
 
+      await writeAuditLogInTransaction(tx, {
+        userId: adminId,
+        action: "approve",
+        entityType: "funder_withdrawal",
+        entityId: withdrawal.id,
+        oldValue: {
+          status: withdrawal.status,
+          amount: Number(withdrawal.amount),
+          funderId: withdrawal.funderId,
+        },
+        newValue: {
+          status: "APPROVED",
+          accountId: ledgerResult.fundAccountId,
+          balanceAfter: ledgerResult.balanceAfter,
+        },
+        changeSummary: "Approve funder withdrawal and debit fund account",
+      });
+
       return {
         ok: true,
         accountId: ledgerResult.fundAccountId,
@@ -654,7 +673,7 @@ export class FunderInterestService {
     }, { isolationLevel: "Serializable" });
   }
 
-  static async rejectWithdrawal(withdrawalId: string, reason: string) {
+  static async rejectWithdrawal(withdrawalId: string, adminId: string, reason: string) {
     return prisma.$transaction(
       async (tx) => {
         const claimed = await tx.funderWithdrawal.updateMany({
@@ -670,7 +689,19 @@ export class FunderInterestService {
           throw new Error("This withdrawal request has already been processed");
         }
 
-        return tx.funderWithdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+        const rejected = await tx.funderWithdrawal.findUniqueOrThrow({
+          where: { id: withdrawalId },
+        });
+        await writeAuditLogInTransaction(tx, {
+          userId: adminId,
+          action: "reject",
+          entityType: "funder_withdrawal",
+          entityId: withdrawalId,
+          oldValue: { status: "PENDING" },
+          newValue: { status: rejected.status, rejectedReason: reason },
+          changeSummary: "Reject funder withdrawal request",
+        });
+        return rejected;
       },
       { isolationLevel: "Serializable" },
     );

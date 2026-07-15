@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import Decimal from "decimal.js";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import {
   formatClientProfileCompletionError,
@@ -240,6 +240,19 @@ export async function POST(
       },
     });
 
+    await writeAuditLogInTransaction(tx, {
+      userId: session.sub,
+      action: "disburse",
+      entityType: "disbursement",
+      entityId: id,
+      oldValue: { status: current.status },
+      newValue: {
+        status: disbursement.status,
+        disbursedAt: disbursement.disbursedAt?.toISOString() ?? null,
+      },
+      changeSummary: "确认已打款并同步生成还款规则快照",
+    });
+
     return disbursement;
     });
   } catch (error) {
@@ -257,16 +270,6 @@ export async function POST(
     console.error("[disbursement-confirm-paid]", error);
     return NextResponse.json({ error: "确认打款失败" }, { status: 500 });
   }
-
-  await writeAuditLog({
-    userId: session.sub,
-    action: "disburse",
-    entityType: "disbursement",
-    entityId: id,
-    oldValue: { status: current.status },
-    newValue: { status: result.status, disbursedAt: result.disbursedAt?.toISOString() ?? null },
-    changeSummary: "确认已打款并同步生成还款规则快照",
-  }).catch((error) => console.error("[AuditLog] confirm-paid", error));
 
   const responseBody = { id: result.id, status: result.status };
   await saveIdempotencyResult(idemKey, responseBody);

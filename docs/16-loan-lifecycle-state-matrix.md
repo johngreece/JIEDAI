@@ -38,6 +38,7 @@
 
 1. 状态写入必须使用 `WHERE id = ? AND status = ? AND deleted_at IS NULL` 抢占预期状态。
 2. 抢占数量不是 1 时返回冲突，禁止覆盖其他请求刚完成的状态。
-3. 状态写入和 `AuditLog` 必须使用同一个 Prisma 事务客户端。
-4. 审计记录至少包含 `from`、`to`、`action`、操作人和变更摘要。
-5. 取消待打款放款单只取消放款单，申请继续保持 `CONTRACTED`，以便重新创建放款单；禁止回退到 `APPROVED`。
+3. 后台人员触发的状态写入和 `AuditLog` 必须使用同一个 Prisma 事务客户端。
+4. 客户/资金方动作不向 `AuditLog.userId` 写入门户主体 ID；使用签名、确认记录或业务证据字段在同事务留痕。
+5. 后台审计记录至少包含 `from`、`to`、`action`、操作人和变更摘要。
+6. 取消待打款放款单只取消放款单，申请继续保持 `CONTRACTED`，以便重新创建放款单；禁止回退到 `APPROVED`。

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import type { CapitalInflow } from "@prisma/client";
 import { isSuperAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
 import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 import { FunderNotificationService } from "@/services/funder-notification.service";
@@ -70,42 +71,56 @@ export async function PATCH(
     }
 
     const reason = parsed.data.reason || "Rejected by finance reviewer";
-    const claimed = await prisma.capitalInflow.updateMany({
-      where: { id: inflowId, status: inflow.status },
-      data: {
-        status: "CANCELLED",
-        remark: inflow.remark ? `${inflow.remark}\n${reason}` : reason,
-      },
-    });
-    if (claimed.count !== 1) {
-      return NextResponse.json({ error: "Capital inflow status changed, please refresh and retry" }, { status: 409 });
+    let cancelled: CapitalInflow;
+    try {
+      cancelled = await prisma.$transaction(async (tx) => {
+        const claimed = await tx.capitalInflow.updateMany({
+          where: { id: inflowId, status: inflow.status },
+          data: {
+            status: "CANCELLED",
+            remark: inflow.remark ? `${inflow.remark}\n${reason}` : reason,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw new Error("CAPITAL_INFLOW_STATUS_CHANGED");
+        }
+        const rejected = await tx.capitalInflow.findUniqueOrThrow({ where: { id: inflowId } });
+        await writeAuditLogInTransaction(tx, {
+          userId: session.sub,
+          action: "reject",
+          entityType: "capital_inflow",
+          entityId: inflowId,
+          oldValue: {
+            status: inflow.status,
+            amount: Number(inflow.amount),
+            fundAccountId: accountId,
+          },
+          newValue: {
+            status: rejected.status,
+            reason,
+          },
+          changeSummary: "Reject pending capital inflow request",
+        });
+        return rejected;
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "CAPITAL_INFLOW_STATUS_CHANGED") {
+        return NextResponse.json(
+          { error: "Capital inflow status changed, please refresh and retry" },
+          { status: 409 },
+        );
+      }
+      throw error;
     }
-    const cancelled = await prisma.capitalInflow.findUniqueOrThrow({ where: { id: inflowId } });
 
-    await Promise.all([
-      writeAuditLog({
-        userId: session.sub,
-        action: "reject",
-        entityType: "capital_inflow",
-        entityId: inflowId,
-        oldValue: {
-          status: inflow.status,
-          amount: Number(inflow.amount),
-          fundAccountId: accountId,
-        },
-        newValue: {
-          status: cancelled.status,
-          reason,
-        },
-        changeSummary: "Reject pending capital inflow request",
-      }).catch((error) => console.error("[AuditLog] capital-inflow-reject", error)),
-      FunderNotificationService.send(
-        inflow.fundAccount.funderId,
-        "CAPITAL_INFLOW_REJECTED",
-        "入金申请已驳回",
-        `你提交的 ${money(Number(inflow.amount))} 入金申请未通过审核。原因：${reason}`,
-      ),
-    ]);
+    await FunderNotificationService.send(
+      inflow.fundAccount.funderId,
+      "CAPITAL_INFLOW_REJECTED",
+      "入金申请已驳回",
+      `你提交的 ${money(Number(inflow.amount))} 入金申请未通过审核。原因：${reason}`,
+    ).catch((error) => {
+      console.error("Failed to notify funder about rejected capital inflow", error);
+    });
 
     return NextResponse.json({
       success: true,
@@ -178,6 +193,23 @@ export async function PATCH(
         },
       });
 
+      await writeAuditLogInTransaction(tx, {
+        userId: session.sub,
+        action: "confirm",
+        entityType: "capital_inflow",
+        entityId: inflowId,
+        oldValue: {
+          status: inflow.status,
+          amount: Number(inflow.amount),
+          fundAccountId: accountId,
+        },
+        newValue: {
+          status: confirmed.status,
+          balanceAfter: Number(ledgerResult.account.balance),
+        },
+        changeSummary: "Confirm pending capital inflow and credit fund account",
+      });
+
       return { confirmed, accountUpdate: ledgerResult.account };
     });
   } catch (error) {
@@ -187,30 +219,14 @@ export async function PATCH(
     );
   }
 
-  await Promise.all([
-    writeAuditLog({
-      userId: session.sub,
-      action: "confirm",
-      entityType: "capital_inflow",
-      entityId: inflowId,
-      oldValue: {
-        status: inflow.status,
-        amount: Number(inflow.amount),
-        fundAccountId: accountId,
-      },
-      newValue: {
-        status: result.confirmed.status,
-        balanceAfter: Number(result.accountUpdate.balance),
-      },
-      changeSummary: "Confirm pending capital inflow and credit fund account",
-    }).catch((error) => console.error("[AuditLog] capital-inflow-confirm", error)),
-    FunderNotificationService.send(
-      inflow.fundAccount.funderId,
-      "CAPITAL_INFLOW_CONFIRMED",
-      "入金已确认到账",
-      `你提交的 ${money(Number(result.confirmed.amount))} 入金申请已确认，账户 ${inflow.fundAccount.accountName} 已增加可用余额。`,
-    ),
-  ]);
+  await FunderNotificationService.send(
+    inflow.fundAccount.funderId,
+    "CAPITAL_INFLOW_CONFIRMED",
+    "入金已确认到账",
+    `你提交的 ${money(Number(result.confirmed.amount))} 入金申请已确认，账户 ${inflow.fundAccount.accountName} 已增加可用余额。`,
+  ).catch((error) => {
+    console.error("Failed to notify funder about confirmed capital inflow", error);
+  });
 
   return NextResponse.json({
     success: true,
@@ -290,6 +306,7 @@ export async function DELETE(
       }
       const cancelled = await tx.capitalInflow.findUniqueOrThrow({ where: { id: inflowId } });
 
+      let accountUpdate: { id: string; balance: unknown; totalInflow?: unknown } = account;
       if (shouldReverseBalance) {
         const ledgerResult = await writeFundAccountLedgerEntryAndUpdateAccount(tx, {
           fundAccountId: accountId,
@@ -307,11 +324,29 @@ export async function DELETE(
             channel: inflow.channel,
           },
         });
-
-        return { cancelled, accountUpdate: ledgerResult.account };
+        accountUpdate = ledgerResult.account;
       }
 
-      return { cancelled, accountUpdate: account };
+      await writeAuditLogInTransaction(tx, {
+        userId: session.sub,
+        action: "cancel",
+        entityType: "capital_inflow",
+        entityId: inflowId,
+        oldValue: {
+          fundAccountId: accountId,
+          accountName: account.accountName,
+          amount: inflowAmount,
+          channel: inflow.channel,
+          status: inflow.status,
+        },
+        newValue: {
+          status: cancelled.status,
+          balanceAfter: Number(accountUpdate.balance),
+        },
+        changeSummary: "Cancel capital inflow and write reversal journal when needed",
+      });
+
+      return { cancelled, accountUpdate };
     });
   } catch (error) {
     return NextResponse.json(
@@ -319,25 +354,6 @@ export async function DELETE(
       { status: 409 },
     );
   }
-
-  await writeAuditLog({
-    userId: session.sub,
-    action: "cancel",
-    entityType: "capital_inflow",
-    entityId: inflowId,
-    oldValue: {
-      fundAccountId: accountId,
-      accountName: account.accountName,
-      amount: inflowAmount,
-      channel: inflow.channel,
-      status: inflow.status,
-    },
-    newValue: {
-      status: result.cancelled.status,
-      balanceAfter: Number(result.accountUpdate.balance),
-    },
-    changeSummary: "Cancel capital inflow and write reversal journal when needed",
-  }).catch(() => undefined);
 
   return NextResponse.json({
     success: true,

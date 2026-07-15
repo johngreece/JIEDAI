@@ -2,6 +2,7 @@
  * 审计日志：关键操作记录 old/new 与操作人，供追责与对账
  */
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 export type AuditAction =
@@ -31,6 +32,7 @@ export type AuditEntityType =
   | "extension"
   | "customer"
   | "capital_inflow"
+  | "funder_withdrawal"
   | "contract_template"
   | "fund_account"
   | "funder"
@@ -42,7 +44,7 @@ export type AuditEntityType =
   | "user"
   | "fund_profit_share";
 
-export async function writeAuditLog(params: {
+export type AuditLogParams = {
   userId: string;
   action: AuditAction;
   entityType: AuditEntityType;
@@ -52,20 +54,31 @@ export async function writeAuditLog(params: {
   changeSummary?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
-}) {
-  await prisma.auditLog.create({
-    data: {
-      userId: params.userId,
-      action: params.action,
-      entityType: params.entityType,
-      entityId: params.entityId,
-      oldValue: params.oldValue ? JSON.stringify(params.oldValue) : undefined,
-      newValue: params.newValue ? JSON.stringify(params.newValue) : undefined,
-      changeSummary: params.changeSummary ?? undefined,
-      ipAddress: params.ipAddress ?? undefined,
-      userAgent: params.userAgent ?? undefined,
-    },
-  });
+};
+
+function buildAuditLogData(params: AuditLogParams): Prisma.AuditLogUncheckedCreateInput {
+  return {
+    userId: params.userId,
+    action: params.action,
+    entityType: params.entityType,
+    entityId: params.entityId,
+    oldValue: params.oldValue ? JSON.stringify(params.oldValue) : undefined,
+    newValue: params.newValue ? JSON.stringify(params.newValue) : undefined,
+    changeSummary: params.changeSummary ?? undefined,
+    ipAddress: params.ipAddress ?? undefined,
+    userAgent: params.userAgent ?? undefined,
+  };
+}
+
+export async function writeAuditLogInTransaction(
+  tx: Prisma.TransactionClient,
+  params: AuditLogParams,
+) {
+  await tx.auditLog.create({ data: buildAuditLogData(params) });
+}
+
+export async function writeAuditLog(params: AuditLogParams) {
+  await prisma.auditLog.create({ data: buildAuditLogData(params) });
 }
 
 /**

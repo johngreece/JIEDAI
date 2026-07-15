@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { ensureActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 
 export const dynamic = "force-dynamic";
 
@@ -106,41 +106,54 @@ export async function DELETE(
     return NextResponse.json({ error: "Repayment already cancelled" }, { status: 409 });
   }
 
-  await prisma.$transaction(async (tx) => {
-    if (repayment.confirmation) {
-      await tx.repaymentConfirmation.update({
-        where: { repaymentId: id },
+  try {
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.repayment.updateMany({
+        where: { id, status: repayment.status },
         data: {
-          status: "REJECTED",
-          rejectReason: "Repayment record cancelled by operator before receipt confirmation",
-          confirmedAt: null,
+          status: "CANCELLED",
+          matchComment: "Cancelled by operator before receipt confirmation",
         },
       });
-    }
+      if (claimed.count !== 1) {
+        throw new Error("REPAYMENT_STATUS_CHANGED");
+      }
 
-    await tx.repayment.update({
-      where: { id },
-      data: {
-        status: "CANCELLED",
-        matchComment: "Cancelled by operator before receipt confirmation",
-      },
+      if (repayment.confirmation) {
+        await tx.repaymentConfirmation.update({
+          where: { repaymentId: id },
+          data: {
+            status: "REJECTED",
+            rejectReason: "Repayment record cancelled by operator before receipt confirmation",
+            confirmedAt: null,
+          },
+        });
+      }
+
+      await writeAuditLogInTransaction(tx, {
+        userId: session.sub,
+        action: "cancel",
+        entityType: "repayment",
+        entityId: id,
+        oldValue: {
+          repaymentNo: repayment.repaymentNo,
+          status: repayment.status,
+          amount: Number(repayment.amount),
+          allocationCount: repayment.allocations.length,
+        },
+        newValue: { status: "CANCELLED" },
+        changeSummary: "Cancel repayment record before receipt confirmation",
+      });
     });
-  });
-
-  await writeAuditLog({
-    userId: session.sub,
-    action: "cancel",
-    entityType: "repayment",
-    entityId: id,
-    oldValue: {
-      repaymentNo: repayment.repaymentNo,
-      status: repayment.status,
-      amount: Number(repayment.amount),
-      allocationCount: repayment.allocations.length,
-    },
-    newValue: { status: "CANCELLED" },
-    changeSummary: "Cancel repayment record before receipt confirmation",
-  }).catch(() => undefined);
+  } catch (error) {
+    if (error instanceof Error && error.message === "REPAYMENT_STATUS_CHANGED") {
+      return NextResponse.json(
+        { error: "Repayment status changed, please refresh and retry" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
   return NextResponse.json({ success: true, status: "CANCELLED" });
 }

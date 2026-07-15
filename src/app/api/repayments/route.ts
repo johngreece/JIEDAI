@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { parsePagination, toPrismaArgs, paginatedResponse } from "@/lib/pagination";
 import { Prisma } from "@prisma/client";
@@ -230,7 +230,7 @@ export async function POST(req: Request) {
         throw new Error(`AMOUNT_OVER_OUTSTANDING:${outstandingLimit.toFixed(2)}`);
       }
 
-      return tx.repayment.create({
+      const createdRepayment = await tx.repayment.create({
         data: {
           repaymentNo: genRepaymentNo(),
           planId: input.planId,
@@ -246,6 +246,20 @@ export async function POST(req: Request) {
           remark: input.remark ?? null,
         },
       });
+      await writeAuditLogInTransaction(tx, {
+        userId: session.sub,
+        action: "repay_register",
+        entityType: "repayment",
+        entityId: createdRepayment.id,
+        newValue: {
+          repaymentNo: createdRepayment.repaymentNo,
+          amount: Number(createdRepayment.amount),
+          planId: createdRepayment.planId,
+          status: createdRepayment.status,
+        },
+        changeSummary: "财务登记还款",
+      });
+      return createdRepayment;
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "";
@@ -263,20 +277,6 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ error: "还款登记失败" }, { status: 500 });
   }
-
-  await writeAuditLog({
-    userId: session.sub,
-    action: "repay_register",
-    entityType: "repayment",
-    entityId: created.id,
-    newValue: {
-      repaymentNo: created.repaymentNo,
-      amount: Number(created.amount),
-      planId: created.planId,
-      status: created.status,
-    },
-    changeSummary: "财务登记还款",
-  }).catch((e) => console.error("[AuditLog] repayment-create", e));
 
   const result = {
     id: created.id,

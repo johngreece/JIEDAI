@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isSuperAdmin } from "@/lib/auth";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -127,23 +127,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
 
+    await writeAuditLogInTransaction(tx, {
+      userId: session.sub,
+      action: "confirm",
+      entityType: "capital_inflow",
+      entityId: inflow.id,
+      newValue: {
+        fundAccountId: id,
+        amount: Number(inflow.amount),
+        channel: inflow.channel,
+        status: inflow.status,
+        balanceAfter: Number(ledgerResult.account.balance),
+      },
+      changeSummary: "Create and immediately confirm capital inflow from admin portal",
+    });
+
     return { inflow, accountUpdate: ledgerResult.account };
   });
-
-  await writeAuditLog({
-    userId: session.sub,
-    action: "confirm",
-    entityType: "capital_inflow",
-    entityId: result.inflow.id,
-    newValue: {
-      fundAccountId: id,
-      amount: Number(result.inflow.amount),
-      channel: result.inflow.channel,
-      status: result.inflow.status,
-      balanceAfter: Number(result.accountUpdate.balance),
-    },
-    changeSummary: "Create and immediately confirm capital inflow from admin portal",
-  }).catch((error) => console.error("[AuditLog] capital-inflow-direct-confirm", error));
 
   const responseBody = {
     inflow: {

@@ -64,7 +64,11 @@ export async function PATCH(req: NextRequest) {
         `你的提现申请 ${money(result.amount)} 已通过审核，资金账户已完成出账登记。`,
       ).catch((error) => console.error("[FunderWithdrawal] approve notification", error));
     } else {
-      result = await FunderInterestService.rejectWithdrawal(withdrawalId, reason || "管理员拒绝");
+      result = await FunderInterestService.rejectWithdrawal(
+        withdrawalId,
+        session.sub,
+        reason || "管理员拒绝",
+      );
       await FunderNotificationService.send(
         result.funderId,
         "WITHDRAWAL_REJECTED",

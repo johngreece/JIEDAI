@@ -1,5 +1,8 @@
 import type { LoanApplication, Prisma } from "@prisma/client";
-import type { AuditAction } from "@/lib/audit";
+import {
+  writeAuditLogInTransaction,
+  type AuditAction,
+} from "@/lib/audit";
 import {
   assertLoanTransition,
   type LoanAction,
@@ -22,7 +25,7 @@ export async function transitionLoanApplication(
     from: string;
     to: LoanStatus;
     action: LoanAction;
-    operatorId: string;
+    operatorId?: string;
     auditAction: AuditAction;
     changeSummary: string;
     data?: Prisma.LoanApplicationUpdateManyMutationInput;
@@ -52,17 +55,17 @@ export async function transitionLoanApplication(
     where: { id: input.applicationId },
   });
 
-  await tx.auditLog.create({
-    data: {
+  if (input.operatorId) {
+    await writeAuditLogInTransaction(tx, {
       userId: input.operatorId,
       action: input.auditAction,
       entityType: "loan_application",
       entityId: input.applicationId,
-      oldValue: JSON.stringify({ status: input.from, ...input.auditOldValue }),
-      newValue: JSON.stringify({ status: input.to, ...input.auditNewValue }),
+      oldValue: { status: input.from, ...input.auditOldValue },
+      newValue: { status: input.to, ...input.auditNewValue },
       changeSummary: input.changeSummary,
-    },
-  });
+    });
+  }
 
   return updated;
 }

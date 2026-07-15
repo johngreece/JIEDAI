@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
 
 export const dynamic = "force-dynamic";
@@ -175,24 +176,22 @@ export async function DELETE(
         throw new Error("DISBURSEMENT_STATUS_CHANGED");
       }
 
-      await tx.auditLog.create({
-        data: {
-          userId: session.sub,
-          action: "cancel",
-          entityType: "disbursement",
-          entityId: id,
-          oldValue: JSON.stringify({
-            disbursementNo: disbursement.disbursementNo,
-            status: disbursement.status,
-            amount: Number(disbursement.amount),
-            applicationNo: disbursement.application.applicationNo,
-          }),
-          newValue: JSON.stringify({
-            status: "CANCELLED",
-            applicationStatus: disbursement.application.status,
-          }),
-          changeSummary: "Cancel pending disbursement before payment",
+      await writeAuditLogInTransaction(tx, {
+        userId: session.sub,
+        action: "cancel",
+        entityType: "disbursement",
+        entityId: id,
+        oldValue: {
+          disbursementNo: disbursement.disbursementNo,
+          status: disbursement.status,
+          amount: Number(disbursement.amount),
+          applicationNo: disbursement.application.applicationNo,
         },
+        newValue: {
+          status: "CANCELLED",
+          applicationStatus: disbursement.application.status,
+        },
+        changeSummary: "Cancel pending disbursement before payment",
       });
     });
   } catch (error) {

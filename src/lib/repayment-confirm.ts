@@ -7,7 +7,7 @@
  */
 
 import { Prisma } from "@prisma/client";
-import { writeAuditLog } from "./audit";
+import { writeAuditLogInTransaction } from "./audit";
 import { prisma } from "./prisma";
 import { recordRepaymentLedger } from "@/services/ledger.service";
 import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
@@ -203,18 +203,20 @@ export async function settleRepaymentReceipt(params: {
         },
       });
 
-      return tx.repayment.findUniqueOrThrow({ where: { id: params.repaymentId } });
+      const rejected = await tx.repayment.findUniqueOrThrow({
+        where: { id: params.repaymentId },
+      });
+      await writeAuditLogInTransaction(tx, {
+        userId: params.operatorId,
+        action: "confirm",
+        entityType: "repayment",
+        entityId: params.repaymentId,
+        oldValue: { status: repayment.status },
+        newValue: { status: rejected.status, rejectReason: params.rejectReason || null },
+        changeSummary: "管理端确认未收到该笔还款",
+      });
+      return rejected;
     });
-
-    await writeAuditLog({
-      userId: params.operatorId,
-      action: "confirm",
-      entityType: "repayment",
-      entityId: params.repaymentId,
-      oldValue: { status: repayment.status },
-      newValue: { status: rejected.status, rejectReason: params.rejectReason || null },
-      changeSummary: "管理端确认未收到该笔还款",
-    }).catch(() => undefined);
 
     await InAppNotificationService.notifyCustomer({
       customerId: application.customerId,
@@ -406,24 +408,24 @@ export async function settleRepaymentReceipt(params: {
       });
     }
 
+    await writeAuditLogInTransaction(tx, {
+      userId: params.operatorId,
+      action: "confirm",
+      entityType: "repayment",
+      entityId: params.repaymentId,
+      oldValue: { status: repayment.status },
+      newValue: {
+        status: received.status,
+        principalPart: Number(repayment.principalPart),
+        interestPart: Number(repayment.interestPart),
+        feePart: Number(repayment.feePart),
+        penaltyPart: Number(repayment.penaltyPart),
+      },
+      changeSummary: "管理端确认该笔还款已经到账",
+    });
+
     return received;
   });
-
-  await writeAuditLog({
-    userId: params.operatorId,
-    action: "confirm",
-    entityType: "repayment",
-    entityId: params.repaymentId,
-    oldValue: { status: repayment.status },
-    newValue: {
-      status: updated.status,
-      principalPart: Number(repayment.principalPart),
-      interestPart: Number(repayment.interestPart),
-      feePart: Number(repayment.feePart),
-      penaltyPart: Number(repayment.penaltyPart),
-    },
-    changeSummary: "管理端确认该笔还款已经到账",
-  }).catch(() => undefined);
 
   await InAppNotificationService.notifyCustomer({
     customerId: application.customerId,

@@ -71,6 +71,21 @@ describe("loan transition service", () => {
     expect(raw.auditLog.create).not.toHaveBeenCalled();
   });
 
+  it("uses domain evidence instead of AuditLog for non-user portal actors", async () => {
+    const { tx, raw } = fakeTransaction();
+
+    await transitionLoanApplication(tx, {
+      applicationId: "loan-1",
+      from: "APPROVED",
+      to: "CONTRACTED",
+      action: "SIGN_CONTRACT",
+      auditAction: "sign",
+      changeSummary: "Main contract signed with signature evidence",
+    });
+
+    expect(raw.auditLog.create).not.toHaveBeenCalled();
+  });
+
   it("rejects an illegal transition before touching the database", async () => {
     const { tx, raw } = fakeTransaction();
 

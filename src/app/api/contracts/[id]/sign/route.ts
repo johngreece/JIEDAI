@@ -214,27 +214,12 @@ export async function POST(
         },
       });
 
-      await tx.auditLog.create({
-        data: {
-          userId: session.sub,
-          action: "sign",
-          entityType: "contract",
-          entityId: contractId,
-          oldValue: JSON.stringify({ status: contract.status }),
-          newValue: JSON.stringify({ status: "SIGNED", signedAt: now.toISOString() }),
-          changeSummary: "Customer signed main contract",
-          ipAddress: ip,
-          userAgent: deviceInfo,
-        },
-      });
-
       if (contract.contractType === "MAIN") {
         await transitionLoanApplication(tx, {
           applicationId: contract.applicationId,
           from: contract.application.status,
           to: "CONTRACTED",
           action: "SIGN_CONTRACT",
-          operatorId: session.sub,
           auditAction: "sign",
           changeSummary: "Main contract signed",
           auditNewValue: { contractId },

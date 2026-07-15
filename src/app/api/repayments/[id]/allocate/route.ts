@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import { checkIdempotencyKey, getScopedIdempotencyKey, saveIdempotencyResult } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
@@ -365,7 +365,30 @@ export async function POST(
           })),
         });
 
-        return tx.repayment.findUniqueOrThrow({ where: { id } });
+        const updatedRepayment = await tx.repayment.findUniqueOrThrow({ where: { id } });
+        await writeAuditLogInTransaction(tx, {
+          userId: session.sub,
+          action: "update",
+          entityType: "repayment",
+          entityId: id,
+          oldValue: {
+            status: repayment.status,
+            principalPart: Number(repayment.principalPart),
+            interestPart: Number(repayment.interestPart),
+            feePart: Number(repayment.feePart),
+            penaltyPart: Number(repayment.penaltyPart),
+          },
+          newValue: {
+            status: updatedRepayment.status,
+            principalPart: Number(updatedRepayment.principalPart),
+            interestPart: Number(updatedRepayment.interestPart),
+            feePart: Number(updatedRepayment.feePart),
+            penaltyPart: Number(updatedRepayment.penaltyPart),
+            allocatedTotal,
+          },
+          changeSummary: "还款分配完成，进入待客户确认付款状态",
+        });
+        return updatedRepayment;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     );
@@ -397,29 +420,6 @@ export async function POST(
     console.error("[repayment-allocate]", error);
     return NextResponse.json({ error: "还款分配失败" }, { status: 500 });
   }
-
-  await writeAuditLog({
-    userId: session.sub,
-    action: "update",
-    entityType: "repayment",
-    entityId: id,
-    oldValue: {
-      status: repayment.status,
-      principalPart: Number(repayment.principalPart),
-      interestPart: Number(repayment.interestPart),
-      feePart: Number(repayment.feePart),
-      penaltyPart: Number(repayment.penaltyPart),
-    },
-    newValue: {
-      status: updated.status,
-      principalPart: Number(updated.principalPart),
-      interestPart: Number(updated.interestPart),
-      feePart: Number(updated.feePart),
-      penaltyPart: Number(updated.penaltyPart),
-      allocatedTotal,
-    },
-    changeSummary: "还款分配完成，进入待客户确认付款状态",
-  }).catch(() => undefined);
 
   const responseBody = {
     id: updated.id,

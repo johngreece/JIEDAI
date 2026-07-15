@@ -2,7 +2,7 @@ import Decimal from "decimal.js";
 import { Prisma } from "@prisma/client";
 import { addDays, buildCalendarMonthCycles, diffDaysPrecise } from "@/lib/calendar-period";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
+import { writeAuditLogInTransaction } from "@/lib/audit";
 import {
   FUNDER_COOPERATION_LABELS,
   getFunderCycleDays,
@@ -551,34 +551,39 @@ export class FunderInterestSettlementService {
           throw new Error("收益结算单状态已变化，请刷新后重试");
         }
 
-        return tx.funderInterestSettlement.findUniqueOrThrow({
+        const paid = await tx.funderInterestSettlement.findUniqueOrThrow({
           where: { id: settlementId },
         });
+        await writeAuditLogInTransaction(tx, {
+          userId: operatorId,
+          action: "confirm",
+          entityType: "funder_interest_settlement",
+          entityId: settlement.id,
+          oldValue: {
+            status: settlement.status,
+            remark: settlement.remark,
+            rejectReason: settlement.rejectReason,
+          },
+          newValue: {
+            status: paid.status,
+            paidAt: paidAt.toISOString(),
+            remark: paymentRemark,
+          },
+          changeSummary: "平台标记资金方收益已打款",
+        });
+        return paid;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
-    await Promise.all([
-      FunderNotificationService.send(
-        settlement.funderId,
-        "FUNDER_INTEREST_PAID",
-        "收益已打款，请确认",
-        `结算单 ${settlement.settlementNo} 已由平台标记为已打款，金额 ${money(Number(settlement.interestAmount))}。打款备注：${paymentRemark}。收到后请进入收益结算页确认。`,
-      ),
-      writeAuditLog({
-        userId: operatorId,
-        action: "confirm",
-        entityType: "funder_interest_settlement",
-        entityId: settlement.id,
-        oldValue: {
-          status: settlement.status,
-          remark: settlement.remark,
-          rejectReason: settlement.rejectReason,
-        },
-        newValue: { status: updated.status, paidAt: paidAt.toISOString(), remark: paymentRemark },
-        changeSummary: "平台标记资金方收益已打款",
-      }).catch(() => undefined),
-    ]);
+    await FunderNotificationService.send(
+      settlement.funderId,
+      "FUNDER_INTEREST_PAID",
+      "收益已打款，请确认",
+      `结算单 ${settlement.settlementNo} 已由平台标记为已打款，金额 ${money(Number(settlement.interestAmount))}。打款备注：${paymentRemark}。收到后请进入收益结算页确认。`,
+    ).catch((error) => {
+      console.error("Failed to notify funder about paid interest settlement", error);
+    });
 
     return serializeSettlement(updated);
   }
