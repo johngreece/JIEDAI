@@ -17,8 +17,28 @@ export async function GET(
   }
 
   const { id } = await params;
-  const repayment = await prisma.repayment.findUnique({
-    where: { id },
+  let ownedApplicationIds: string[] | null = null;
+  if (session.portal === "admin") {
+    const adminSession = await requirePermission(["repayment:view"]);
+    if (adminSession instanceof Response) return adminSession;
+  } else if (session.portal === "client") {
+    const activeClientSession = await ensureActiveClientSession(session);
+    if (activeClientSession instanceof Response) return activeClientSession;
+
+    const ownedApplications = await prisma.loanApplication.findMany({
+      where: { customerId: session.sub, deletedAt: null },
+      select: { id: true },
+    });
+    ownedApplicationIds = ownedApplications.map((application) => application.id);
+  } else {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const repayment = await prisma.repayment.findFirst({
+    where:
+      ownedApplicationIds === null
+        ? { id }
+        : { id, plan: { applicationId: { in: ownedApplicationIds } } },
     select: {
       id: true,
       repaymentNo: true,
@@ -26,11 +46,6 @@ export async function GET(
       status: true,
       matchComment: true,
       updatedAt: true,
-      plan: {
-        select: {
-          applicationId: true,
-        },
-      },
       confirmation: {
         select: {
           status: true,
@@ -43,28 +58,6 @@ export async function GET(
 
   if (!repayment) {
     return NextResponse.json({ error: "Repayment not found" }, { status: 404 });
-  }
-
-  if (session.portal === "admin") {
-    const adminSession = await requirePermission(["repayment:view"]);
-    if (adminSession instanceof Response) return adminSession;
-  } else if (session.portal === "client") {
-    const activeClientSession = await ensureActiveClientSession(session);
-    if (activeClientSession instanceof Response) return activeClientSession;
-
-    const ownedApplication = await prisma.loanApplication.findFirst({
-      where: {
-        id: repayment.plan.applicationId,
-        customerId: session.sub,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (!ownedApplication) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-  } else {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   return NextResponse.json({

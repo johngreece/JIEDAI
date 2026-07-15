@@ -13,8 +13,11 @@ export async function POST(
 
   const { id } = await params;
 
-  const disbursement = await prisma.disbursement.findUnique({
-    where: { id },
+  const disbursement = await prisma.disbursement.findFirst({
+    where: {
+      id,
+      application: { customerId: session.sub, deletedAt: null },
+    },
     include: {
       application: {
         select: { id: true, customerId: true },
@@ -53,7 +56,12 @@ export async function POST(
   };
 
   const claimed = await prisma.disbursement.updateMany({
-    where: { id, status: "PAID", customerConfirmedAt: null },
+    where: {
+      id,
+      status: "PAID",
+      customerConfirmedAt: null,
+      application: { customerId: session.sub, deletedAt: null },
+    },
     data: {
       status: "CONFIRMED",
       customerConfirmIp: ip,
@@ -69,7 +77,12 @@ export async function POST(
     );
   }
 
-  const updated = await prisma.disbursement.findUniqueOrThrow({ where: { id } });
+  const updated = await prisma.disbursement.findFirstOrThrow({
+    where: {
+      id,
+      application: { customerId: session.sub, deletedAt: null },
+    },
+  });
 
   return NextResponse.json({
     ok: true,

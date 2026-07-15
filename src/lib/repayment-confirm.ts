@@ -55,30 +55,20 @@ export async function confirmRepayment(params: {
   ipAddress: string;
   deviceInfo?: string;
 }) {
-  const repayment = await prisma.repayment.findUnique({
-    where: { id: params.repaymentId },
+  const ownedApplications = await prisma.loanApplication.findMany({
+    where: { customerId: params.customerId, deletedAt: null },
+    select: { id: true },
+  });
+  const ownedApplicationIds = ownedApplications.map((application) => application.id);
+  const repayment = await prisma.repayment.findFirst({
+    where: {
+      id: params.repaymentId,
+      plan: { applicationId: { in: ownedApplicationIds } },
+    },
   });
 
   if (!repayment) {
     throw new Error("Repayment not found");
-  }
-
-  const plan = await prisma.repaymentPlan.findUnique({
-    where: { id: repayment.planId },
-    select: {
-      applicationId: true,
-    },
-  });
-
-  const applicationOwner = plan
-    ? await prisma.loanApplication.findUnique({
-        where: { id: plan.applicationId },
-        select: { customerId: true },
-      })
-    : null;
-
-  if (!plan || !applicationOwner || applicationOwner.customerId !== params.customerId) {
-    throw new Error("You cannot confirm this repayment");
   }
 
   const targetStatus: RepaymentStatus =
@@ -115,8 +105,12 @@ export async function confirmRepayment(params: {
       },
     });
 
-    await tx.repayment.update({
-      where: { id: params.repaymentId },
+    const claimed = await tx.repayment.updateMany({
+      where: {
+        id: params.repaymentId,
+        status: repayment.status,
+        plan: { applicationId: { in: ownedApplicationIds } },
+      },
       data: {
         status: targetStatus,
         interestFrozenAt:
@@ -133,6 +127,9 @@ export async function confirmRepayment(params: {
             : params.rejectReason || "客户未确认本次还款",
       },
     });
+    if (claimed.count !== 1) {
+      throw new Error("Repayment status changed, please refresh and retry");
+    }
   });
 
 }

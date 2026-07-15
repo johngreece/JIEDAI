@@ -6,6 +6,7 @@
  */
 
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { getSession } from "@/lib/auth";
 import { ensureActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
@@ -40,8 +41,22 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const application = await prisma.loanApplication.findUnique({
-    where: { id },
+  let applicationWhere: Prisma.LoanApplicationWhereInput;
+  if (session.portal === "funder") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (session.portal === "admin") {
+    const permission = await requirePermission(["loan:view"]);
+    if (permission instanceof Response) return permission;
+    applicationWhere = { id, deletedAt: null };
+  } else {
+    const activeClientSession = await ensureActiveClientSession(session);
+    if (activeClientSession instanceof Response) return activeClientSession;
+    applicationWhere = { id, customerId: session.sub, deletedAt: null };
+  }
+
+  const application = await prisma.loanApplication.findFirst({
+    where: applicationWhere,
     include: {
       product: {
         include: {
@@ -60,25 +75,10 @@ export async function GET(
     return NextResponse.json({ error: "借款申请不存在" }, { status: 404 });
   }
 
-  if (session.portal === "client") {
-    const activeClientSession = await ensureActiveClientSession(session);
-    if (activeClientSession instanceof Response) return activeClientSession;
-
-    if (application.customerId !== session.sub) {
-      return NextResponse.json({ error: "无权查看该借款的实时还款信息" }, { status: 403 });
-    }
-  }
-
-  if (session.portal === "admin") {
-    const permission = await requirePermission(["loan:view"]);
-    if (permission instanceof Response) return permission;
-  }
-
-  if (session.portal === "funder") {
-    return NextResponse.json({ error: "资金端无权查看客户实时还款明细" }, { status: 403 });
-  }
-
-  if (!application.disbursement || application.disbursement.status !== "PAID") {
+  if (
+    !application.disbursement ||
+    !["PAID", "CONFIRMED"].includes(application.disbursement.status)
+  ) {
     return NextResponse.json({
       error: "尚未放款或放款未确认",
       status: application.status,
@@ -93,7 +93,7 @@ export async function GET(
 
   // 尝试从还款计划快照中获取配置
   const plan = await prisma.repaymentPlan.findFirst({
-    where: { applicationId: id, status: "ACTIVE" },
+    where: { applicationId: application.id, status: "ACTIVE" },
     select: { id: true, rulesSnapshotJson: true },
   });
   const repaymentFreeze = plan
@@ -118,7 +118,7 @@ export async function GET(
       })
     : null;
   const overdueRecord = await prisma.overdueRecord.findFirst({
-    where: { applicationId: id, status: "OVERDUE" },
+    where: { applicationId: application.id, status: "OVERDUE" },
     orderBy: { createdAt: "desc" },
     select: { overdueFeeDetail: true },
   });

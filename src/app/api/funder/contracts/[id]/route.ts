@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * 获取合同详情
  */
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const funderSession = await getFunderSession();
@@ -24,7 +24,9 @@ export async function GET(
   if (adminSession instanceof Response) return adminSession;
 
   const { id } = await params;
-  const contract = await FunderContractService.get(id);
+  const contract = funderSession
+    ? await FunderContractService.getForFunder(id, funderSession.sub)
+    : await FunderContractService.get(id);
   if (!contract) {
     return NextResponse.json({ error: "合同不存在" }, { status: 404 });
   }

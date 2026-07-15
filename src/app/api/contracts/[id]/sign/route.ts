@@ -67,8 +67,8 @@ export async function POST(
     return NextResponse.json({ error: "请先完成关键条款确认" }, { status: 400 });
   }
 
-  const contract = await prisma.contract.findUnique({
-    where: { id: contractId },
+  const contract = await prisma.contract.findFirst({
+    where: { id: contractId, customerId: session.sub, deletedAt: null },
     include: {
       application: {
         select: { status: true },
@@ -187,7 +187,12 @@ export async function POST(
   try {
     await prisma.$transaction(async (tx) => {
       const claimed = await tx.contract.updateMany({
-        where: { id: contractId, status: contract.status },
+        where: {
+          id: contractId,
+          customerId: session.sub,
+          deletedAt: null,
+          status: contract.status,
+        },
         data: { status: "SIGNED", signedAt: now, content: signedContent },
       });
       if (claimed.count !== 1) {

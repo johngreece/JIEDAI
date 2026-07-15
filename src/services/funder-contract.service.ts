@@ -240,8 +240,14 @@ export class FunderContractService {
    * 获取单个合同详情
    */
   static async get(contractId: string) {
-    return prisma.funderContract.findUniqueOrThrow({
+    return prisma.funderContract.findUnique({
       where: { id: contractId },
+    });
+  }
+
+  static async getForFunder(contractId: string, funderId: string) {
+    return prisma.funderContract.findFirst({
+      where: { id: contractId, funderId },
     });
   }
 }
