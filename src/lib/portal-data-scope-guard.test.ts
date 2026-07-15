@@ -86,4 +86,20 @@ describe("portal object data scope guard", () => {
     expect(service).toContain("static async getForFunder(contractId: string, funderId: string)");
     expect(service).toContain("where: { id: contractId, funderId }");
   });
+
+  it("authorizes private KYC and capital-inflow proof downloads by object ownership", () => {
+    const customerDocument = readSource(
+      "src/app/api/customer-documents/[id]/file/route.ts",
+    );
+    const attachment = readSource("src/app/api/attachments/[id]/file/route.ts");
+
+    expect(customerDocument).toContain('requirePermission(["customer:view"])');
+    expect(customerDocument).toContain("customerId: session.sub");
+    expect(customerDocument).toContain("ensureActiveClientSession(session)");
+
+    expect(attachment).toContain('requirePermission(["ledger:view"])');
+    expect(attachment).toContain("ensureActiveFunderSession(session)");
+    expect(attachment).toContain("fundAccount: { funderId: session.sub }");
+    expect(attachment).toContain('entityType: "capital_inflow"');
+  });
 });

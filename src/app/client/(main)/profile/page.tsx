@@ -31,6 +31,7 @@ type DocumentItem = {
   kycType: string;
   label: string;
   documentUrl: string | null;
+  mimeType: string | null;
   status: string;
   remark: string | null;
   createdAt: string;
@@ -377,14 +378,14 @@ export default function ClientProfilePage() {
                   {isMissing ? <span className="text-xs font-semibold text-amber-700">待处理</span> : null}
                 </div>
 
-                {document?.documentUrl?.startsWith("data:image") ? (
+                {document?.documentUrl && document.mimeType?.startsWith("image/") ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={document.documentUrl}
                     alt={docType.label}
                     className="mt-3 h-32 w-full rounded-lg border border-slate-200 object-cover"
                   />
-                ) : document?.documentUrl?.startsWith("data:application/pdf") ? (
+                ) : document?.documentUrl && document.mimeType === "application/pdf" ? (
                   <div className="mt-3 flex h-32 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500">
                     PDF 文件
                   </div>

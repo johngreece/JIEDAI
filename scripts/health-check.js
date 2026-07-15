@@ -43,6 +43,9 @@ const REQUIRED_ENV = [
   ["JWT_SECRET", "JWT 签名密钥（非默认值）"],
   ["CRON_SECRET", "四个 cron 路由强校验密钥"],
   ["ALLOWED_ORIGINS", "CORS 白名单，逗号分隔"],
+  ["NEXT_PUBLIC_SUPABASE_URL", "Supabase Storage API 地址"],
+  ["SUPABASE_SERVICE_ROLE_KEY", "私有文件服务端访问密钥"],
+  ["SUPABASE_STORAGE_BUCKET", "私有证件和资金凭证 bucket"],
 ];
 
 const FORBIDDEN_JWT = "loan-system-secret-change-in-production";
@@ -63,6 +66,12 @@ async function checkEnv() {
       allOk = false;
     } else if (key === "JWT_SECRET" && value === FORBIDDEN_JWT) {
       record(`env.${key}`, false, "仍是默认占位值，应用启动时会 throw");
+      allOk = false;
+    } else if (
+      ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"].includes(key) &&
+      (/\[[A-Z-]+\]/i.test(value) || value.includes("eyJhbGci..."))
+    ) {
+      record(`env.${key}`, false, "仍是示例占位值");
       allOk = false;
     } else {
       record(`env.${key}`, true);
@@ -180,6 +189,9 @@ function runCmd(label, cmd) {
   }
   if (failed.some((f) => f.name === "prisma.client")) {
     console.log("  • Prisma client 失效：npx prisma generate");
+  }
+  if (failed.some((f) => f.name.startsWith("env.SUPABASE_") || f.name === "env.NEXT_PUBLIC_SUPABASE_URL")) {
+    console.log("  • 补齐 Supabase Storage 配置后执行：npm run storage:ensure");
   }
   process.exit(1);
 })();

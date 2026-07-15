@@ -22,6 +22,7 @@
 8. **Supabase 是生产数据唯一来源** — Vercel、GitHub Actions 和本地环境都只通过受控连接访问，不建立第二套业务数据库。
 9. **免费层调度按每日维护设计** — 定时任务集中为每日一次、可重复执行的维护链；紧急操作保留后台手动触发。
 10. **免费层无托管备份必须由系统补位** — 至少每周生成加密数据库备份，并定期做恢复演练。
+11. **大文件不进入 PostgreSQL** — 客户证件和资金凭证保存到 Supabase 私有 Storage，数据库只保存引用，读取必须经过对象级授权。
 
 ## 2. 架构原则
 
@@ -34,6 +35,7 @@
 7. **迁移连接使用 direct 或 Supavisor session pooler** — 验证：部署前迁移命令能从 CI 网络连接并完成。
 8. **所有主分支变更必须通过静态检查、单测和构建** — 验证：GitHub 分支保护要求 CI 成功。
 9. **免费层容量有明确红线** — 验证：数据库大小、存储、函数调用和备份结果进入月度运维检查表。
+10. **私有文件存储与业务授权分离** — 验证：Storage bucket 不公开，浏览器只访问本系统受保护下载路由，旧 Base64 仅允许迁出和兼容读取。
 
 ## 3. 目标模块图
 
@@ -42,6 +44,7 @@
 | System Configuration | EUR、时区、格式和运行约束 | 代码配置 | 无 | add |
 | Identity & RBAC | 三端会话、角色、权限与归属校验 | User、Role、Permission、会话 | Customer、Funder | keep |
 | Customer & KYC | 客户资料和内部准入资料 | Customer、CustomerKyc | LoanApplication | keep |
+| Private File Storage | 私有证件/凭证对象、兼容迁移和授权读取 | Supabase Storage object | CustomerKyc、Attachment | add |
 | Loan Lifecycle | 申请、风控、审批及统一状态迁移 | LoanApplication、LoanApproval | Customer、Product | rebuild |
 | Contract & Internal Signature | 合同生成、签字和证据快照 | Contract、Signature | LoanApplication、Customer | keep |
 | Disbursement | 放款申请、支付与客户确认 | Disbursement | Contract、FundAccount | keep |
@@ -151,6 +154,7 @@
 6. 建立免费层加密备份、恢复演练和容量检查 — depends on: move 2。
 7. 统一三端金额、状态、错误和操作反馈 — depends on: moves 1 and 3。
 8. 以真实 Supabase 数据跑完整三端 E2E 并形成上线基线 — depends on: moves 2, 5, 6, 7。
+9. 创建私有 Storage bucket 并迁出历史 Base64 证件/凭证 — depends on: move 2；代码链路已完成，生产执行待真实 Supabase 凭据。
 
 ## 7. 目标摘要
 

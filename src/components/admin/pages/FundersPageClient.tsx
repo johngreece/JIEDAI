@@ -583,7 +583,8 @@ function AccountManager({
                     {recentInflows[account.id]?.length ? (
                       <div className="mt-2 space-y-2">
                         {recentInflows[account.id].slice(0, 5).map((item) => {
-                          const proofNames = item.proofs?.map((proof) => proof.fileName).filter(Boolean).join(", ");
+                          const proofs = item.proofs ?? [];
+                          const proofNames = proofs.map((proof) => proof.fileName).filter(Boolean).join(", ");
                           const isPending = item.status === "PENDING";
                           const isConfirmed = item.status === "CONFIRMED";
                           const isBusy = deletingInflowId === item.id || reviewingInflowId === item.id;
@@ -600,7 +601,24 @@ function AccountManager({
                               </div>
                               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                                 <span className="max-w-full truncate text-slate-400" title={proofNames || item.remark || undefined}>
-                                  {proofNames ? `凭证：${proofNames}` : item.remark || "无凭证文件名"}
+                                  {proofs.length > 0 ? (
+                                    <>
+                                      凭证：
+                                      {proofs.map((proof, index) => (
+                                        <span key={proof.id}>
+                                          {index > 0 ? ", " : ""}
+                                          <a
+                                            href={proof.fileUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-blue-600 hover:underline"
+                                          >
+                                            {proof.fileName}
+                                          </a>
+                                        </span>
+                                      ))}
+                                    </>
+                                  ) : item.remark || "无凭证文件名"}
                                 </span>
                                 <div className="flex flex-wrap items-center gap-2">
                                   {isPending ? (

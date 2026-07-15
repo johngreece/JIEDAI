@@ -15,6 +15,7 @@ interface Document {
   kycType: string;
   label: string;
   documentUrl: string | null;
+  mimeType: string | null;
   status: string;
   remark: string | null;
   createdAt: string;
@@ -170,7 +171,7 @@ export default function DocumentsPage() {
               </div>
 
               {/* Preview */}
-              {doc?.documentUrl && doc.documentUrl.startsWith("data:image") && (
+              {doc?.documentUrl && doc.mimeType?.startsWith("image/") && (
                 <div className="mb-3 overflow-hidden rounded-lg border bg-slate-50">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
@@ -181,7 +182,7 @@ export default function DocumentsPage() {
                 </div>
               )}
 
-              {doc?.documentUrl && doc.documentUrl.startsWith("data:application/pdf") && (
+              {doc?.documentUrl && doc.mimeType === "application/pdf" && (
                 <div className="mb-3 flex h-32 items-center justify-center rounded-lg border bg-slate-50 text-slate-400">
                   <div className="text-center">
                     <svg className="mx-auto h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">

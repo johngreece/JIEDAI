@@ -3,7 +3,12 @@ import { z } from "zod";
 import { formatMoney as money } from "@/lib/system-config";
 import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { requireActiveFunderSession } from "@/lib/portal-session";
-import { fileToDataUrl, createProofAttachment } from "@/lib/proof-attachment";
+import {
+  createProofAttachment,
+  serializeProofAttachment,
+  storeProofFile,
+} from "@/lib/proof-attachment";
+import { deletePrivateFile, privateStorageErrorResponse } from "@/lib/private-file-storage";
 import { prisma } from "@/lib/prisma";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
 
@@ -15,7 +20,12 @@ const inflowSchema = z.object({
   channel: z.string().trim().min(1).default("BANK_TRANSFER"),
   inflowDate: z.string().datetime().optional(),
   remark: z.string().trim().max(500).optional(),
-  proofUrl: z.string().trim().min(1).optional(),
+  proofUrl: z
+    .string()
+    .trim()
+    .url("凭证链接格式不正确")
+    .refine((value) => value.startsWith("https://"), "凭证链接必须使用 HTTPS")
+    .optional(),
   proofFileName: z.string().trim().max(160).optional(),
   proofMimeType: z.string().trim().max(100).optional(),
 });
@@ -142,7 +152,7 @@ export async function GET(req: NextRequest) {
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       fundAccount: item.fundAccount,
-      proofs: proofsByInflowId.get(item.id) ?? [],
+      proofs: (proofsByInflowId.get(item.id) ?? []).map(serializeProofAttachment),
     })),
   });
 }
@@ -189,6 +199,8 @@ export async function POST(req: NextRequest) {
   if (!account) {
     return NextResponse.json({ error: "资金账户不存在或不属于当前资金方" }, { status: 404 });
   }
+  const accountId = account.id;
+  const funderId = session.sub;
 
   let fileUrl = input.proofUrl ?? "";
   let fileName = input.proofFileName || "capital-inflow-proof";
@@ -197,42 +209,52 @@ export async function POST(req: NextRequest) {
 
   if (proofFile) {
     try {
-      fileUrl = await fileToDataUrl(proofFile);
+      fileUrl = await storeProofFile(proofFile, `funders/${session.sub}/inflows`);
       fileName = proofFile.name || fileName;
       fileSize = proofFile.size;
       mimeType = proofFile.type || "application/octet-stream";
     } catch (error) {
-      return NextResponse.json({ error: error instanceof Error ? error.message : "凭证文件无效" }, { status: 400 });
+      return privateStorageErrorResponse(error, "凭证上传失败");
     }
   }
 
   const inflowDate = input.inflowDate ? new Date(input.inflowDate) : new Date();
 
-  const result = await prisma.$transaction(async (tx) => {
-    const inflow = await tx.capitalInflow.create({
-      data: {
-        fundAccountId: account.id,
-        amount: input.amount,
-        channel: input.channel,
-        inflowDate,
-        status: "PENDING",
-        remark: input.remark ?? "资金方自助提交入金申请，待后台确认到账",
-      },
-    });
+  let result: Awaited<ReturnType<typeof createInflow>>;
+  async function createInflow() {
+    return prisma.$transaction(async (tx) => {
+      const inflow = await tx.capitalInflow.create({
+        data: {
+          fundAccountId: accountId,
+          amount: input.amount,
+          channel: input.channel,
+          inflowDate,
+          status: "PENDING",
+          remark: input.remark ?? "资金方自助提交入金申请，待后台确认到账",
+        },
+      });
 
-    const proof = await createProofAttachment(tx, {
-      entityType: "capital_inflow",
-      entityId: inflow.id,
-      fileName,
-      fileUrl,
-      fileSize,
-      mimeType,
-      uploadedBy: `funder:${session.sub}`,
-      category: "FUNDER_INFLOW_PROOF",
-    });
+      const proof = await createProofAttachment(tx, {
+        entityType: "capital_inflow",
+        entityId: inflow.id,
+        fileName,
+        fileUrl,
+        fileSize,
+        mimeType,
+        uploadedBy: `funder:${funderId}`,
+        category: "FUNDER_INFLOW_PROOF",
+      });
 
-    return { inflow, proof };
-  });
+      return { inflow, proof };
+    });
+  }
+
+  try {
+    result = await createInflow();
+  } catch (error) {
+    if (proofFile) await deletePrivateFile(fileUrl).catch(() => undefined);
+    throw error;
+  }
 
   await InAppNotificationService.notifyAdmins({
     type: "FUNDER_CAPITAL_INFLOW_REQUESTED",
@@ -245,7 +267,7 @@ export async function POST(req: NextRequest) {
     id: result.inflow.id,
     amount: Number(result.inflow.amount),
     status: result.inflow.status,
-    proof: result.proof,
+    proof: serializeProofAttachment(result.proof),
   };
   return NextResponse.json(responseBody, { status: 201 });
   });

@@ -183,6 +183,8 @@ M1 先消除当前免费层部署阻断，并给后续改动建立门禁；M2 �
   - [ ] `DATABASE_URL` 使用 Supavisor transaction mode 6543。
   - [ ] `DIRECT_URL` 可从迁移环境连接。
   - [ ] `npm run db:push`, `db:seed`, `db:enable-rls`, `health-check` 全通过。
+  - [ ] `npm run storage:ensure` 成功，bucket 为私有且限制文件类型/大小。
+  - [ ] `npm run storage:migrate-base64` dry-run 返回历史 Base64 数量为 0。
   - [ ] 三端测试账号可登录。
 - **Priority**: P0
 - **Size**: M  (rationale: 代码少但依赖外部项目配置和数据恢复)

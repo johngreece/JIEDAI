@@ -46,6 +46,37 @@ for (const file of sourceFiles) {
   }
 }
 
+const privateUploadFiles = [
+  "src/app/api/client/documents/route.ts",
+  "src/app/api/customers/[id]/documents/route.ts",
+  "src/lib/proof-attachment.ts",
+];
+for (const file of privateUploadFiles) {
+  const source = read(file);
+  check(!/toString\(["']base64["']\)/.test(source), `${file} must not write Base64 files into Postgres`);
+  check(!/data:\$\{[^}]+\};base64/.test(source), `${file} must not construct data URLs for new uploads`);
+}
+check(
+  read("src/app/api/client/documents/route.ts").includes("uploadPrivateFile({"),
+  "client KYC uploads must use private Supabase Storage"
+);
+check(
+  read("src/app/api/customers/[id]/documents/route.ts").includes("uploadPrivateFile({"),
+  "admin KYC uploads must use private Supabase Storage"
+);
+check(
+  read("src/lib/proof-attachment.ts").includes("uploadPrivateFile({"),
+  "financial proof uploads must use private Supabase Storage"
+);
+check(
+  read("src/app/api/customer-documents/[id]/file/route.ts").includes("customerId: session.sub"),
+  "client KYC downloads must enforce customer ownership"
+);
+check(
+  read("src/app/api/attachments/[id]/file/route.ts").includes("funderId: session.sub"),
+  "funder proof downloads must enforce funder ownership"
+);
+
 const vercelConfig = JSON.parse(read("vercel.json"));
 const crons = Array.isArray(vercelConfig.crons) ? vercelConfig.crons : [];
 check(crons.length === 1, "Vercel Hobby deployment must expose exactly one daily cron");
@@ -63,4 +94,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`System invariants passed: EUR only, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
+console.log(`System invariants passed: EUR only, private file storage enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);

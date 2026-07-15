@@ -47,6 +47,7 @@ type DocItem = {
   id: string;
   kycType: string;
   documentUrl: string;
+  mimeType: string | null;
   status: string;
   verifiedAt: string | null;
   expiresAt: string | null;
@@ -265,7 +266,13 @@ export default function CustomerDetailPage() {
   function handleDownload(doc: DocItem) {
     const link = document.createElement("a");
     link.href = doc.documentUrl;
-    const ext = doc.documentUrl.startsWith("data:application/pdf") ? "pdf" : "jpg";
+    const ext = doc.mimeType === "application/pdf"
+      ? "pdf"
+      : doc.mimeType === "image/png"
+        ? "png"
+        : doc.mimeType === "image/webp"
+          ? "webp"
+          : "jpg";
     link.download = `${data?.name ?? "客户"}_${KYC_TYPE_LABELS[doc.kycType]}.${ext}`;
     link.click();
   }
@@ -463,7 +470,7 @@ export default function CustomerDetailPage() {
               {DOC_TYPES.map((type) => {
                 const doc = getDocByType(type);
                 const isUploading = uploading === type;
-                const isPdf = doc?.documentUrl?.startsWith("data:application/pdf");
+                const isPdf = doc?.mimeType === "application/pdf";
 
                 return (
                   <div key={type} className="rounded-[1.2rem] border border-slate-200 overflow-hidden bg-white">
@@ -613,7 +620,7 @@ export default function CustomerDetailPage() {
                   </div>
                 </div>
                 <div className="overflow-auto max-h-[80vh] p-2 bg-slate-50 flex items-center justify-center">
-                  {previewDoc.documentUrl.startsWith("data:application/pdf") ? (
+                  {previewDoc.mimeType === "application/pdf" ? (
                     <iframe src={previewDoc.documentUrl} className="w-[800px] h-[75vh] border-0" title="PDF预览" />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element

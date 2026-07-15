@@ -30,6 +30,7 @@ type CapitalInflow = {
   proofs: Array<{
     id: string;
     fileName: string;
+    fileUrl: string;
     mimeType: string;
     createdAt: string;
   }>;
@@ -327,7 +328,21 @@ export default function FunderInflowsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {item.proofs.length > 0 ? item.proofs.map((proofItem) => proofItem.fileName).join(", ") : "-"}
+                        {item.proofs.length > 0
+                          ? item.proofs.map((proofItem, index) => (
+                              <span key={proofItem.id}>
+                                {index > 0 ? ", " : ""}
+                                <a
+                                  href={proofItem.fileUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-blue-600 hover:underline"
+                                >
+                                  {proofItem.fileName}
+                                </a>
+                              </span>
+                            ))
+                          : "-"}
                       </td>
                       <td className="px-4 py-3 text-slate-500">{item.remark || "-"}</td>
                     </tr>

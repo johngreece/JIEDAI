@@ -125,6 +125,7 @@ export async function GET(
   );
   const pricingQuote = buildCustomerPricingQuote(Number(data.amount), effectivePricing);
   const profileCompletion = getClientProfileCompletion(data.customer);
+  const { kyc: _privateKycDocuments, ...safeCustomer } = data.customer;
   const returnDecision = data.approvals.find((approval) =>
     ["RISK_RETURN", "APPROVAL_RETURN"].includes(approval.action),
   );
@@ -146,7 +147,7 @@ export async function GET(
     rejectedReason: data.rejectedReason,
     returnedReason: returnDecision?.comment ?? null,
     customer: {
-      ...data.customer,
+      ...safeCustomer,
       weeklyInterestRateOverride:
         data.customer.weeklyInterestRateOverride != null ? Number(data.customer.weeklyInterestRateOverride) : null,
       profileCompletion: {

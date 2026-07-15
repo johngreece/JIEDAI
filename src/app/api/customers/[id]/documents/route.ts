@@ -9,6 +9,13 @@ import {
 } from "@/lib/client-profile";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import {
+  deletePrivateFile,
+  getCustomerDocumentAccessUrl,
+  getPrivateFileContentType,
+  privateStorageErrorResponse,
+  uploadPrivateFile,
+} from "@/lib/private-file-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +83,8 @@ export async function GET(
     documents: docs.map((document) => ({
       id: document.id,
       kycType: document.kycType,
-      documentUrl: document.documentUrl,
+      documentUrl: document.documentUrl ? getCustomerDocumentAccessUrl(document.id) : null,
+      mimeType: getPrivateFileContentType(document.documentUrl),
       status: document.status,
       verifiedAt: document.verifiedAt?.toISOString() ?? null,
       expiresAt: document.expiresAt?.toISOString() ?? null,
@@ -125,76 +133,106 @@ export async function POST(
     return NextResponse.json({ error: "仅支持 JPG/PNG/WebP/PDF 格式" }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const dataUrl = `data:${file.type};base64,${buffer.toString("base64")}`;
+  let storedReference: string;
+  try {
+    storedReference = await uploadPrivateFile({
+      file,
+      pathPrefix: `customers/${id}/kyc/${kycType}`,
+      maxBytes: MAX_FILE_SIZE,
+      allowedMimeTypes: ALLOWED_TYPES,
+      label: "证件文件",
+    });
+  } catch (error) {
+    return privateStorageErrorResponse(error, "证件上传失败");
+  }
 
-  const { doc, completion } = await prisma.$transaction(async (tx) => {
-    const previous = await tx.customerKyc.findUnique({
-      where: { customerId_kycType: { customerId: id, kycType } },
-      select: { id: true, status: true, verifiedAt: true },
-    });
-    const uploaded = await tx.customerKyc.upsert({
-      where: {
-        customerId_kycType: { customerId: id, kycType },
-      },
-      create: {
-        customerId: id,
-        kycType,
-        documentUrl: dataUrl,
-        status: "UPLOADED",
-      },
-      update: {
-        documentUrl: dataUrl,
-        status: "UPLOADED",
-        verifiedAt: null,
-        expiresAt: null,
-        remark: null,
-      },
-    });
+  let result: {
+    doc: { id: string; kycType: string; status: string };
+    completion: ReturnType<typeof getClientProfileCompletion>;
+    previousDocumentUrl: string | null;
+  };
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const previous = await tx.customerKyc.findUnique({
+        where: { customerId_kycType: { customerId: id, kycType } },
+        select: { id: true, status: true, verifiedAt: true, documentUrl: true },
+      });
+      const uploaded = await tx.customerKyc.upsert({
+        where: {
+          customerId_kycType: { customerId: id, kycType },
+        },
+        create: {
+          customerId: id,
+          kycType,
+          documentUrl: storedReference,
+          status: "UPLOADED",
+        },
+        update: {
+          documentUrl: storedReference,
+          status: "UPLOADED",
+          verifiedAt: null,
+          expiresAt: null,
+          remark: null,
+        },
+      });
 
-    const updatedCustomer = await tx.customer.findFirst({
-      where: { id, deletedAt: null },
-      select: customerProfileSelect,
-    });
-    if (!updatedCustomer) throw new Error("CUSTOMER_NOT_FOUND");
+      const updatedCustomer = await tx.customer.findFirst({
+        where: { id, deletedAt: null },
+        select: customerProfileSelect,
+      });
+      if (!updatedCustomer) throw new Error("CUSTOMER_NOT_FOUND");
 
-    const nextCompletion = getClientProfileCompletion(updatedCustomer);
-    await tx.customer.update({
-      where: { id },
-      data: {
-        creditLimit: getClientBaseCreditLimit(nextCompletion),
-        profileCompletedAt: resolveProfileCompletedAt(
-          updatedCustomer,
-          nextCompletion.profileComplete
-        ),
-      },
-    });
-    await writeAuditLogInTransaction(tx, {
-      userId: session.sub,
-      action: previous ? "update" : "create",
-      entityType: "customer",
-      entityId: id,
-      oldValue: previous
-        ? {
-            kycType,
-            documentId: previous.id,
-            status: previous.status,
-            verifiedAt: previous.verifiedAt,
-          }
-        : null,
-      newValue: {
-        kycType,
-        documentId: uploaded.id,
-        status: uploaded.status,
-        verifiedAt: uploaded.verifiedAt,
-      },
-      changeSummary: previous
-        ? `Replace customer document ${kycType}; verification reset`
-        : `Upload customer document ${kycType}`,
-    });
+      const nextCompletion = getClientProfileCompletion(updatedCustomer);
+      await tx.customer.update({
+        where: { id },
+        data: {
+          creditLimit: getClientBaseCreditLimit(nextCompletion),
+          profileCompletedAt: resolveProfileCompletedAt(
+            updatedCustomer,
+            nextCompletion.profileComplete,
+          ),
+        },
+      });
+      await writeAuditLogInTransaction(tx, {
+        userId: session.sub,
+        action: previous ? "update" : "create",
+        entityType: "customer",
+        entityId: id,
+        oldValue: previous
+          ? {
+              kycType,
+              documentId: previous.id,
+              status: previous.status,
+              verifiedAt: previous.verifiedAt,
+            }
+          : null,
+        newValue: {
+          kycType,
+          documentId: uploaded.id,
+          status: uploaded.status,
+          verifiedAt: uploaded.verifiedAt,
+        },
+        changeSummary: previous
+          ? `Replace customer document ${kycType}; verification reset`
+          : `Upload customer document ${kycType}`,
+      });
 
-    return { doc: uploaded, completion: nextCompletion };
-  });
+      return {
+        doc: { id: uploaded.id, kycType: uploaded.kycType, status: uploaded.status },
+        completion: nextCompletion,
+        previousDocumentUrl: previous?.documentUrl ?? null,
+      };
+    });
+  } catch (error) {
+    await deletePrivateFile(storedReference).catch(() => undefined);
+    if (error instanceof Error && error.message === "CUSTOMER_NOT_FOUND") {
+      return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+    }
+    throw error;
+  }
+
+  await deletePrivateFile(result.previousDocumentUrl).catch(() => undefined);
+  const { doc, completion } = result;
 
   return NextResponse.json({
     id: doc.id,

@@ -5,6 +5,7 @@ import { writeAuditLogInTransaction } from "@/lib/audit";
 import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempotency";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 import { writeFundAccountLedgerEntryAndUpdateAccount } from "@/services/fund-account-ledger.service";
 
 export const dynamic = "force-dynamic";
@@ -67,7 +68,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     items: inflows.map((item) => ({
       ...item,
       amount: Number(item.amount),
-      proofs: proofsByInflowId.get(item.id) ?? [],
+      proofs: (proofsByInflowId.get(item.id) ?? []).map(serializeProofAttachment),
     })),
   });
 }

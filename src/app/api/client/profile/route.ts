@@ -11,6 +11,10 @@ import {
 import { normalizePhoneInput } from "@/lib/phone";
 import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
+import {
+  getCustomerDocumentAccessUrl,
+  getPrivateFileContentType,
+} from "@/lib/private-file-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -100,7 +104,8 @@ function serializeCustomerProfile(customer: NonNullable<Awaited<ReturnType<typeo
       id: document.id,
       kycType: document.kycType,
       label: CLIENT_DOCUMENT_TYPE_LABELS[document.kycType] ?? document.kycType,
-      documentUrl: document.documentUrl,
+      documentUrl: document.documentUrl ? getCustomerDocumentAccessUrl(document.id) : null,
+      mimeType: getPrivateFileContentType(document.documentUrl),
       status: document.status,
       verifiedAt: document.verifiedAt?.toISOString() ?? null,
       expiresAt: document.expiresAt?.toISOString() ?? null,

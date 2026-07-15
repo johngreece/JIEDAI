@@ -26,6 +26,8 @@
     "db:clear-business-data": "node scripts/clear-business-mock-data.js",
     "db:enable-rls": "node scripts/enable-public-rls.js",
     "db:ensure-infra": "npx tsx scripts/ensure-infra-tables.ts",
+    "storage:ensure": "npx tsx scripts/ensure-storage-bucket.ts",
+    "storage:migrate-base64": "npx tsx scripts/migrate-base64-files-to-storage.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:regression": "node scripts/full-regression.js",

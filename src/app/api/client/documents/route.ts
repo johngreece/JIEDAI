@@ -8,6 +8,13 @@ import {
 } from "@/lib/client-profile";
 import { requireActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
+import {
+  deletePrivateFile,
+  getCustomerDocumentAccessUrl,
+  getPrivateFileContentType,
+  privateStorageErrorResponse,
+  uploadPrivateFile,
+} from "@/lib/private-file-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +65,8 @@ function serializeDocuments(customer: NonNullable<Awaited<ReturnType<typeof load
       id: document.id,
       kycType: document.kycType,
       label: CLIENT_DOCUMENT_TYPE_LABELS[document.kycType] ?? document.kycType,
-      documentUrl: document.documentUrl,
+      documentUrl: document.documentUrl ? getCustomerDocumentAccessUrl(document.id) : null,
+      mimeType: getPrivateFileContentType(document.documentUrl),
       status: document.status,
       verifiedAt: document.verifiedAt?.toISOString() ?? null,
       expiresAt: document.expiresAt?.toISOString() ?? null,
@@ -121,49 +129,83 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "仅支持 JPG/PNG/WebP/PDF 格式" }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const dataUrl = `data:${file.type};base64,${buffer.toString("base64")}`;
-
-  const doc = await prisma.customerKyc.upsert({
-    where: {
-      customerId_kycType: {
-        customerId: session.sub,
-        kycType,
-      },
-    },
-    create: {
-      customerId: session.sub,
-      kycType,
-      documentUrl: dataUrl,
-      status: "UPLOADED",
-    },
-    update: {
-      documentUrl: dataUrl,
-      status: "UPLOADED",
-      verifiedAt: null,
-      expiresAt: null,
-      remark: null,
-    },
-  });
-
-  const customer = await loadCustomer(session.sub);
-  if (!customer) {
-    return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+  let storedReference: string;
+  try {
+    storedReference = await uploadPrivateFile({
+      file,
+      pathPrefix: `customers/${session.sub}/kyc/${kycType}`,
+      maxBytes: MAX_FILE_SIZE,
+      allowedMimeTypes: ALLOWED_TYPES,
+      label: "证件文件",
+    });
+  } catch (error) {
+    return privateStorageErrorResponse(error, "证件上传失败");
   }
 
-  const completion = getClientProfileCompletion(customer);
-  const profileCompletedAt = resolveProfileCompletedAt(customer, completion.profileComplete);
-  const baseLimit = getClientBaseCreditLimit(completion);
-  const effectiveLimit = customer.creditLimitOverride != null
-    ? Number(customer.creditLimitOverride)
-    : baseLimit;
-  await prisma.customer.update({
-    where: { id: session.sub },
-    data: {
-      creditLimit: baseLimit,
-      profileCompletedAt,
-    },
-  });
+  let result: {
+    doc: { id: string; kycType: string; status: string };
+    completion: ReturnType<typeof getClientProfileCompletion>;
+    effectiveLimit: number;
+    previousDocumentUrl: string | null;
+  };
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const previous = await tx.customerKyc.findUnique({
+        where: { customerId_kycType: { customerId: session.sub, kycType } },
+        select: { documentUrl: true },
+      });
+      const doc = await tx.customerKyc.upsert({
+        where: { customerId_kycType: { customerId: session.sub, kycType } },
+        create: {
+          customerId: session.sub,
+          kycType,
+          documentUrl: storedReference,
+          status: "UPLOADED",
+        },
+        update: {
+          documentUrl: storedReference,
+          status: "UPLOADED",
+          verifiedAt: null,
+          expiresAt: null,
+          remark: null,
+        },
+        select: { id: true, kycType: true, status: true },
+      });
+
+      const customer = await tx.customer.findFirst({
+        where: { id: session.sub, deletedAt: null },
+        select: customerSelect,
+      });
+      if (!customer) throw new Error("CUSTOMER_NOT_FOUND");
+
+      const completion = getClientProfileCompletion(customer);
+      const baseLimit = getClientBaseCreditLimit(completion);
+      await tx.customer.update({
+        where: { id: session.sub },
+        data: {
+          creditLimit: baseLimit,
+          profileCompletedAt: resolveProfileCompletedAt(customer, completion.profileComplete),
+        },
+      });
+
+      return {
+        doc,
+        completion,
+        effectiveLimit:
+          customer.creditLimitOverride != null ? Number(customer.creditLimitOverride) : baseLimit,
+        previousDocumentUrl: previous?.documentUrl ?? null,
+      };
+    });
+  } catch (error) {
+    await deletePrivateFile(storedReference).catch(() => undefined);
+    if (error instanceof Error && error.message === "CUSTOMER_NOT_FOUND") {
+      return NextResponse.json({ error: "客户不存在" }, { status: 404 });
+    }
+    throw error;
+  }
+
+  await deletePrivateFile(result.previousDocumentUrl).catch(() => undefined);
+  const { doc, completion, effectiveLimit } = result;
 
   return NextResponse.json({
     id: doc.id,
