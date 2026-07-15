@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSession, isAdmin, isClient, isFunder } from "@/lib/auth";
-import { ensureActiveClientSession, ensureActiveFunderSession } from "@/lib/portal-session";
+import {
+  ensureActiveClientSession,
+  ensureActiveFunderSession,
+  getActiveAdminSession,
+} from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -12,8 +16,13 @@ export async function GET() {
   }
 
   if (isAdmin(session)) {
+    const activeAdminSession = await getActiveAdminSession();
+    if (!activeAdminSession) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const user = await prisma.user.findUnique({
-      where: { id: session.sub, deletedAt: null },
+      where: { id: activeAdminSession.sub, deletedAt: null },
       select: {
         id: true,
         username: true,
@@ -27,7 +36,7 @@ export async function GET() {
     return NextResponse.json({
       ...user,
       portal: "admin",
-      roles: session.roles,
+      roles: activeAdminSession.roles,
     });
   }
 

@@ -6,7 +6,8 @@
  */
 
 import { prisma } from "./prisma";
-import { getAdminSession, getSession, type AdminPayload, type JWTPayload } from "./auth";
+import { getSession, type AdminPayload, type JWTPayload } from "./auth";
+import { getActiveAdminSession } from "./portal-session";
 
 /** 权限缓存（进程级，TTL 5 分钟） */
 const permissionCache = new Map<string, { permissions: Set<string>; expiresAt: number }>();
@@ -55,7 +56,7 @@ async function getRolePermissions(roleCode: string): Promise<Set<string>> {
 export async function requirePermission(
   requiredPermissions: string[]
 ): Promise<AdminPayload | Response> {
-  const session = await getAdminSession();
+  const session = await getActiveAdminSession();
   if (!session) {
     return Response.json(
       { code: "E10001", message: "请先登录" },
@@ -96,7 +97,7 @@ export async function requirePermission(
  * 仅要求管理端登录（不检查具体权限）
  */
 export async function requireAdmin(): Promise<AdminPayload | Response> {
-  const session = await getAdminSession();
+  const session = await getActiveAdminSession();
   if (!session) {
     return Response.json(
       { code: "E10001", message: "请先登录管理端" },
