@@ -192,6 +192,8 @@ M1 先消除当前免费层部署阻断，并给后续改动建立门禁；M2 �
 - **Blocks**: FIN-001, QA-002, OPS-002
 
 ### OPS-002 · 建立免费层备份与恢复演练
+> 2026-07-15 实现状态：备份、加密、Storage 导入导出、双次恢复校验、容量红线和手册已完成；首份真实加密 artifact 仍取决于 GitHub production secrets 配置。
+
 - **Role**: database  (contributors: finance/ops, QA)
 - **Objective**: 补偿 Supabase Free 无自动备份的缺口。
 - **Problem being solved**: blueprint invariant 10。

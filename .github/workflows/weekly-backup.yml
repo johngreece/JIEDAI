@@ -1,0 +1,252 @@
+name: Weekly encrypted backup
+
+on:
+  schedule:
+    - cron: "30 2 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-encrypted-backup
+  cancel-in-progress: false
+
+jobs:
+  backup-and-restore-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_STORAGE_BUCKET: ${{ secrets.SUPABASE_STORAGE_BUCKET }}
+      BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+      FREE_TIER_DATABASE_LIMIT_BYTES: ${{ vars.FREE_TIER_DATABASE_LIMIT_BYTES }}
+      FREE_TIER_STORAGE_LIMIT_BYTES: ${{ vars.FREE_TIER_STORAGE_LIMIT_BYTES }}
+      BACKUP_ROOT: ${{ runner.temp }}/internal-backup
+      VERIFY_ROOT: ${{ runner.temp }}/internal-backup-verify
+      ENCRYPTED_BACKUP: ${{ runner.temp }}/internal-backup-${{ github.run_id }}-${{ github.run_attempt }}.tar.gz.enc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate backup configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in DIRECT_URL SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY BACKUP_ENCRYPTION_PASSPHRASE; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required GitHub Actions secret is missing: ${name}"
+              exit 1
+            fi
+          done
+          case "$DIRECT_URL" in
+            postgres://*|postgresql://*) ;;
+            *) echo "::error::DIRECT_URL must be a PostgreSQL connection URL"; exit 1 ;;
+          esac
+          case "$DIRECT_URL" in
+            *:6543/*) echo "::error::DIRECT_URL must not use the transaction pooler on port 6543"; exit 1 ;;
+          esac
+          case "$SUPABASE_URL" in
+            https://*) ;;
+            *) echo "::error::NEXT_PUBLIC_SUPABASE_URL must use HTTPS"; exit 1 ;;
+          esac
+          if [ "${#BACKUP_ENCRYPTION_PASSPHRASE}" -lt 32 ]; then
+            echo "::error::BACKUP_ENCRYPTION_PASSPHRASE must contain at least 32 characters"
+            exit 1
+          fi
+
+      - name: Export database and private Storage
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$BACKUP_ROOT/storage"
+
+          DATABASE_BYTES="$(docker run --rm --env DIRECT_URL postgres:17-alpine sh -ec \
+            'psql "$DIRECT_URL" --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --command="SELECT pg_database_size(current_database())"')"
+          DATABASE_BYTES="$(printf '%s' "$DATABASE_BYTES" | tr -d '[:space:]')"
+          if ! [[ "$DATABASE_BYTES" =~ ^[0-9]+$ ]]; then
+            echo "::error::Unable to read the production database size"
+            exit 1
+          fi
+          echo "DATABASE_BYTES=$DATABASE_BYTES" >> "$GITHUB_ENV"
+
+          docker run --rm \
+            --env DIRECT_URL \
+            --volume "$BACKUP_ROOT:/backup" \
+            postgres:17-alpine sh -ec \
+            'pg_dump "$DIRECT_URL" --format=custom --schema=public --no-owner --no-acl --compress=6 --file=/backup/database.dump'
+
+          node scripts/export-supabase-storage.mjs --output "$BACKUP_ROOT/storage"
+
+      - name: Build metrics from the database dump
+        shell: bash
+        run: |
+          set -euo pipefail
+          METRICS_CONTAINER="backup-metrics-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup_metrics_container() {
+            docker rm --force "$METRICS_CONTAINER" >/dev/null 2>&1 || true
+          }
+          trap cleanup_metrics_container EXIT
+
+          docker run --detach --name "$METRICS_CONTAINER" \
+            --env POSTGRES_PASSWORD=metrics-test-only \
+            --env POSTGRES_DB=metrics_test \
+            postgres:17-alpine
+          for attempt in $(seq 1 30); do
+            if docker exec "$METRICS_CONTAINER" pg_isready --username=postgres --dbname=metrics_test >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs "$METRICS_CONTAINER"
+              echo "::error::Temporary metrics database did not become ready"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec "$METRICS_CONTAINER" psql --username=postgres --dbname=metrics_test \
+            --set=ON_ERROR_STOP=1 --command='DROP SCHEMA public CASCADE'
+          docker cp "$BACKUP_ROOT/database.dump" "$METRICS_CONTAINER:/tmp/database.dump"
+          docker exec "$METRICS_CONTAINER" pg_restore \
+            --username=postgres \
+            --dbname=metrics_test \
+            --no-owner \
+            --no-acl \
+            --exit-on-error \
+            /tmp/database.dump
+          docker cp scripts/backup-database-metrics.sql "$METRICS_CONTAINER:/tmp/backup-database-metrics.sql"
+          docker exec "$METRICS_CONTAINER" psql --username=postgres --dbname=metrics_test \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator='|' \
+            --file=/tmp/backup-database-metrics.sql \
+            > "$BACKUP_ROOT/database-metrics.txt"
+
+          (
+            cd "$BACKUP_ROOT"
+            sha256sum database.dump database-metrics.txt storage/manifest.json > checksums.sha256
+          )
+
+      - name: Encrypt backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLAIN_ARCHIVE="$RUNNER_TEMP/internal-backup.tar.gz"
+          tar --directory="$BACKUP_ROOT" --create --gzip --file="$PLAIN_ARCHIVE" .
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 200000 -md sha256 \
+            -in "$PLAIN_ARCHIVE" \
+            -out "$ENCRYPTED_BACKUP" \
+            -pass env:BACKUP_ENCRYPTION_PASSPHRASE
+          rm -f "$PLAIN_ARCHIVE"
+          test -s "$ENCRYPTED_BACKUP"
+
+      - name: Decrypt and restore-test backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$VERIFY_ROOT"
+          VERIFY_ARCHIVE="$RUNNER_TEMP/internal-backup-verify.tar.gz"
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 \
+            -in "$ENCRYPTED_BACKUP" \
+            -out "$VERIFY_ARCHIVE" \
+            -pass env:BACKUP_ENCRYPTION_PASSPHRASE
+          tar --directory="$VERIFY_ROOT" --extract --gzip --file="$VERIFY_ARCHIVE"
+          rm -f "$VERIFY_ARCHIVE"
+
+          (
+            cd "$VERIFY_ROOT"
+            sha256sum --check checksums.sha256
+          )
+          node scripts/import-supabase-storage.mjs --input "$VERIFY_ROOT/storage"
+
+          RESTORE_CONTAINER="backup-restore-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "RESTORE_CONTAINER=$RESTORE_CONTAINER" >> "$GITHUB_ENV"
+          docker run --detach --name "$RESTORE_CONTAINER" \
+            --env POSTGRES_PASSWORD=restore-test-only \
+            --env POSTGRES_DB=restore_test \
+            postgres:17-alpine
+
+          for attempt in $(seq 1 30); do
+            if docker exec "$RESTORE_CONTAINER" pg_isready --username=postgres --dbname=restore_test >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              docker logs "$RESTORE_CONTAINER"
+              echo "::error::Temporary restore database did not become ready"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          docker exec "$RESTORE_CONTAINER" psql --username=postgres --dbname=restore_test \
+            --set=ON_ERROR_STOP=1 --command='DROP SCHEMA public CASCADE'
+          docker cp "$VERIFY_ROOT/database.dump" "$RESTORE_CONTAINER:/tmp/database.dump"
+          docker exec "$RESTORE_CONTAINER" pg_restore \
+            --username=postgres \
+            --dbname=restore_test \
+            --no-owner \
+            --no-acl \
+            --exit-on-error \
+            /tmp/database.dump
+
+          docker cp scripts/backup-database-metrics.sql "$RESTORE_CONTAINER:/tmp/backup-database-metrics.sql"
+          docker exec "$RESTORE_CONTAINER" psql --username=postgres --dbname=restore_test \
+            --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align --field-separator='|' \
+            --file=/tmp/backup-database-metrics.sql \
+            > "$VERIFY_ROOT/restored-database-metrics.txt"
+          diff --unified "$VERIFY_ROOT/database-metrics.txt" "$VERIFY_ROOT/restored-database-metrics.txt"
+
+          REQUIRED_TABLE_COUNT="$(docker exec "$RESTORE_CONTAINER" psql --username=postgres --dbname=restore_test \
+            --no-psqlrc --tuples-only --no-align --command="SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('customers','customer_kyc','loan_applications','contracts','disbursements','repayments','ledger_entries','fund_accounts','attachments')")"
+          if [ "$REQUIRED_TABLE_COUNT" != "9" ]; then
+            echo "::error::Restore verification did not find all required business tables"
+            exit 1
+          fi
+
+          NON_EUR_CONTRACTS="$(docker exec "$RESTORE_CONTAINER" psql --username=postgres --dbname=restore_test \
+            --no-psqlrc --tuples-only --no-align --command="SELECT count(*) FROM public.contracts WHERE currency <> 'EUR'")"
+          if [ "$NON_EUR_CONTRACTS" != "0" ]; then
+            echo "::error::Restore verification found contracts outside the EUR-only invariant"
+            exit 1
+          fi
+
+          INVALID_MONEY_ROWS="$(docker exec "$RESTORE_CONTAINER" psql --username=postgres --dbname=restore_test \
+            --no-psqlrc --tuples-only --no-align --command="SELECT (SELECT count(*) FROM public.capital_inflows WHERE amount < 0) + (SELECT count(*) FROM public.loan_applications WHERE amount <= 0) + (SELECT count(*) FROM public.disbursements WHERE amount <= 0) + (SELECT count(*) FROM public.repayments WHERE amount <= 0) + (SELECT count(*) FROM public.ledger_entries WHERE amount < 0)")"
+          if [ "$INVALID_MONEY_ROWS" != "0" ]; then
+            echo "::error::Restore verification found invalid financial amounts"
+            exit 1
+          fi
+
+      - name: Upload encrypted backup only
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.ENCRYPTED_BACKUP }}
+          if-no-files-found: error
+          retention-days: 21
+          compression-level: 0
+
+      - name: Enforce free-tier capacity red lines
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/check-free-tier-capacity.mjs \
+            --database-bytes "$DATABASE_BYTES" \
+            --storage-manifest "$BACKUP_ROOT/storage/manifest.json"
+
+      - name: Remove plaintext backup material
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${RESTORE_CONTAINER:-}" ]; then
+            docker rm --force "$RESTORE_CONTAINER" >/dev/null 2>&1
+          fi
+          rm -rf "$BACKUP_ROOT" "$VERIFY_ROOT"
+          rm -f "$RUNNER_TEMP/internal-backup.tar.gz" "$RUNNER_TEMP/internal-backup-verify.tar.gz" "$ENCRYPTED_BACKUP"

@@ -77,6 +77,25 @@ check(
   "funder proof downloads must enforce funder ownership"
 );
 
+const backupWorkflow = read(".github/workflows/weekly-backup.yml");
+const backupRequirements = [
+  [/cron:\s*["']30 2 \* \* 0["']/, "encrypted backup must run weekly"],
+  [/permissions:\s*\r?\n\s+contents:\s*read/, "backup workflow permissions must be read-only"],
+  [/pg_dump[\s\S]*--schema=public/, "backup workflow must dump the public database schema"],
+  [/export-supabase-storage\.mjs/, "backup workflow must export private Storage objects"],
+  [/openssl enc -aes-256-cbc[\s\S]*-pbkdf2[\s\S]*-iter 200000/, "backup workflow must use strong password-based encryption"],
+  [/pg_restore[\s\S]*--exit-on-error/, "backup workflow must perform a failing restore test"],
+  [/backup-database-metrics\.sql/, "backup workflow must compare restored financial metrics"],
+  [/actions\/upload-artifact@v4/, "backup workflow must publish an encrypted artifact"],
+  [/retention-days:\s*21/, "backup artifacts must use the 21-day retention policy"],
+  [/check-free-tier-capacity\.mjs/, "backup workflow must enforce free-tier capacity red lines"],
+];
+for (const [pattern, message] of backupRequirements) check(pattern.test(backupWorkflow), message);
+check(
+  /path:\s*\$\{\{ env\.ENCRYPTED_BACKUP \}\}/.test(backupWorkflow),
+  "backup workflow may upload only the encrypted archive"
+);
+
 const vercelConfig = JSON.parse(read("vercel.json"));
 const crons = Array.isArray(vercelConfig.crons) ? vercelConfig.crons : [];
 check(crons.length === 1, "Vercel Hobby deployment must expose exactly one daily cron");
@@ -94,4 +113,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`System invariants passed: EUR only, private file storage enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
+console.log(`System invariants passed: EUR only, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
