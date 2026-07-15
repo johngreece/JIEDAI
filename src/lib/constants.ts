@@ -1,5 +1,6 @@
 export const LOAN_STATUS_MAP = {
   SUBMITTED: { label: "待审核", color: "blue", hex: "#3b82f6" },
+  RETURNED: { label: "已退回补件", color: "amber", hex: "#d97706" },
   APPROVED: { label: "已通过", color: "emerald", hex: "#10b981" },
   REJECTED: { label: "已拒绝", color: "red", hex: "#ef4444" },
   DISBURSED: { label: "已放款", color: "cyan", hex: "#06b6d4" },

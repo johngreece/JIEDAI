@@ -63,6 +63,21 @@ describe("portal object data scope guard", () => {
     ).toBeGreaterThanOrEqual(2);
   });
 
+  it("scopes returned loan resubmission to the active client and atomic transition", () => {
+    const resubmit = readSource(
+      "src/app/api/client/loan-applications/[id]/resubmit/route.ts",
+    );
+
+    expect(resubmit).toContain("requireActiveClientSession()");
+    expect(resubmit).toContain("prisma.loanApplication.findFirst({");
+    expect(resubmit).toContain("customerId: session.sub");
+    expect(resubmit).toContain('application.status !== "RETURNED"');
+    expect(resubmit).toContain("transitionLoanApplication(tx");
+    expect(resubmit).toContain('from: "RETURNED"');
+    expect(resubmit).toContain('action: "RESUBMIT"');
+    expect(resubmit).not.toContain("prisma.loanApplication.findUnique({");
+  });
+
   it("uses a funder-scoped service lookup for funder contract details", () => {
     const route = readSource("src/app/api/funder/contracts/[id]/route.ts");
     const service = readSource("src/services/funder-contract.service.ts");

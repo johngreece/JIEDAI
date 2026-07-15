@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import {
   formatClientProfileCompletionError,
+  getClientBaseCreditLimit,
   getClientProfileCompletion,
   serializeClientProfileCompletion,
 } from "@/lib/client-profile";
+import { getClientLoanTermsError } from "@/lib/client-loan-terms";
 import { requirePermission } from "@/lib/rbac";
 import {
   LoanTransitionConflictError,
@@ -34,6 +36,8 @@ export async function POST(
           residencePermitNumber: true,
           residencePermitExpiry: true,
           profileCompletedAt: true,
+          creditLimit: true,
+          creditLimitOverride: true,
           kyc: {
             select: {
               kycType: true,
@@ -44,13 +48,23 @@ export async function POST(
           },
         },
       },
+      product: {
+        select: {
+          isActive: true,
+          deletedAt: true,
+          minAmount: true,
+          maxAmount: true,
+          minTermValue: true,
+          maxTermValue: true,
+        },
+      },
     },
   });
   if (!application || application.deletedAt) {
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
 
-  if (!["DRAFT", "REJECTED"].includes(application.status)) {
+  if (!["DRAFT", "RETURNED"].includes(application.status)) {
     return NextResponse.json({ error: "当前状态不允许提交" }, { status: 400 });
   }
 
@@ -65,19 +79,47 @@ export async function POST(
     );
   }
 
+  if (!application.product.isActive || application.product.deletedAt) {
+    return NextResponse.json({ error: "借款产品已停用，不能提交风控" }, { status: 409 });
+  }
+
+  const creditLimit = application.customer.creditLimitOverride != null
+    ? Number(application.customer.creditLimitOverride)
+    : getClientBaseCreditLimit(profileCompletion);
+  const termsError = getClientLoanTermsError({
+    terms: {
+      amount: Number(application.amount),
+      termValue: application.termValue,
+    },
+    product: {
+      minAmount: Number(application.product.minAmount),
+      maxAmount: Number(application.product.maxAmount),
+      minTermValue: application.product.minTermValue,
+      maxTermValue: application.product.maxTermValue,
+    },
+    creditLimit,
+  });
+  if (termsError) {
+    return NextResponse.json({ error: termsError }, { status: 400 });
+  }
+
   const updated = await prisma
     .$transaction((tx) =>
       transitionLoanApplication(tx, {
         applicationId: id,
         from: application.status,
         to: "PENDING_RISK",
-        action: application.status === "REJECTED" ? "RESUBMIT" : "SUBMIT",
+        action: application.status === "RETURNED" ? "RESUBMIT" : "SUBMIT",
         operatorId: session.sub,
         auditAction: "update",
         changeSummary: "Submit application for risk review",
         data: {
           rejectedReason: null,
           rejectedAt: null,
+          riskScore: application.status === "RETURNED" ? null : undefined,
+          riskComment: application.status === "RETURNED" ? null : undefined,
+          approvedAt: application.status === "RETURNED" ? null : undefined,
+          totalApprovedAmount: application.status === "RETURNED" ? null : undefined,
         },
       })
     )

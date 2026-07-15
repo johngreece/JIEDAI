@@ -3,7 +3,9 @@ import { getActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
 import { ConfirmReceivedButton } from "@/components/client/ConfirmReceivedButton";
 import { LoanApplicationPanel } from "@/components/client/LoanApplicationPanel";
+import { ReturnedLoanApplicationForm } from "@/components/client/ReturnedLoanApplicationForm";
 import RealtimeTimer from "@/components/RealtimeTimer";
+import { TERMINAL_LOAN_STATUSES } from "@/lib/business-status";
 import { getStatusLabel } from "@/lib/status-ui";
 import {
   BUSINESS_LOAN_NOTICE,
@@ -101,7 +103,7 @@ export default async function ClientDashboardPage() {
         customerId: session.sub,
         deletedAt: null,
         status: {
-          notIn: ["SETTLED", "COMPLETED", "REJECTED"],
+          notIn: [...TERMINAL_LOAN_STATUSES],
         },
       },
       orderBy: { createdAt: "desc" },
@@ -118,6 +120,12 @@ export default async function ClientDashboardPage() {
           select: { id: true, status: true },
           orderBy: { createdAt: "desc" },
           take: 1,
+        },
+        approvals: {
+          where: { action: { in: ["RISK_RETURN", "APPROVAL_RETURN"] } },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: { comment: true },
         },
         disbursement: {
           select: {
@@ -157,6 +165,63 @@ export default async function ClientDashboardPage() {
             maxTermValue: product.maxTermValue,
             termUnit: product.termUnit,
           }))}
+        />
+      </div>
+    );
+  }
+
+  if (application.status === "RETURNED") {
+    return (
+      <div className="space-y-6">
+        <header className="panel-soft rounded-2xl px-5 py-4">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">我的借款</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            当前申请需要补充或修改信息，重新提交后会从风控节点再次审核。
+          </p>
+        </header>
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard
+            title="当前状态"
+            value={getStatusLabel(application.status)}
+            note={application.applicationNo}
+          />
+          <SummaryCard
+            title="申请金额"
+            value={money(Number(application.amount))}
+            note={application.product.name}
+          />
+          <SummaryCard
+            title="可借额度"
+            value={money(availableLimit)}
+            note="重新提交时会再次校验"
+          />
+          <SummaryCard
+            title="申请期限"
+            value={`${application.termValue}${application.termUnit === "DAY" ? " 天" : " 个月"}`}
+            note="可在下方修改"
+          />
+        </section>
+
+        <ReturnedLoanApplicationForm
+          availableLimit={availableLimit}
+          returnedReason={application.approvals[0]?.comment ?? "请联系管理员确认需要补充的内容"}
+          application={{
+            id: application.id,
+            applicationNo: application.applicationNo,
+            amount: Number(application.amount),
+            termValue: application.termValue,
+            purpose: application.purpose,
+            remark: application.remark,
+            product: {
+              name: application.product.name,
+              minAmount: Number(application.product.minAmount),
+              maxAmount: Number(application.product.maxAmount),
+              minTermValue: application.product.minTermValue,
+              maxTermValue: application.product.maxTermValue,
+              termUnit: application.product.termUnit,
+            },
+          }}
         />
       </div>
     );

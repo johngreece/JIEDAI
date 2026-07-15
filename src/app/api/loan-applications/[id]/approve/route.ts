@@ -18,9 +18,17 @@ import {
 export const dynamic = "force-dynamic";
 
 const approveSchema = z.object({
-  action: z.enum(["APPROVE", "REJECT"]),
+  action: z.enum(["APPROVE", "RETURN", "REJECT"]),
   approvedAmount: z.number().positive().optional(),
-  comment: z.string().optional(),
+  comment: z.string().trim().max(500).optional(),
+}).superRefine((input, context) => {
+  if (input.action !== "APPROVE" && !input.comment) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["comment"],
+      message: input.action === "RETURN" ? "退回原因不能为空" : "拒绝原因不能为空",
+    });
+  }
 });
 
 export async function POST(
@@ -87,18 +95,32 @@ export async function POST(
 
   const approvedAmount = input.approvedAmount ?? Number(app.amount);
 
-  const nextStatus = input.action === "APPROVE" ? "APPROVED" : "REJECTED";
+  const nextStatus = input.action === "APPROVE"
+    ? "APPROVED"
+    : input.action === "RETURN"
+      ? "RETURNED"
+      : "REJECTED";
+  const transitionAction = input.action === "APPROVE"
+    ? "APPROVE"
+    : input.action === "RETURN"
+      ? "APPROVAL_RETURN"
+      : "APPROVAL_REJECT";
   const updated = await prisma
     .$transaction(async (tx: Prisma.TransactionClient) => {
       const application = await transitionLoanApplication(tx, {
         applicationId: id,
         from: app.status,
         to: nextStatus,
-        action: input.action === "APPROVE" ? "APPROVE" : "APPROVAL_REJECT",
+        action: transitionAction,
         operatorId: session.sub,
-        auditAction: input.action === "APPROVE" ? "approve" : "reject",
+        auditAction:
+          input.action === "APPROVE" ? "approve" : input.action === "RETURN" ? "update" : "reject",
         changeSummary:
-          input.action === "APPROVE" ? "Application approved" : "Application rejected",
+          input.action === "APPROVE"
+            ? "Application approved"
+            : input.action === "RETURN"
+              ? "Application returned for supplement"
+              : "Application rejected",
         data: {
           approvedAt: input.action === "APPROVE" ? new Date() : null,
           totalApprovedAmount: input.action === "APPROVE" ? approvedAmount : null,
@@ -116,7 +138,7 @@ export async function POST(
         data: {
           applicationId: id,
           approverId: session.sub,
-          action: input.action,
+          action: transitionAction,
           approvedAmount: input.action === "APPROVE" ? approvedAmount : null,
           comment: input.comment ?? null,
         },
@@ -136,15 +158,27 @@ export async function POST(
     );
   }
 
+  const notificationType = input.action === "APPROVE"
+    ? "LOAN_APPLICATION_APPROVED"
+    : input.action === "RETURN"
+      ? "LOAN_APPLICATION_RETURNED"
+      : "LOAN_APPLICATION_REJECTED";
   await InAppNotificationService.notifyCustomer({
     customerId: app.customerId,
-    type: input.action === "APPROVE" ? "LOAN_APPLICATION_APPROVED" : "LOAN_APPLICATION_REJECTED",
-    templateCode: `${input.action === "APPROVE" ? "LOAN_APPLICATION_APPROVED" : "LOAN_APPLICATION_REJECTED"}_${id}_${updated.updatedAt.toISOString()}`,
-    title: input.action === "APPROVE" ? "借款申请已审批通过" : "借款申请被拒绝",
+    type: notificationType,
+    templateCode: `${notificationType}_${id}_${updated.updatedAt.toISOString()}`,
+    title:
+      input.action === "APPROVE"
+        ? "借款申请已审批通过"
+        : input.action === "RETURN"
+          ? "借款申请已退回补件"
+          : "借款申请被拒绝",
     content:
       input.action === "APPROVE"
         ? `你的借款申请已审批通过，产品 ${app.product.name}，审批金额 ${money(approvedAmount)}。请留意后续合同与放款提醒。`
-        : `你的借款申请已被拒绝。${input.comment ? `原因：${input.comment}` : "如需再次申请，可调整后重新提交。"}`,
+        : input.action === "RETURN"
+          ? `你的借款申请已退回补件。原因：${input.comment}。请在“我的借款”中修改后重新提交。`
+          : `你的借款申请已被拒绝。原因：${input.comment}。如有需要，可重新发起一笔新申请。`,
   }).catch(() => undefined);
 
   return NextResponse.json({ id: updated.id, status: updated.status });

@@ -25,11 +25,15 @@ describe("loan lifecycle", () => {
     expect(canTransitionLoan("DISBURSED", "SETTLED", "SETTLE")).toBe(true);
   });
 
-  it("supports explicit rejection recovery and cancellation", () => {
+  it("separates supplement returns from terminal rejection", () => {
+    expect(canTransitionLoan("PENDING_RISK", "RETURNED", "RISK_RETURN")).toBe(true);
+    expect(canTransitionLoan("PENDING_APPROVAL", "RETURNED", "APPROVAL_RETURN")).toBe(true);
+    expect(canTransitionLoan("RETURNED", "PENDING_RISK", "RESUBMIT")).toBe(true);
     expect(canTransitionLoan("PENDING_RISK", "REJECTED", "RISK_REJECT")).toBe(true);
     expect(canTransitionLoan("PENDING_APPROVAL", "REJECTED", "APPROVAL_REJECT")).toBe(true);
-    expect(canTransitionLoan("REJECTED", "PENDING_RISK", "RESUBMIT")).toBe(true);
+    expect(canTransitionLoan("REJECTED", "PENDING_RISK", "RESUBMIT")).toBe(false);
     expect(canTransitionLoan("DRAFT", "CANCELLED", "CANCEL")).toBe(true);
+    expect(canTransitionLoan("RETURNED", "CANCELLED", "CANCEL")).toBe(true);
     expect(canTransitionLoan("REJECTED", "CANCELLED", "CANCEL")).toBe(true);
   });
 
@@ -38,6 +42,9 @@ describe("loan lifecycle", () => {
     expect(() =>
       assertLoanTransition("CONTRACTED", "APPROVED", "CANCEL")
     ).toThrow("cannot move application");
+
+    expect(isTerminalLoanStatus("REJECTED")).toBe(true);
+    expect(getAvailableLoanActions("REJECTED")).toEqual(["CANCEL"]);
 
     for (const terminal of ["SETTLED", "CANCELLED", "COMPLETED"]) {
       expect(isTerminalLoanStatus(terminal)).toBe(true);

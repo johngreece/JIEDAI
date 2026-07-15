@@ -4,7 +4,7 @@
 
 ## 1. 适用范围
 
-本矩阵是借款申请主链路的唯一状态定义，覆盖提交、风控、审批、合同签署、放款确认、还款结清和申请取消。页面可以展示状态，但不得自行决定状态迁移；所有写入必须通过 `transitionLoanApplication()`。
+本矩阵是借款申请主链路的唯一状态定义，覆盖提交、退回补件、风控、审批、合同签署、放款确认、还款结清和申请取消。页面可以展示状态，但不得自行决定状态迁移；所有写入必须通过 `transitionLoanApplication()`。
 
 ## 2. 正常主链路
 
@@ -13,21 +13,24 @@
 | 动作 | 前置状态 | 目标状态 | 主责权限/身份 | 关键进入条件 |
 |---|---|---|---|---|
 | SUBMIT | DRAFT | PENDING_RISK | `loan:create` | 客户资料完整 |
-| RESUBMIT | REJECTED | PENDING_RISK | `loan:create` | 已修正资料，清除原拒绝信息 |
+| RESUBMIT | RETURNED | PENDING_RISK | `loan:create` / 客户本人 | 已修正资料，重新校验 KYC、额度和产品边界 |
 | RISK_PASS | PENDING_RISK | PENDING_APPROVAL | `loan:risk` | 风控资料完整 |
+| RISK_RETURN | PENDING_RISK | RETURNED | `loan:risk` | 退回原因必填，写入审批历史 |
 | RISK_REJECT | PENDING_RISK | REJECTED | `loan:risk` | 写入拒绝原因 |
 | APPROVE | PENDING_APPROVAL | APPROVED | `loan:approve` | 写入审批金额 |
+| APPROVAL_RETURN | PENDING_APPROVAL | RETURNED | `loan:approve` | 退回原因必填，写入审批历史 |
 | APPROVAL_REJECT | PENDING_APPROVAL | REJECTED | `loan:approve` | 写入拒绝原因 |
 | SIGN_CONTRACT | APPROVED | CONTRACTED | 客户本人 | 主合同签名证据已写入 |
 | CONFIRM_DISBURSEMENT | CONTRACTED | DISBURSED | `disbursement:confirm` | 放款单仍为 PENDING，资金流水和还款计划同事务写入 |
 | SETTLE | DISBURSED | SETTLED | `repayment:confirm` | 全部应还金额已确认到账 |
-| CANCEL | DRAFT / REJECTED | CANCELLED | `loan:create` | 无合同、放款单和还款计划 |
+| CANCEL | DRAFT / RETURNED / REJECTED | CANCELLED | `loan:create` | 无合同、放款单和还款计划 |
 
 ## 3. 终态与恢复
 
 - `SETTLED`：正常结清，不允许恢复到活动状态。
 - `CANCELLED`：申请已取消，不允许恢复；需要重新借款时创建新申请。
-- `REJECTED`：不是永久终态，只能通过显式 `RESUBMIT` 回到 `PENDING_RISK`。
+- `RETURNED`：活动态；只能修改后通过显式 `RESUBMIT` 回到 `PENDING_RISK`，不能跳过风控。
+- `REJECTED`：业务终态，不允许恢复到活动状态；如需继续借款必须创建新申请。管理员仍可执行 `CANCEL` 做软删除清理。
 - 历史 `COMPLETED` 仅作为旧数据终态读取，不再产生新写入。
 
 ## 4. 历史状态
@@ -42,3 +45,4 @@
 4. 客户/资金方动作不向 `AuditLog.userId` 写入门户主体 ID；使用签名、确认记录或业务证据字段在同事务留痕。
 5. 后台审计记录至少包含 `from`、`to`、`action`、操作人和变更摘要。
 6. 取消待打款放款单只取消放款单，申请继续保持 `CONTRACTED`，以便重新创建放款单；禁止回退到 `APPROVED`。
+7. 风控或审批退回必须写入 `LoanApproval.action`（`RISK_RETURN` / `APPROVAL_RETURN`）和非空原因；客户重提后保留原审批历史。

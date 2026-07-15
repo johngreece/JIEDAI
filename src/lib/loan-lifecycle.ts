@@ -1,5 +1,6 @@
 export const CANONICAL_LOAN_STATUSES = [
   "DRAFT",
+  "RETURNED",
   "PENDING_RISK",
   "PENDING_APPROVAL",
   "APPROVED",
@@ -27,6 +28,7 @@ export type KnownLoanStatus = LoanStatus | LegacyLoanStatus;
 
 export const ACTIVE_LOAN_STATUSES: readonly KnownLoanStatus[] = [
   "DRAFT",
+  "RETURNED",
   "PENDING_RISK",
   "PENDING_APPROVAL",
   "APPROVED",
@@ -50,8 +52,10 @@ export const LOAN_ACTIONS = [
   "SUBMIT",
   "RESUBMIT",
   "RISK_PASS",
+  "RISK_RETURN",
   "RISK_REJECT",
   "APPROVE",
+  "APPROVAL_RETURN",
   "APPROVAL_REJECT",
   "SIGN_CONTRACT",
   "CONFIRM_DISBURSEMENT",
@@ -70,10 +74,17 @@ export type LoanTransitionRule = {
 
 export const LOAN_TRANSITIONS: readonly LoanTransitionRule[] = [
   { action: "SUBMIT", from: "DRAFT", to: "PENDING_RISK", permission: "loan:create" },
-  { action: "RESUBMIT", from: "REJECTED", to: "PENDING_RISK", permission: "loan:create" },
+  { action: "RESUBMIT", from: "RETURNED", to: "PENDING_RISK", permission: "loan:create" },
   { action: "RISK_PASS", from: "PENDING_RISK", to: "PENDING_APPROVAL", permission: "loan:risk" },
+  { action: "RISK_RETURN", from: "PENDING_RISK", to: "RETURNED", permission: "loan:risk" },
   { action: "RISK_REJECT", from: "PENDING_RISK", to: "REJECTED", permission: "loan:risk" },
   { action: "APPROVE", from: "PENDING_APPROVAL", to: "APPROVED", permission: "loan:approve" },
+  {
+    action: "APPROVAL_RETURN",
+    from: "PENDING_APPROVAL",
+    to: "RETURNED",
+    permission: "loan:approve",
+  },
   { action: "APPROVAL_REJECT", from: "PENDING_APPROVAL", to: "REJECTED", permission: "loan:approve" },
   { action: "SIGN_CONTRACT", from: "APPROVED", to: "CONTRACTED", permission: "client:self" },
   {
@@ -85,6 +96,7 @@ export const LOAN_TRANSITIONS: readonly LoanTransitionRule[] = [
   { action: "SETTLE", from: "DISBURSED", to: "SETTLED", permission: "repayment:confirm" },
   { action: "SETTLE", from: "OVERDUE", to: "SETTLED", permission: "repayment:confirm" },
   { action: "CANCEL", from: "DRAFT", to: "CANCELLED", permission: "loan:create" },
+  { action: "CANCEL", from: "RETURNED", to: "CANCELLED", permission: "loan:create" },
   { action: "CANCEL", from: "REJECTED", to: "CANCELLED", permission: "loan:create" },
 ];
 

@@ -125,6 +125,9 @@ export async function GET(
   );
   const pricingQuote = buildCustomerPricingQuote(Number(data.amount), effectivePricing);
   const profileCompletion = getClientProfileCompletion(data.customer);
+  const returnDecision = data.approvals.find((approval) =>
+    ["RISK_RETURN", "APPROVAL_RETURN"].includes(approval.action),
+  );
 
   return NextResponse.json({
     id: data.id,
@@ -141,6 +144,7 @@ export async function GET(
     totalApprovedAmount: data.totalApprovedAmount ? Number(data.totalApprovedAmount) : null,
     rejectedAt: data.rejectedAt,
     rejectedReason: data.rejectedReason,
+    returnedReason: returnDecision?.comment ?? null,
     customer: {
       ...data.customer,
       weeklyInterestRateOverride:
@@ -207,7 +211,7 @@ export async function PUT(
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
 
-  if (!["DRAFT", "REJECTED"].includes(app.status)) {
+  if (!["DRAFT", "RETURNED"].includes(app.status)) {
     return NextResponse.json({ error: "当前状态不允许编辑" }, { status: 400 });
   }
 
@@ -279,9 +283,9 @@ export async function DELETE(
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
 
-  if (!["DRAFT", "REJECTED"].includes(app.status)) {
+  if (!["DRAFT", "RETURNED", "REJECTED"].includes(app.status)) {
     return NextResponse.json(
-      { error: "Only draft or rejected applications can be cancelled" },
+      { error: "Only draft, returned, or rejected applications can be cancelled" },
       { status: 409 },
     );
   }

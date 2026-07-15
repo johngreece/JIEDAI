@@ -1,6 +1,7 @@
 export function getStatusLabel(status: string): string {
   const map: Record<string, string> = {
     DRAFT: "草稿",
+    RETURNED: "已退回补件",
     REJECTED: "已拒绝",
     PENDING_RISK: "待风控",
     PENDING_APPROVAL: "待审批",
@@ -34,7 +35,7 @@ export function getStatusBadgeClass(status: string): string {
     return "bg-blue-50 text-blue-700 border-blue-200";
   }
 
-  if (["PENDING", "PENDING_RISK", "PENDING_APPROVAL", "PENDING_CONFIRM", "MATCHED", "MANUAL_REVIEW"].includes(status)) {
+  if (["RETURNED", "PENDING", "PENDING_RISK", "PENDING_APPROVAL", "PENDING_CONFIRM", "MATCHED", "MANUAL_REVIEW"].includes(status)) {
     return "bg-amber-50 text-amber-700 border-amber-200";
   }
 

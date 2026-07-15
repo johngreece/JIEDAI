@@ -102,8 +102,8 @@
 
 | 阶段 | 负责模块 | 进入条件 | 退出条件 | 失败分支 |
 |---|---|---|---|---|
-| 申请 | Loan Lifecycle | 客户资料完整、无进行中借款 | SUBMITTED | 驳回后终态 REJECTED |
-| 风控/审批 | Loan Lifecycle | 合法前序状态 | APPROVED | 风控或审批拒绝 |
+| 申请 | Loan Lifecycle | 客户资料完整、无进行中借款 | PENDING_RISK | 退回补件 RETURNED / 拒绝终态 REJECTED |
+| 风控/审批 | Loan Lifecycle | 合法前序状态 | APPROVED | RETURNED 修改重提 / REJECTED 终止 |
 | 签署 | Contract | 合同冻结、客户本人会话 | SIGNED/CONTRACTED | 过期或取消 |
 | 放款 | Disbursement | 合同已签、资金充足 | PAID/CONFIRMED | 支付前取消 |
 | 还款 | Repayment | 计划已生成 | SETTLED | OVERDUE → 展期/重组/结清 |

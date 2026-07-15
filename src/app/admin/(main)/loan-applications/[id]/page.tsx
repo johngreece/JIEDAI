@@ -30,6 +30,7 @@ type Detail = {
   };
   totalApprovedAmount: number | null;
   rejectedReason: string | null;
+  returnedReason: string | null;
   customer: {
     id: string;
     name: string;
@@ -157,7 +158,7 @@ export default function LoanApplicationDetailPage() {
   }, [load]);
 
   const editable = useMemo(
-    () => (data ? ["DRAFT", "REJECTED"].includes(data.status) : false),
+    () => (data ? ["DRAFT", "RETURNED"].includes(data.status) : false),
     [data]
   );
 
@@ -223,6 +224,17 @@ export default function LoanApplicationDetailPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function postReasonedAction(url: string, action: "RETURN" | "REJECT", promptText: string) {
+    const comment = window.prompt(promptText);
+    if (comment === null) return;
+    const normalized = comment.trim();
+    if (!normalized) {
+      window.alert("原因不能为空");
+      return;
+    }
+    void postAction(url, { action, comment: normalized });
   }
 
   function calculateContractPrincipal() {
@@ -325,7 +337,7 @@ export default function LoanApplicationDetailPage() {
           <Link href="/admin/loan-applications" className="admin-btn admin-btn-secondary">
             返回列表
           </Link>
-          {!["DISBURSED", "CONTRACTED"].includes(data.status) ? (
+          {["DRAFT", "RETURNED", "REJECTED"].includes(data.status) ? (
             <button
               type="button"
               onClick={() => void removeApplication()}
@@ -343,7 +355,7 @@ export default function LoanApplicationDetailPage() {
           <div className="admin-section-card__header">
             <div>
               <div className="admin-section-card__title">申请信息</div>
-              <p className="admin-section-card__description">草稿和被拒状态支持直接在详情页修改后重新提交。</p>
+              <p className="admin-section-card__description">草稿和退回补件状态支持直接修改后重新提交。</p>
             </div>
           </div>
           <div className="admin-section-card__body space-y-3">
@@ -453,6 +465,9 @@ export default function LoanApplicationDetailPage() {
             </div>
           ) : null}
           {data.rejectedReason ? <p className="text-sm text-red-700">拒绝原因：{data.rejectedReason}</p> : null}
+          {data.status === "RETURNED" && data.returnedReason ? (
+            <p className="text-sm text-amber-700">退回原因：{data.returnedReason}</p>
+          ) : null}
           {data.totalApprovedAmount != null ? (
             <p className="text-sm text-emerald-700">审批金额：{formatMoney(data.totalApprovedAmount)}</p>
           ) : null}
@@ -464,7 +479,7 @@ export default function LoanApplicationDetailPage() {
         <div className="admin-section-card__header">
           <div>
             <div className="admin-section-card__title">审批动作</div>
-            <p className="admin-section-card__description">根据不同状态直接执行风控通过、拒绝或正式审批。</p>
+            <p className="admin-section-card__description">根据当前节点执行通过、退回补件或拒绝终止。</p>
           </div>
         </div>
         <div className="admin-section-card__body">
@@ -474,13 +489,13 @@ export default function LoanApplicationDetailPage() {
           </div>
         ) : null}
         <div className="admin-btn-group">
-          {(data.status === "DRAFT" || data.status === "REJECTED") && (
+          {(data.status === "DRAFT" || data.status === "RETURNED") && (
             <button
               disabled={saving || !profileComplete}
               onClick={() => void postAction(`/api/loan-applications/${params.id}/submit`)}
                 className="admin-btn admin-btn-secondary admin-btn-sm"
             >
-              提交风控
+              {data.status === "RETURNED" ? "重新提交风控" : "提交风控"}
             </button>
           )}
           {data.status === "PENDING_RISK" && (
@@ -500,10 +515,24 @@ export default function LoanApplicationDetailPage() {
               <button
                 disabled={saving}
                 onClick={() =>
-                  void postAction(`/api/loan-applications/${params.id}/risk`, {
-                    action: "REJECT",
-                    comment: "详情页拒绝",
-                  })
+                  postReasonedAction(
+                    `/api/loan-applications/${params.id}/risk`,
+                    "RETURN",
+                    "填写退回补件原因",
+                  )
+                }
+                className="admin-btn admin-btn-secondary admin-btn-sm disabled:opacity-50"
+              >
+                退回补件
+              </button>
+              <button
+                disabled={saving}
+                onClick={() =>
+                  postReasonedAction(
+                    `/api/loan-applications/${params.id}/risk`,
+                    "REJECT",
+                    "填写风控拒绝原因",
+                  )
                 }
                 className="admin-btn admin-btn-danger admin-btn-sm disabled:opacity-50"
               >
@@ -527,10 +556,24 @@ export default function LoanApplicationDetailPage() {
               <button
                 disabled={saving}
                 onClick={() =>
-                  void postAction(`/api/loan-applications/${params.id}/approve`, {
-                    action: "REJECT",
-                    comment: "审批拒绝",
-                  })
+                  postReasonedAction(
+                    `/api/loan-applications/${params.id}/approve`,
+                    "RETURN",
+                    "填写退回补件原因",
+                  )
+                }
+                className="admin-btn admin-btn-secondary admin-btn-sm disabled:opacity-50"
+              >
+                退回补件
+              </button>
+              <button
+                disabled={saving}
+                onClick={() =>
+                  postReasonedAction(
+                    `/api/loan-applications/${params.id}/approve`,
+                    "REJECT",
+                    "填写审批拒绝原因",
+                  )
                 }
                 className="admin-btn admin-btn-danger admin-btn-sm disabled:opacity-50"
               >
