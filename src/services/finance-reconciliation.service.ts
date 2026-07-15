@@ -101,6 +101,7 @@ async function inspectCurrentState() {
     repayments,
     capitalInflows,
     funderWithdrawals,
+    withdrawalProofs,
     interestSettlements,
   ] = await Promise.all([
     prisma.fundAccount.findMany({
@@ -175,8 +176,20 @@ async function inspectCurrentState() {
       orderBy: { createdAt: "asc" },
     }),
     prisma.funderWithdrawal.findMany({
-      select: { id: true, accountId: true, amount: true, status: true },
+      select: {
+        id: true,
+        accountId: true,
+        amount: true,
+        status: true,
+        transactionId: true,
+        payerBank: true,
+        payerAccount: true,
+      },
       orderBy: { createdAt: "asc" },
+    }),
+    prisma.attachment.findMany({
+      where: { entityType: "funder_withdrawal", deletedAt: null },
+      select: { entityId: true },
     }),
     prisma.funderInterestSettlement.findMany({
       select: { id: true, fundAccountId: true, interestAmount: true, status: true },
@@ -200,6 +213,7 @@ async function inspectCurrentState() {
   const disbursementByApplication = new Map(
     disbursements.map((item) => [item.applicationId, item]),
   );
+  const withdrawalIdsWithProof = new Set(withdrawalProofs.map((proof) => proof.entityId));
 
   const expectedBalance = new Map<string, Decimal>();
   const expectedInflow = new Map<string, Decimal>();
@@ -533,6 +547,42 @@ async function inspectCurrentState() {
         }),
       );
       continue;
+    }
+
+    if (!withdrawal.transactionId || !withdrawal.payerBank || !withdrawal.payerAccount) {
+      findings.push(
+        createFinding({
+          code: "WITHDRAWAL_BANK_EVIDENCE_MISSING",
+          severity: "ERROR",
+          entityType: "funder_withdrawal",
+          entityId: withdrawal.id,
+          expectedValue: "transaction id and payer account snapshot",
+          actualValue: JSON.stringify({
+            transactionId: withdrawal.transactionId,
+            payerBank: withdrawal.payerBank,
+            payerAccount: withdrawal.payerAccount,
+          }),
+          description: "Approved funder withdrawal has incomplete bank payment evidence",
+          owner: "FINANCE",
+          recommendedAction: "Stop further withdrawals and reconcile the payout against the bank statement.",
+        }),
+      );
+    }
+
+    if (!withdrawalIdsWithProof.has(withdrawal.id)) {
+      findings.push(
+        createFinding({
+          code: "WITHDRAWAL_PAYMENT_PROOF_MISSING",
+          severity: "ERROR",
+          entityType: "funder_withdrawal",
+          entityId: withdrawal.id,
+          expectedValue: "payment proof attachment",
+          actualValue: "MISSING",
+          description: "Approved funder withdrawal has no protected payment proof",
+          owner: "FINANCE",
+          recommendedAction: "Attach the bank receipt before treating the withdrawal as reconciled.",
+        }),
+      );
     }
 
     findings.push(

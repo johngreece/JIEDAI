@@ -13,6 +13,14 @@ interface Withdrawal {
   status: string;
   includeInterest: boolean;
   interestAmount: number;
+  transactionId: string | null;
+  payerBank: string | null;
+  payerAccount: string | null;
+  proofs: Array<{
+    id: string;
+    fileName: string;
+    fileUrl: string;
+  }>;
   remark: string | null;
   createdAt: string;
   approvedAt: string | null;
@@ -40,7 +48,7 @@ const typeLabel: Record<string, string> = {
 
 const statusLabel: Record<string, string> = {
   PENDING: "待审核",
-  APPROVED: "已通过",
+  APPROVED: "已出账",
   REJECTED: "已拒绝",
 };
 
@@ -321,6 +329,7 @@ export default function FunderWithdrawalsPage() {
                     <th className="px-4 py-3 text-left">收益部分</th>
                     <th className="px-4 py-3 text-left">状态</th>
                     <th className="px-4 py-3 text-left">审核时间</th>
+                    <th className="px-4 py-3 text-left">出账凭证</th>
                     <th className="px-4 py-3 text-left">备注</th>
                   </tr>
                 </thead>
@@ -337,6 +346,25 @@ export default function FunderWithdrawalsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-500">{fmtDate(item.approvedAt)}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500">
+                        {item.transactionId ? (
+                          <div className="space-y-1">
+                            <div className="font-mono text-slate-700">{item.transactionId}</div>
+                            <div>{[item.payerBank, item.payerAccount].filter(Boolean).join(" · ")}</div>
+                            {item.proofs.map((proof) => (
+                              <a
+                                key={proof.id}
+                                href={proof.fileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block text-indigo-600 hover:underline"
+                              >
+                                {proof.fileName}
+                              </a>
+                            ))}
+                          </div>
+                        ) : "-"}
+                      </td>
                       <td className="px-4 py-3 text-slate-500">
                         {item.status === "REJECTED" && item.rejectedReason ? item.rejectedReason : item.remark || "-"}
                       </td>

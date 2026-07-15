@@ -217,6 +217,7 @@ model FundAccount {
   funder              Funder                     @relation(fields: [funderId], references: [id])
   inflows             CapitalInflow[]
   disbursements       Disbursement[]
+  withdrawals         FunderWithdrawal[]
   journalEntries      FundAccountJournal[]
   interestSettlements FunderInterestSettlement[]
 
@@ -302,6 +303,9 @@ model FunderWithdrawal {
   status          String    @default("PENDING")
   includeInterest Boolean   @default(true) @map("include_interest")
   interestAmount  Decimal   @default(0) @map("interest_amount") @db.Decimal(18, 4)
+  transactionId   String?   @map("transaction_id")
+  payerAccount    String?   @map("payer_account")
+  payerBank       String?   @map("payer_bank")
   approvedAt      DateTime? @map("approved_at")
   approvedBy      String?   @map("approved_by")
   rejectedAt      DateTime? @map("rejected_at")
@@ -310,10 +314,13 @@ model FunderWithdrawal {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  funder Funder @relation(fields: [funderId], references: [id])
+  funder  Funder       @relation(fields: [funderId], references: [id])
+  account FundAccount? @relation(fields: [accountId], references: [id])
 
   @@index([funderId])
   @@index([status])
+  @@index([transactionId])
+  @@unique([accountId, transactionId])
   @@map("funder_withdrawals")
 }
 

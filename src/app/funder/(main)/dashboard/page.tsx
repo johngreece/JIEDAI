@@ -111,7 +111,7 @@ function formatDate(value: string | null) {
 
 const withdrawalStatusLabel: Record<string, string> = {
   PENDING: "待审核",
-  APPROVED: "已通过",
+  APPROVED: "已出账",
   REJECTED: "已拒绝",
   PAID: "已打款",
   CONFIRMED: "已确认",

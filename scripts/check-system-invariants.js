@@ -31,6 +31,7 @@ check(
 
 const packageJson = JSON.parse(read("package.json"));
 const seedSource = read("prisma/seed.js");
+const healthCheckSource = read("scripts/health-check.js");
 const bootstrapSource = read("prisma/seed-bootstrap.js");
 const ensureInfraSource = read("scripts/ensure-infra-tables.ts");
 check(
@@ -61,11 +62,18 @@ check(
   packageJson.scripts?.["db:push"]?.includes("prisma-with-env.mjs"),
   "database maintenance commands must load .env.local through prisma-with-env.mjs"
 );
+check(
+  healthCheckSource.includes('require("@next/env")') &&
+    healthCheckSource.includes("loadEnvConfig(process.cwd())"),
+  "health check must load the same Next.js environment files as the application"
+);
 
 const prismaSchema = read("prisma/schema.prisma");
 const restructureCreateSource = read("src/app/api/restructures/route.ts");
 const restructureApproveSource = read("src/app/api/restructures/[id]/approve/route.ts");
 const disbursementConfirmSource = read("src/app/api/disbursements/[id]/confirm-paid/route.ts");
+const withdrawalRouteSource = read("src/app/api/funder-withdrawals/route.ts");
+const withdrawalServiceSource = read("src/services/funder-interest.service.ts");
 for (const field of ["remainingPrincipal", "remainingInterest", "remainingFee"]) {
   check(
     prismaSchema.includes(field),
@@ -102,6 +110,26 @@ check(
     disbursementConfirmSource.includes("payerAccount") &&
     disbursementConfirmSource.includes("payerBank"),
   "disbursement confirmation must persist bank identity, private proof, journal metadata and audit evidence"
+);
+check(
+  prismaSchema.includes("@@unique([accountId, transactionId])") &&
+    prismaSchema.includes("account FundAccount? @relation(fields: [accountId], references: [id])"),
+  "funder withdrawals must reference a fund account and enforce account-scoped transaction IDs"
+);
+check(
+  withdrawalRouteSource.includes('requirePermission(["withdrawal:review"])') &&
+    withdrawalRouteSource.includes("validateBankTransactionEvidence") &&
+    withdrawalRouteSource.includes("storeProofFile") &&
+    withdrawalServiceSource.includes('entityType: "funder_withdrawal"') &&
+    withdrawalServiceSource.includes("transactionId: evidence.transactionId"),
+  "withdrawal payout confirmation must require dedicated permission and protected bank evidence"
+);
+check(
+  seedSource.includes('"withdrawal:view"') &&
+    seedSource.includes('"withdrawal:review"') &&
+    ensureInfraSource.includes('finance:withdrawal:view') &&
+    ensureInfraSource.includes('finance:withdrawal:review'),
+  "finance role seed and infrastructure sync must include dedicated withdrawal permissions"
 );
 
 const mutatingRegressionScripts = [
@@ -230,4 +258,4 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, disbursement bank evidence required, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);
+console.log(`System invariants passed: EUR only, authoritative repayment components and restructure repricing enforced, disbursement and withdrawal bank evidence required, regression writes isolated, private file storage and encrypted restore-tested backups enforced, ${sourceFiles.length} source files scanned, daily Hobby cron valid.`);

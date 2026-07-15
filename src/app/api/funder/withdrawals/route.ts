@@ -3,6 +3,7 @@ import { getScopedIdempotencyKey, withIdempotencyResponse } from "@/lib/idempote
 import { requireActiveFunderSession } from "@/lib/portal-session";
 import { FunderInterestService } from "@/services/funder-interest.service";
 import { prisma } from "@/lib/prisma";
+import { serializeProofAttachment } from "@/lib/proof-attachment";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,32 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
+  const withdrawalIds = withdrawals.map((withdrawal) => withdrawal.id);
+  const proofs = withdrawalIds.length
+    ? await prisma.attachment.findMany({
+        where: {
+          entityType: "funder_withdrawal",
+          entityId: { in: withdrawalIds },
+          deletedAt: null,
+        },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          entityId: true,
+          fileName: true,
+          fileUrl: true,
+          mimeType: true,
+          createdAt: true,
+        },
+      })
+    : [];
+  const proofsByWithdrawalId = new Map<string, typeof proofs>();
+  for (const proof of proofs) {
+    const current = proofsByWithdrawalId.get(proof.entityId) ?? [];
+    current.push(proof);
+    proofsByWithdrawalId.set(proof.entityId, current);
+  }
+
   const earnings = await FunderInterestService.getEarnings(session.sub);
 
   return NextResponse.json({
@@ -46,6 +73,10 @@ export async function GET() {
       status: w.status,
       includeInterest: w.includeInterest,
       interestAmount: Number(w.interestAmount),
+      transactionId: w.transactionId,
+      payerBank: w.payerBank,
+      payerAccount: w.payerAccount,
+      proofs: (proofsByWithdrawalId.get(w.id) ?? []).map(serializeProofAttachment),
       remark: w.remark,
       createdAt: w.createdAt,
       approvedAt: w.approvedAt,

@@ -62,10 +62,45 @@ async function main() {
     WHERE "status" = 'ACTIVE'
   `);
 
+  const financeRole = await prisma.role.findUnique({
+    where: { code: "finance" },
+    select: { id: true },
+  });
+  if (!financeRole) {
+    throw new Error("Finance role is missing; run the secure base seed before infrastructure sync");
+  }
+
+  const withdrawalPermissions = [
+    { code: "withdrawal:view", module: "withdrawal", name: "查看提现" },
+    { code: "withdrawal:review", module: "withdrawal", name: "确认提现出账" },
+  ];
+  for (const definition of withdrawalPermissions) {
+    const permission = await prisma.permission.upsert({
+      where: { code: definition.code },
+      create: definition,
+      update: { module: definition.module, name: definition.name },
+      select: { id: true },
+    });
+    await prisma.rolePermission.upsert({
+      where: {
+        roleId_permissionId: {
+          roleId: financeRole.id,
+          permissionId: permission.id,
+        },
+      },
+      create: {
+        roleId: financeRole.id,
+        permissionId: permission.id,
+      },
+      update: {},
+    });
+  }
+
   console.log(JSON.stringify({
     ok: true,
     tables: ["rate_limit_buckets", "idempotency_keys"],
     indexes: ["repayment_plans_one_active_per_application"],
+    rolePermissions: ["finance:withdrawal:view", "finance:withdrawal:review"],
   }, null, 2));
 }
 

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { makeClientIdempotencyKey } from "@/lib/client-idempotency";
 import { FUNDER_COOPERATION_LABELS } from "@/lib/funder-cooperation";
+import { BankPaymentConfirmationDialog } from "@/components/admin/BankPaymentConfirmationDialog";
 
 interface Withdrawal {
   id: string;
@@ -14,6 +15,14 @@ interface Withdrawal {
   status: string;
   includeInterest: boolean;
   interestAmount: number;
+  transactionId: string | null;
+  payerBank: string | null;
+  payerAccount: string | null;
+  proofs: Array<{
+    id: string;
+    fileName: string;
+    fileUrl: string;
+  }>;
   remark: string | null;
   createdAt: string;
   approvedAt: string | null;
@@ -28,7 +37,7 @@ const typeLabel: Record<string, string> = {
 
 const statusLabel: Record<string, string> = {
   PENDING: "待审批",
-  APPROVED: "已通过",
+  APPROVED: "已出账",
   REJECTED: "已拒绝",
 };
 
@@ -56,6 +65,7 @@ export default function FunderWithdrawalsPage() {
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [approvalTarget, setApprovalTarget] = useState<Withdrawal | null>(null);
   const [processing, setProcessing] = useState(false);
   const actionKeyRef = useRef<{ scope: string; key: string } | null>(null);
 
@@ -78,7 +88,11 @@ export default function FunderWithdrawalsPage() {
     void load();
   }, []);
 
-  async function handleAction(id: string, action: "approve" | "reject") {
+  async function handleAction(
+    id: string,
+    action: "approve" | "reject",
+    evidence?: FormData,
+  ) {
     if (processing) return;
 
     const scope = `${id}:${action}`;
@@ -91,25 +105,44 @@ export default function FunderWithdrawalsPage() {
 
     setProcessing(true);
     try {
+      const headers: Record<string, string> = {
+        "x-idempotency-key": actionKeyRef.current.key,
+      };
+      let requestBody: BodyInit;
+      if (action === "approve") {
+        if (!evidence) throw new Error("Bank transaction evidence is required");
+        evidence.append("withdrawalId", id);
+        evidence.append("action", action);
+        requestBody = evidence;
+      } else {
+        headers["Content-Type"] = "application/json";
+        requestBody = JSON.stringify({
+          withdrawalId: id,
+          action,
+          reason: rejectReason || undefined,
+        });
+      }
+
       const res = await fetch("/api/funder-withdrawals", {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-idempotency-key": actionKeyRef.current.key,
-        },
-        body: JSON.stringify({ withdrawalId: id, action, reason: rejectReason || undefined }),
+        headers,
+        body: requestBody,
       });
       if (!res.ok) {
         clearActionKey();
         const data = await res.json().catch(() => ({}));
-        alert(data.error || "操作失败");
+        const message = data.error || "操作失败";
+        if (action === "approve") throw new Error(message);
+        alert(message);
         return;
       }
       clearActionKey();
+      setApprovalTarget(null);
       setActionId(null);
       setRejectReason("");
       await load();
-    } catch {
+    } catch (error) {
+      if (action === "approve") throw error;
       alert("网络异常，请再次提交；系统会按同一次请求防止重复审批提现。");
     } finally {
       setProcessing(false);
@@ -169,7 +202,16 @@ export default function FunderWithdrawalsPage() {
                       </>
                     ) : (
                       <>
-                        <button className="admin-btn admin-btn-success admin-btn-sm" onClick={() => handleAction(item.id, "approve")} disabled={processing}>通过</button>
+                        <button
+                          className="admin-btn admin-btn-success admin-btn-sm"
+                          onClick={() => {
+                            clearActionKey();
+                            setApprovalTarget(item);
+                          }}
+                          disabled={processing}
+                        >
+                          确认出账
+                        </button>
                         <button className="admin-btn admin-btn-secondary admin-btn-sm" onClick={() => { clearActionKey(); setActionId(item.id); }}>拒绝</button>
                       </>
                     )}
@@ -200,12 +242,13 @@ export default function FunderWithdrawalsPage() {
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">申请时间</th>
                 <th className="px-4 py-3">审批时间</th>
+                <th className="px-4 py-3">出账凭证</th>
                 <th className="px-4 py-3">备注</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {processed.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-slate-400">暂无历史记录</td></tr>
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-slate-400">暂无历史记录</td></tr>
               ) : (
                 processed.map((item) => (
                   <tr key={item.id}>
@@ -219,6 +262,25 @@ export default function FunderWithdrawalsPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-500">{fmtDate(item.createdAt)}</td>
                     <td className="px-4 py-3 text-xs text-slate-500">{fmtDate(item.approvedAt)}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {item.transactionId ? (
+                        <div className="space-y-1">
+                          <div className="font-mono text-slate-700">{item.transactionId}</div>
+                          <div>{[item.payerBank, item.payerAccount].filter(Boolean).join(" · ")}</div>
+                          {item.proofs.map((proof) => (
+                            <a
+                              key={proof.id}
+                              href={proof.fileUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block text-indigo-600 hover:underline"
+                            >
+                              {proof.fileName}
+                            </a>
+                          ))}
+                        </div>
+                      ) : "-"}
+                    </td>
                     <td className="max-w-[160px] truncate px-4 py-3 text-xs text-slate-400">
                       {item.status === "REJECTED" ? <span className="text-red-500">{item.rejectedReason}</span> : (item.remark ?? "-")}
                     </td>
@@ -229,6 +291,23 @@ export default function FunderWithdrawalsPage() {
           </table>
         </div>
       </section>
+      <BankPaymentConfirmationDialog
+        open={Boolean(approvalTarget)}
+        reference={approvalTarget ? `${approvalTarget.funderName} · ${fmt(approvalTarget.amount)}` : ""}
+        busy={processing}
+        title="确认提现已银行出账"
+        confirmLabel="确认出账"
+        failureMessage="确认提现出账失败"
+        onClose={() => {
+          if (processing) return;
+          clearActionKey();
+          setApprovalTarget(null);
+        }}
+        onConfirm={async (evidence) => {
+          if (!approvalTarget) return;
+          await handleAction(approvalTarget.id, "approve", evidence);
+        }}
+      />
     </div>
   );
 }

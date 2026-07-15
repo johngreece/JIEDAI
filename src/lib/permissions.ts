@@ -23,6 +23,10 @@ export const PERMISSION_DEFINITIONS = [
   { code: "disbursement:create", module: "disbursement", name: "创建放款" },
   { code: "disbursement:confirm", module: "disbursement", name: "确认打款" },
 
+  // ── 资金方提现 ──
+  { code: "withdrawal:view", module: "withdrawal", name: "查看提现" },
+  { code: "withdrawal:review", module: "withdrawal", name: "确认提现出账" },
+
   // ── 还款 ──
   { code: "repayment:view", module: "repayment", name: "查看还款" },
   { code: "repayment:create", module: "repayment", name: "登记还款" },

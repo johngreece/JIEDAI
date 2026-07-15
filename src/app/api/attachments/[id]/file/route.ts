@@ -20,10 +20,7 @@ export async function GET(
   if (!session) return Response.json({ error: "Unauthorized" }, { status: 401 });
   if (session.portal === "client") return Response.json({ error: "Forbidden" }, { status: 403 });
 
-  if (session.portal === "admin") {
-    const permission = await requirePermission(["ledger:view"]);
-    if (permission instanceof Response) return permission;
-  } else {
+  if (session.portal === "funder") {
     const active = await ensureActiveFunderSession(session);
     if (active instanceof Response) return active;
   }
@@ -32,7 +29,7 @@ export async function GET(
   const attachment = await prisma.attachment.findFirst({
     where: {
       id,
-      entityType: { in: ["capital_inflow", "disbursement"] },
+      entityType: { in: ["capital_inflow", "disbursement", "funder_withdrawal"] },
       deletedAt: null,
     },
     select: {
@@ -46,6 +43,13 @@ export async function GET(
   });
   if (!attachment) return Response.json({ error: "附件不存在" }, { status: 404 });
 
+  if (session.portal === "admin") {
+    const requiredPermission =
+      attachment.entityType === "funder_withdrawal" ? "withdrawal:view" : "ledger:view";
+    const permission = await requirePermission([requiredPermission]);
+    if (permission instanceof Response) return permission;
+  }
+
   if (session.portal === "funder") {
     const ownedEntity =
       attachment.entityType === "capital_inflow"
@@ -53,10 +57,15 @@ export async function GET(
             where: { id: attachment.entityId, fundAccount: { funderId: session.sub } },
             select: { id: true },
           })
-        : await prisma.disbursement.findFirst({
-            where: { id: attachment.entityId, fundAccount: { funderId: session.sub } },
-            select: { id: true },
-          });
+        : attachment.entityType === "disbursement"
+          ? await prisma.disbursement.findFirst({
+              where: { id: attachment.entityId, fundAccount: { funderId: session.sub } },
+              select: { id: true },
+            })
+          : await prisma.funderWithdrawal.findFirst({
+              where: { id: attachment.entityId, funderId: session.sub },
+              select: { id: true },
+            });
     if (!ownedEntity) return Response.json({ error: "附件不存在" }, { status: 404 });
   }
 

@@ -28,6 +28,8 @@ Supabase 继续作为生产数据库。Prisma 使用服务端数据库连接，�
 | 客户提交还款确认 | 禁止 | 还款计划必须属于客户未删除申请集合 | 禁止 | 原状态 + 客户申请集合 |
 | `GET /api/funder/contracts/:id` | `contract:view` | 禁止 | `funderId = session.sub` | 只读 |
 | `GET /api/funder/statements` | `ledger:view` 可指定资金方 | 禁止 | 强制使用 `session.sub`，忽略外部资金方参数 | 只读 |
+| `PATCH /api/funder-withdrawals` | `withdrawal:review` | 禁止 | 禁止 | `PENDING` 原子认领 + 账户扣款 + 银行凭证 |
+| `GET /api/attachments/:id/file` | `ledger:view` | 禁止 | 入资/放款按资金账户归属，提现按 `funderId = session.sub` | 只读 |
 
 ## 本轮修复
 
@@ -37,6 +39,7 @@ Supabase 继续作为生产数据库。Prisma 使用服务端数据库连接，�
 - 客户提交还款确认的读取和状态认领均带客户申请集合。
 - 实时还款接口在查询前完成门户授权，并兼容客户确认收款后的 `CONFIRMED` 放款状态。
 - 增加 `portal-data-scope-guard.test.ts`，阻止关键入口退回无范围主键查询。
+- 提现出账使用专用财务权限，资金方只能读取自身提现凭证。
 
 ## 后续扩展
 

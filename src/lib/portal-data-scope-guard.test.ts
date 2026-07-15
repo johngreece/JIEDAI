@@ -97,11 +97,18 @@ describe("portal object data scope guard", () => {
     expect(customerDocument).toContain("customerId: session.sub");
     expect(customerDocument).toContain("ensureActiveClientSession(session)");
 
-    expect(attachment).toContain('requirePermission(["ledger:view"])');
+    expect(attachment).toContain(
+      'attachment.entityType === "funder_withdrawal" ? "withdrawal:view" : "ledger:view"',
+    );
+    expect(attachment).toContain("requirePermission([requiredPermission])");
     expect(attachment).toContain("ensureActiveFunderSession(session)");
     expect(attachment).toContain("fundAccount: { funderId: session.sub }");
-    expect(attachment).toContain('entityType: { in: ["capital_inflow", "disbursement"] }');
+    expect(attachment).toContain(
+      'entityType: { in: ["capital_inflow", "disbursement", "funder_withdrawal"] }',
+    );
     expect(attachment).toContain("prisma.capitalInflow.findFirst({");
     expect(attachment).toContain("prisma.disbursement.findFirst({");
+    expect(attachment).toContain("prisma.funderWithdrawal.findFirst({");
+    expect(attachment).toContain("funderId: session.sub");
   });
 });

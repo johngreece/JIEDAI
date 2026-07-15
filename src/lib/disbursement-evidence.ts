@@ -60,6 +60,8 @@ export function validateDisbursementEvidence(
   };
 }
 
+export const validateBankTransactionEvidence = validateDisbursementEvidence;
+
 export async function parseDisbursementEvidenceRequest(
   req: Request,
 ): Promise<DisbursementEvidenceParseResult> {

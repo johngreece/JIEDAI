@@ -15,27 +15,8 @@
  */
 "use strict";
 
-// 手动加载 .env（避免引入 dotenv 依赖）
-const fs = require("node:fs");
-const path = require("node:path");
-function loadDotenv() {
-  const envPath = path.resolve(process.cwd(), ".env");
-  if (!fs.existsSync(envPath)) return;
-  const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const m = line.match(/^([A-Z0-9_]+)\s*=\s*(.*)$/i);
-    if (!m) continue;
-    let [, key, val] = m;
-    val = val.trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1);
-    }
-    if (process.env[key] === undefined) process.env[key] = val;
-  }
-}
-loadDotenv();
+const { loadEnvConfig } = require("@next/env");
+loadEnvConfig(process.cwd());
 
 const REQUIRED_ENV = [
   ["DATABASE_URL", "运行时数据库连接（推荐 pooler URL）"],
