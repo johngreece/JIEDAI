@@ -18,6 +18,10 @@ import {
 } from "@/lib/interest-engine";
 import { applyCustomerPricingOverride } from "@/lib/customer-pricing";
 import { requirePermission } from "@/lib/rbac";
+import {
+  LoanTransitionConflictError,
+  transitionLoanApplication,
+} from "@/services/loan-transition.service";
 
 export const dynamic = "force-dynamic";
 
@@ -100,6 +104,9 @@ export async function POST(
     if (pendingDisbursement.status !== "PENDING") {
       throw new Error("DISBURSEMENT_STATUS_CHANGED");
     }
+    if (pendingDisbursement.application.status !== "CONTRACTED") {
+      throw new Error("LOAN_APPLICATION_STATUS_CHANGED");
+    }
     const profileCompletion = getClientProfileCompletion(pendingDisbursement.application.customer);
     if (!profileCompletion.profileComplete) {
       throw new Error(formatClientProfileCompletionError(profileCompletion, "客户资料未完善，不能确认打款"));
@@ -152,9 +159,15 @@ export async function POST(
 
     const disbursement = await tx.disbursement.findUniqueOrThrow({ where: { id } });
 
-    await tx.loanApplication.update({
-      where: { id: disbursement.applicationId },
-      data: { status: "DISBURSED" },
+    await transitionLoanApplication(tx, {
+      applicationId: disbursement.applicationId,
+      from: pendingDisbursement.application.status,
+      to: "DISBURSED",
+      action: "CONFIRM_DISBURSEMENT",
+      operatorId: session.sub,
+      auditAction: "disburse",
+      changeSummary: "Disbursement confirmed paid",
+      auditNewValue: { disbursementId: disbursement.id },
     });
 
     const existingPlan = await tx.repaymentPlan.findFirst({
@@ -231,7 +244,11 @@ export async function POST(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (message === "DISBURSEMENT_STATUS_CHANGED") {
+    if (
+      message === "DISBURSEMENT_STATUS_CHANGED" ||
+      message === "LOAN_APPLICATION_STATUS_CHANGED" ||
+      error instanceof LoanTransitionConflictError
+    ) {
       return NextResponse.json({ error: "当前放款单状态已变化，请刷新后重试" }, { status: 409 });
     }
     if (message.startsWith("客户资料未完善")) {

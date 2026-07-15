@@ -1,23 +1,7 @@
-export const ACTIVE_LOAN_STATUSES = [
-  "DRAFT",
-  "SUBMITTED",
-  "PENDING_RISK",
-  "PENDING_APPROVAL",
-  "APPROVED",
-  "PENDING_CONTRACT",
-  "CONTRACT_SIGNED",
-  "CONTRACTED",
-  "PENDING_DISBURSEMENT",
-  "DISBURSED",
-  "OVERDUE",
-] as const;
-
-export const TERMINAL_LOAN_STATUSES = [
-  "REJECTED",
-  "SETTLED",
-  "COMPLETED",
-  "CANCELLED",
-] as const;
+export {
+  ACTIVE_LOAN_STATUSES,
+  TERMINAL_LOAN_STATUSES,
+} from "./loan-lifecycle";
 
 export const OPEN_DISBURSEMENT_STATUSES = ["PENDING", "PAID"] as const;
 

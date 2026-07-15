@@ -14,6 +14,10 @@ import {
 } from "@/lib/contract-signature";
 import { ensureActiveClientSession } from "@/lib/portal-session";
 import { prisma } from "@/lib/prisma";
+import {
+  LoanTransitionConflictError,
+  transitionLoanApplication,
+} from "@/services/loan-transition.service";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +69,11 @@ export async function POST(
 
   const contract = await prisma.contract.findUnique({
     where: { id: contractId },
+    include: {
+      application: {
+        select: { status: true },
+      },
+    },
   });
 
   if (!contract) {
@@ -77,6 +86,13 @@ export async function POST(
 
   if (contract.customerId !== session.sub) {
     return NextResponse.json({ error: "无权签署该合同" }, { status: 403 });
+  }
+
+  if (contract.contractType === "MAIN" && contract.application.status !== "APPROVED") {
+    return NextResponse.json(
+      { error: "借款申请当前状态不允许签署主合同" },
+      { status: 409 }
+    );
   }
 
   const customer = await prisma.customer.findUnique({
@@ -168,39 +184,75 @@ export async function POST(
     signedAt: now,
   });
 
-  await prisma.$transaction(async (tx) => {
-    await tx.signature.create({
-      data: {
-        contractId,
-        signerType: "customer",
-        signerName,
-        signatureData: resolvedSignatureData,
-        ipAddress: ip,
-        deviceInfo,
-        locationInfo: JSON.stringify({
-          contractHash,
-          signChannel: parsed.data.signChannel,
-          signatureSource,
-          reusedSignatureSignedAt: reusedSignatureSignedAt?.toISOString() ?? null,
-          confirmations: parsed.data.confirmations,
-          signedPortal: session.portal,
-        }),
-        signedAt: now,
-      },
-    });
-
-    await tx.contract.update({
-      where: { id: contractId },
-      data: { status: "SIGNED", signedAt: now, content: signedContent },
-    });
-
-    if (contract.contractType === "MAIN") {
-      await tx.loanApplication.update({
-        where: { id: contract.applicationId },
-        data: { status: "CONTRACTED" },
+  try {
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.contract.updateMany({
+        where: { id: contractId, status: contract.status },
+        data: { status: "SIGNED", signedAt: now, content: signedContent },
       });
+      if (claimed.count !== 1) {
+        throw new Error("CONTRACT_STATUS_CHANGED");
+      }
+
+      await tx.signature.create({
+        data: {
+          contractId,
+          signerType: "customer",
+          signerName,
+          signatureData: resolvedSignatureData,
+          ipAddress: ip,
+          deviceInfo,
+          locationInfo: JSON.stringify({
+            contractHash,
+            signChannel: parsed.data.signChannel,
+            signatureSource,
+            reusedSignatureSignedAt: reusedSignatureSignedAt?.toISOString() ?? null,
+            confirmations: parsed.data.confirmations,
+            signedPortal: session.portal,
+          }),
+          signedAt: now,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: session.sub,
+          action: "sign",
+          entityType: "contract",
+          entityId: contractId,
+          oldValue: JSON.stringify({ status: contract.status }),
+          newValue: JSON.stringify({ status: "SIGNED", signedAt: now.toISOString() }),
+          changeSummary: "Customer signed main contract",
+          ipAddress: ip,
+          userAgent: deviceInfo,
+        },
+      });
+
+      if (contract.contractType === "MAIN") {
+        await transitionLoanApplication(tx, {
+          applicationId: contract.applicationId,
+          from: contract.application.status,
+          to: "CONTRACTED",
+          action: "SIGN_CONTRACT",
+          operatorId: session.sub,
+          auditAction: "sign",
+          changeSummary: "Main contract signed",
+          auditNewValue: { contractId },
+        });
+      }
+    });
+  } catch (error) {
+    if (
+      error instanceof LoanTransitionConflictError ||
+      (error instanceof Error && error.message === "CONTRACT_STATUS_CHANGED")
+    ) {
+      return NextResponse.json(
+        { error: "合同或借款申请状态已变化，请刷新后重试" },
+        { status: 409 }
+      );
     }
-  });
+    throw error;
+  }
 
   return NextResponse.json({ ok: true, signedAt: now.toISOString() });
 }

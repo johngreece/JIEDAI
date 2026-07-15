@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
 import {
   formatClientProfileCompletionError,
   getClientProfileCompletion,
   serializeClientProfileCompletion,
 } from "@/lib/client-profile";
 import { requirePermission } from "@/lib/rbac";
+import {
+  LoanTransitionConflictError,
+  transitionLoanApplication,
+} from "@/services/loan-transition.service";
 
 export const dynamic = "force-dynamic";
 
@@ -62,24 +65,33 @@ export async function POST(
     );
   }
 
-  const updated = await prisma.loanApplication.update({
-    where: { id },
-    data: {
-      status: "PENDING_RISK",
-      rejectedReason: null,
-      rejectedAt: null,
-    },
-  });
+  const updated = await prisma
+    .$transaction((tx) =>
+      transitionLoanApplication(tx, {
+        applicationId: id,
+        from: application.status,
+        to: "PENDING_RISK",
+        action: application.status === "REJECTED" ? "RESUBMIT" : "SUBMIT",
+        operatorId: session.sub,
+        auditAction: "update",
+        changeSummary: "Submit application for risk review",
+        data: {
+          rejectedReason: null,
+          rejectedAt: null,
+        },
+      })
+    )
+    .catch((error) => {
+      if (error instanceof LoanTransitionConflictError) return null;
+      throw error;
+    });
 
-  await writeAuditLog({
-    userId: session.sub,
-    action: "update",
-    entityType: "loan_application",
-    entityId: id,
-    oldValue: { status: application.status },
-    newValue: { status: updated.status },
-    changeSummary: "提交至风控审核",
-  }).catch(() => undefined);
+  if (!updated) {
+    return NextResponse.json(
+      { error: "申请状态已变化，请刷新后重试" },
+      { status: 409 }
+    );
+  }
 
   return NextResponse.json({ id: updated.id, status: updated.status });
 }

@@ -19,6 +19,7 @@ import {
   hasExplicitInterestFreeze,
 } from "@/lib/repayment-runtime";
 import { formatMoney as money } from "@/lib/system-config";
+import { transitionLoanApplication } from "@/services/loan-transition.service";
 
 export type RepaymentStatus =
   | "PENDING"
@@ -353,9 +354,18 @@ export async function settleRepaymentReceipt(params: {
         data: { status: "COMPLETED" },
       });
 
-      await tx.loanApplication.update({
-        where: { id: application.id },
-        data: { status: "SETTLED" },
+      await transitionLoanApplication(tx, {
+        applicationId: application.id,
+        from: application.status,
+        to: "SETTLED",
+        action: "SETTLE",
+        operatorId: params.operatorId,
+        auditAction: "repay_confirm",
+        changeSummary: "Loan fully settled",
+        auditNewValue: {
+          repaymentId: repayment.id,
+          repaymentPlanId: repayment.planId,
+        },
       });
 
       await tx.contract.updateMany({

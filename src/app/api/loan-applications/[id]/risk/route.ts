@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { writeAuditLog } from "@/lib/audit";
 import { Prisma } from "@prisma/client";
 import { requirePermission } from "@/lib/rbac";
 import { InAppNotificationService } from "@/services/in-app-notification.service";
@@ -10,6 +9,10 @@ import {
   getClientProfileCompletion,
   serializeClientProfileCompletion,
 } from "@/lib/client-profile";
+import {
+  LoanTransitionConflictError,
+  transitionLoanApplication,
+} from "@/services/loan-transition.service";
 
 export const dynamic = "force-dynamic";
 
@@ -82,39 +85,49 @@ export async function POST(
 
   const nextStatus = input.action === "PASS" ? "PENDING_APPROVAL" : "REJECTED";
 
-  const updated = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const application = await tx.loanApplication.update({
-      where: { id },
-      data: {
-        status: nextStatus,
-        riskScore: input.riskScore,
-        riskComment: input.comment ?? null,
-        rejectedAt: input.action === "REJECT" ? new Date() : null,
-        rejectedReason: input.action === "REJECT" ? (input.comment ?? "风控拒绝") : null,
-      },
-    });
-
-    await tx.loanApproval.create({
-      data: {
+  const updated = await prisma
+    .$transaction(async (tx: Prisma.TransactionClient) => {
+      const application = await transitionLoanApplication(tx, {
         applicationId: id,
-        approverId: session.sub,
+        from: app.status,
+        to: nextStatus,
         action: input.action === "PASS" ? "RISK_PASS" : "RISK_REJECT",
-        comment: input.comment ?? null,
-      },
+        operatorId: session.sub,
+        auditAction: input.action === "PASS" ? "approve" : "reject",
+        changeSummary:
+          input.action === "PASS" ? "Risk review passed" : "Risk review rejected",
+        data: {
+          riskScore: input.riskScore,
+          riskComment: input.comment ?? null,
+          rejectedAt: input.action === "REJECT" ? new Date() : null,
+          rejectedReason:
+            input.action === "REJECT" ? (input.comment ?? "风控拒绝") : null,
+        },
+        auditNewValue: { riskScore: input.riskScore ?? null },
+      });
+
+      await tx.loanApproval.create({
+        data: {
+          applicationId: id,
+          approverId: session.sub,
+          action: input.action === "PASS" ? "RISK_PASS" : "RISK_REJECT",
+          comment: input.comment ?? null,
+        },
+      });
+
+      return application;
+    })
+    .catch((error) => {
+      if (error instanceof LoanTransitionConflictError) return null;
+      throw error;
     });
 
-    return application;
-  });
-
-  await writeAuditLog({
-    userId: session.sub,
-    action: input.action === "PASS" ? "approve" : "reject",
-    entityType: "loan_application",
-    entityId: id,
-    oldValue: { status: app.status },
-    newValue: { status: updated.status, riskScore: updated.riskScore?.toString() ?? null },
-    changeSummary: input.action === "PASS" ? "风控通过" : "风控拒绝",
-  }).catch(() => undefined);
+  if (!updated) {
+    return NextResponse.json(
+      { error: "申请状态已变化，请刷新后重试" },
+      { status: 409 }
+    );
+  }
 
   await InAppNotificationService.notifyCustomer({
     customerId: app.customerId,

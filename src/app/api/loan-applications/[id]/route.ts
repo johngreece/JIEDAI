@@ -7,6 +7,10 @@ import { parseTiersFromPricingRules } from "@/lib/interest-engine";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { RiskIntelligenceService } from "@/services/risk-intelligence.service";
+import {
+  LoanTransitionConflictError,
+  transitionLoanApplication,
+} from "@/services/loan-transition.service";
 
 export const dynamic = "force-dynamic";
 
@@ -261,6 +265,13 @@ export async function DELETE(
     return NextResponse.json({ error: "申请不存在" }, { status: 404 });
   }
 
+  if (!["DRAFT", "REJECTED"].includes(app.status)) {
+    return NextResponse.json(
+      { error: "Only draft or rejected applications can be cancelled" },
+      { status: 409 },
+    );
+  }
+
   const hasRepaymentPlan = await prisma.repaymentPlan.findFirst({
     where: { applicationId: id },
     select: { id: true },
@@ -275,23 +286,32 @@ export async function DELETE(
     return NextResponse.json({ error: "该申请已有合同记录，不能直接删除" }, { status: 409 });
   }
 
-  await prisma.loanApplication.update({
-    where: { id },
-    data: { deletedAt: new Date() },
-  });
+  try {
+    await prisma.$transaction((tx) =>
+      transitionLoanApplication(tx, {
+        applicationId: id,
+        from: app.status,
+        to: "CANCELLED",
+        action: "CANCEL",
+        operatorId: session.sub,
+        auditAction: "delete",
+        changeSummary: "Cancel loan application",
+        data: { deletedAt: new Date() },
+        auditOldValue: {
+          applicationNo: app.applicationNo,
+          amount: Number(app.amount),
+        },
+      }),
+    );
+  } catch (error) {
+    if (error instanceof LoanTransitionConflictError) {
+      return NextResponse.json(
+        { error: "Application status changed, please refresh and retry" },
+        { status: 409 },
+      );
+    }
+    throw error;
+  }
 
-  await writeAuditLog({
-    userId: session.sub,
-    action: "delete",
-    entityType: "loan_application",
-    entityId: id,
-    oldValue: {
-      applicationNo: app.applicationNo,
-      status: app.status,
-      amount: Number(app.amount),
-    },
-    changeSummary: "删除借款申请",
-  }).catch(() => undefined);
-
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, status: "CANCELLED" });
 }

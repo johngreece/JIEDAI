@@ -383,29 +383,4 @@ export class ContractService {
     }
   }
 
-  static async signContract(contractId: string): Promise<ServiceResponse<ContractRecord>> {
-    const contract = await prisma.contract.findUnique({
-      where: { id: contractId },
-    });
-
-    if (!contract) return { success: false, error: "合同不存在" };
-    if (contract.status !== "DRAFT") return { success: false, error: "合同状态不正确" };
-
-    const updated = await prisma.contract.update({
-      where: { id: contractId },
-      data: {
-        status: "SIGNED",
-        signedAt: new Date(),
-      },
-    });
-
-    if (contract.contractType === "MAIN") {
-      await prisma.loanApplication.update({
-        where: { id: contract.applicationId },
-        data: { status: "CONTRACTED" },
-      });
-    }
-
-    return { success: true, data: updated };
-  }
 }
